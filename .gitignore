@@ -1,0 +1,18 @@
+# local planning workflow (CLAUDE.md + TDD stay committed)
+.planning/
+
+# deps / build
+node_modules/
+dist/
+coverage/
+
+# tooling
+.vercel/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# env & OS
+.env
+.env.*
+.DS_Store
