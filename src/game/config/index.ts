@@ -15,7 +15,7 @@ import { SPAWN, HELI } from './spawn';
 import { TANK } from './tank';
 import { CAMERA } from './camera';
 import { WORLD, POWER_GRID, PROPS } from './world';
-import { PLAYER_CARS, ENEMY_UNITS, SWAT, GUN_TRUCK } from './vehicles';
+import { PLAYER_CARS, ENEMY_UNITS, SWAT, GUN_TRUCK, VEHICLE_TUNING } from './vehicles';
 import { QUALITY_TIERS } from './quality';
 import { DAMAGE, BUSTED } from './damage';
 
@@ -34,6 +34,7 @@ export const CONFIG = {
   POWER_GRID,
   PROPS,
   PLAYER_CARS,
+  VEHICLE_TUNING,
   ENEMY_UNITS,
   SWAT,
   GUN_TRUCK,

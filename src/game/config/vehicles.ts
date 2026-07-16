@@ -78,6 +78,71 @@ export const PLAYER_CARS = {
 
 export type PlayerCarId = keyof typeof PLAYER_CARS;
 
+// Raycast-vehicle tuning (Phase 3 fun gate). Field names follow Rapier's
+// DynamicRayCastVehicleController API where one exists. Every number here is
+// live-tunable via the leva Config folder; values below are the tuned Phase 3
+// baseline for the Rusty Sedan — the TDD gives only the targets (0→top ≈ 2.5 s,
+// top ≈ 25 m/s = STARTER_TOP_SPEED, "toy-car bouncy"), not the numbers.
+// Phase 17 derives the other five cars' params from this shape via their
+// speed/accel/handling grades + massFactor.
+export const VEHICLE_TUNING = {
+  chassis: {
+    // Cuboid half-extents (m): ~1.8 m wide, 4 m long sedan.
+    halfWidth: 0.9,
+    halfHeight: 0.35,
+    halfLength: 2.0,
+    massKg: 1200,
+    // Center of mass dropped below the collider center: arcade anti-flip.
+    comYOffset: -0.25,
+  },
+  engine: {
+    maxForce: 20500,
+    reverseForce: 12000,
+    brakeForce: 60,
+    // Handbrake: rear-wheel brake + rear friction drop (slide) — TDD §7.
+    handbrakeForce: 18,
+    handbrakeRearFrictionMul: 0.4,
+    // Below this forward speed (m/s), a brake press flips to reverse instead (TDD §7).
+    brakeToReverseSpeed: 1,
+    // Reverse tops out at this fraction of STARTER_TOP_SPEED (arcade: reverse is slow).
+    reverseSpeedCapPct: 0.4,
+  },
+  steering: {
+    // Steer clamp eases from maxAngleDeg (standstill) to highSpeedAngleDeg (top speed).
+    maxAngleDeg: 35,
+    highSpeedAngleDeg: 14,
+    // How fast the wheel angle chases the input, per second.
+    rateDegPerSec: 260,
+    returnRateDegPerSec: 340,
+  },
+  suspension: {
+    restLength: 0.4,
+    maxTravel: 0.25,
+    stiffness: 42,
+    compressionDamping: 4.0,
+    relaxationDamping: 2.6,
+    maxForce: 24000,
+  },
+  wheels: {
+    radius: 0.34,
+    // Chassis-local connection points: ±halfTrack on X, front/rear on Z,
+    // connectionY below the chassis center.
+    halfTrack: 0.78,
+    frontZ: 1.25,
+    rearZ: -1.3,
+    connectionY: -0.15,
+    frictionSlip: 3.2,
+    sideFrictionStiffness: 1.0,
+  },
+  stability: {
+    // High angular damping is the main arcade self-stabilizer (TDD §7).
+    angularDamping: 3.0,
+    linearDamping: 0.05,
+    // Mild speed-scaled downforce: N per (m/s), applied -Y at chassis center.
+    downforcePerSpeed: 40,
+  },
+} as const;
+
 // Enemy AI behavior kinds. TDD §5.6.
 export type EnemyBehavior = 'pursuit' | 'flank' | 'standoff' | 'siege';
 

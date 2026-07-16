@@ -14,9 +14,14 @@ export const CAMERA = {
   // Look-target leads this many meters along velocity.
   lookAhead: 4,
   // PLACEHOLDER — tune in Phase 3/16. TDD §5.3 only specifies "decaying noise, capped";
-  // no concrete amplitude/decay numbers given.
+  // no concrete amplitude/decay numbers given. Trauma accumulates via fx/cameraRig's
+  // addShake(), is capped at maxAmplitude (m), decays linearly by decayPerSec (per second),
+  // and drives a decaying positional jitter at frequencyHz.
   shake: {
     maxAmplitude: 0.5,
     decayPerSec: 3,
+    // Oscillation rate of the shake jitter (Hz). Needed for a real shake; still a
+    // feel placeholder until the Phase 16 juice pass.
+    frequencyHz: 24,
   },
 } as const;

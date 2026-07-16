@@ -16,6 +16,22 @@
   overflow: hidden;
   padding: 6rem 1.5rem 2rem;
   background: linear-gradient(180deg, #05070f 0%, #111827 32%, #3b2f63 60%, #b6567c 82%, #f59e0b 100%);
+  opacity: 1;
+  visibility: visible;
+  /* `visibility` only *takes effect* after the opacity fade finishes (transition-delay
+     pattern) — the hero fades smoothly to transparent, then drops out of layout/hit-
+     testing, rather than snapping invisible mid-fade. */
+  transition:
+    opacity 0.5s ease,
+    visibility 0s linear 0.5s;
+}
+
+/* Applied once game/index.tsx's bootstrap reaches GARAGE (Home.tsx listens for the
+   `smashy:game-ready` window event). aria-hidden is set alongside this class in JSX. */
+.home__hero--hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .home__hero-content {

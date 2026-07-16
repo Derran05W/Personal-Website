@@ -21,8 +21,11 @@ import { QUALITY_TIERS } from './config';
 import { getGameState, useGameStore } from './state/store';
 import { useInputSystem } from './input';
 import { AiSystem, CameraFxSystem, EventDrainSystem } from './core/frameOrder';
-import { PlaceholderScene } from './core/PlaceholderScene';
+import { TestPlane } from './world/TestPlane';
+import { PlayerVehicle } from './vehicles/PlayerVehicle';
+import { RustySedanMesh } from './vehicles/RustySedanMesh';
 import { applyDetectedQuality } from './core/quality';
+import { GarageOverlay } from './GarageOverlay';
 
 // Dev-only overlays, code-split so leva / r3f-perf never enter a production chunk. The
 // `import.meta.env.DEV ? … : null` guard is a compile-time constant in prod builds
@@ -30,6 +33,15 @@ import { applyDetectedQuality } from './core/quality';
 // is eliminated and its chunk is never emitted. (Verified via the prod-bundle grep audit.)
 const DevPanel = import.meta.env.DEV ? lazy(() => import('./core/devPanel')) : null;
 const PerfOverlay = import.meta.env.DEV ? lazy(() => import('./core/PerfOverlay')) : null;
+
+// core/debugBridge.ts isn't a component (no default export for lazy()/Suspense to hang
+// off of) — it's a side-effect module that assigns window.__smashy once loaded, purely
+// for scripted (Playwright) verification. Same DEV-guard shape as the overlays above:
+// `import.meta.env.DEV` folds to the literal `false` in prod builds, so this whole branch
+// — dynamic import included — is dead-code-eliminated and never reaches a prod chunk.
+if (import.meta.env.DEV) {
+  void import('./core/debugBridge');
+}
 
 const overlayStyle: CSSProperties = {
   position: 'absolute',
@@ -93,6 +105,14 @@ export default function Game() {
   // state fresh from the store and only fires the transition it expects, so the store's
   // dev-mode invalid-transition throw can never trigger under StrictMode's double mount
   // (each run is a guarded no-op once the state has advanced).
+  //
+  // The `smashy:game-ready` CustomEvent is the shell's hero-reveal signal (Home.tsx
+  // listens via plain DOM APIs — no game import, preserving the app/game boundary). It
+  // fires exactly once per real LOADING → GARAGE arrival: on the second StrictMode
+  // double-invoke pass `state.machine` already reads 'GARAGE', so this branch's guard
+  // condition is false and the dispatch doesn't repeat. It DOES re-fire naturally on
+  // route-away-then-back remounts, since hardReset() (input system unmount) resets the
+  // store to BOOT and the whole seam replays — that's desired, not a bug.
   useEffect(() => {
     const state = getGameState();
     if (state.machine === 'BOOT') {
@@ -101,6 +121,7 @@ export default function Game() {
     }
     if (state.machine === 'LOADING' && !active) {
       state.transition('GARAGE');
+      window.dispatchEvent(new CustomEvent('smashy:game-ready'));
     }
   }, [machine, active]);
 
@@ -111,7 +132,10 @@ export default function Game() {
       <Canvas
         shadows
         dpr={[1, dprCap]}
-        // Placeholder 3/4 view; Phase 3 installs the real fixed-yaw follow rig (TDD §5.3).
+        // Pre-PLAYING framing only (GARAGE/LOADING). Once a run starts, fx/cameraRig's
+        // CameraFxSystem pass owns position + lookAt every frame (fixed-yaw follow rig,
+        // TDD §5.3) and snaps to its ideal on the first PLAYING frame; fov/near/far
+        // stay governed by this prop.
         camera={{ position: [18, 16, 18], fov: 45, near: 0.1, far: 1000 }}
         onCreated={({ camera }) => camera.lookAt(0, 0, 0)}
       >
@@ -128,7 +152,10 @@ export default function Game() {
             <EventDrainSystem />
             <CameraFxSystem />
 
-            <PlaceholderScene />
+            <TestPlane />
+            <PlayerVehicle>
+              <RustySedanMesh />
+            </PlayerVehicle>
 
             {PerfOverlay ? (
               <Suspense fallback={null}>
@@ -147,6 +174,8 @@ export default function Game() {
           </div>
         </div>
       ) : null}
+
+      {machine === 'GARAGE' ? <GarageOverlay /> : null}
 
       {DevPanel ? (
         <Suspense fallback={null}>

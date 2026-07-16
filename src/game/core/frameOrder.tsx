@@ -28,33 +28,38 @@
 
 import { useFrame } from '@react-three/fiber';
 import { useBeforePhysicsStep, useAfterPhysicsStep } from '@react-three/rapier';
+import type { PerspectiveCamera } from 'three';
+import { updateCameraRig } from '../fx/cameraRig';
+import { hasExternalRenderOwner } from './renderOwner';
 
 /**
  * useFrame priority scheme for the game's render loop.
  *
- * IMPORTANT (R3F semantics): R3F performs its automatic scene render at the end of every
- * frame *only while no useFrame subscription has a priority > 0*. The instant any
- * subscription registers a positive priority, R3F hands rendering over — the
- * highest-priority callback is expected to call `gl.render()` itself
- * (@react-three/fiber: `if (!state.internal.priority && state.gl.render) gl.render(...)`).
+ * IMPORTANT (R3F semantics, verified in node_modules): R3F performs its automatic scene
+ * render at the end of every frame *only while no useFrame subscription has a priority > 0*
+ * (@react-three/fiber 9.6.1: `if (!state.internal.priority && state.gl.render)
+ * gl.render(state.scene, state.camera)`). `internal.priority` counts positive-priority
+ * useFrame subscriptions on THIS canvas root; the moment one registers, R3F hands rendering
+ * over and the highest-priority callback (they run sorted, so it fires last) must call
+ * `gl.render()` itself.
  *
- * So `cameraFx` is intentionally **0** in Phase 2: the camera/FX pass is a no-op that
- * neither needs to run late nor owns the render, and keeping every priority at 0 lets
- * R3F auto-render the placeholder scene in *all* builds. (In dev, r3f-perf's <Perf/>
- * separately claims priority `Infinity` and does the manual render + measurement — but
- * production has no <Perf/>, so it must rely on R3F auto-render.)
- *
- * Phase 3 takes over the render loop: it raises `cameraFx` to a positive "late" value
- * (e.g. 1) so the camera rig + FX run after interpolated transforms are written, and
- * that same pass performs the explicit `gl.render()`. Do not raise this value until a
- * matching manual render exists, or production builds will render nothing.
+ * Phase 3 raises `cameraFx` **0 → 1**: the camera rig runs late (after interpolated
+ * transforms are written) and CameraFxSystem performs the explicit `gl.render()`. It does
+ * so in *every* build — there is no r3f-perf handoff, contrary to an earlier assumption:
+ * r3f-perf 7.2.3's <Perf/> mounted here (PerfHeadless) only uses addEffect/addAfterEffect,
+ * which never touch this canvas's `internal.priority`, and its priority-Infinity
+ * `gl.render()` lives in a *separate nested graph <Canvas>* (HtmlMinimal → createRoot),
+ * so it renders the tiny FPS-graph scene, NOT this one. Net: this scene is rendered only by
+ * whoever owns priority here — i.e. CameraFxSystem — so it must always render (guarded only
+ * against a *future* higher-priority main-scene owner via renderOwner.ts). Do not lower
+ * this back to 0 without removing the manual render, or nothing would paint.
  */
 // Intentional mixed module: the frame-order system components (which render null, so Fast
 // Refresh isn't meaningful for them) are paired with the priority constant they share.
 // Phase 3+ imports FRAME_PRIORITY from here.
 // eslint-disable-next-line react-refresh/only-export-components
 export const FRAME_PRIORITY = {
-  cameraFx: 0,
+  cameraFx: 1,
 } as const;
 
 /**
@@ -85,14 +90,20 @@ export function EventDrainSystem(): null {
 }
 
 /**
- * Camera rig + FX + audio pass. Future owners: Phase 3 (follow camera + shake), Phase 16
- * (FX/juice), Phase 15 (audio). Runs as a late `useFrame` (see FRAME_PRIORITY.cameraFx)
- * after physics interpolation has written render transforms. Placeholder no-op for
- * Phase 2.
+ * Camera rig + FX + audio pass. Owners: Phase 3 (follow camera + shake), Phase 16
+ * (FX/juice), Phase 15 (audio). Runs as a late priority-1 `useFrame` (see
+ * FRAME_PRIORITY.cameraFx) after physics interpolation has written render transforms, then
+ * OWNS the main-scene render (R3F no longer auto-renders once priority > 0). The render is
+ * unconditional except while a higher-priority system owns it (hasExternalRenderOwner) — so
+ * GARAGE/LOADING still paint even though updateCameraRig leaves the camera untouched then.
  */
 export function CameraFxSystem(): null {
-  useFrame(() => {
-    // Phase 3+: damped follow camera, look-ahead, impact shake; FX + positional audio.
+  useFrame((state, delta) => {
+    updateCameraRig(state.camera as PerspectiveCamera, delta);
+    // Phase 16+: FX + positional audio hook in here (before the render).
+    if (!hasExternalRenderOwner()) {
+      state.gl.render(state.scene, state.camera);
+    }
   }, FRAME_PRIORITY.cameraFx);
   return null;
 }

@@ -27,6 +27,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   vim \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Playwright chromium's runtime deps (Phase 3): the container firewall blocks apt at
+# runtime and the node user has no general sudo, so these must be image-baked. List =
+# the exact `not found` set from `ldd headless_shell/chrome` (Playwright 1.61, Debian
+# bookworm arm64). Until a rebuild picks this up, sessions fall back to the stub-library
+# generator at .devcontainer/gen-chromium-shims.mjs (see its header).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  libnss3 \
+  libnspr4 \
+  libdbus-1-3 \
+  libatk1.0-0 \
+  libatk-bridge2.0-0 \
+  libatspi2.0-0 \
+  libcups2 \
+  libgbm1 \
+  libasound2 \
+  libxkbcommon0 \
+  libxcomposite1 \
+  libxdamage1 \
+  libxfixes3 \
+  libxrandr2 \
+  && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # Ensure default node user has access to /usr/local/share
 RUN mkdir -p /usr/local/share/npm-global && \
   chown -R node:node /usr/local/share
