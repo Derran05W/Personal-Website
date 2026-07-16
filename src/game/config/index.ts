@@ -9,6 +9,7 @@ export * from './vehicles';
 export * from './collision';
 export * from './quality';
 export * from './damage';
+export * from './fx';
 
 import { HEAT } from './heat';
 import { SPAWN, HELI } from './spawn';
@@ -18,6 +19,7 @@ import { WORLD, POWER_GRID, PROPS } from './world';
 import { PLAYER_CARS, ENEMY_UNITS, SWAT, GUN_TRUCK, VEHICLE_TUNING } from './vehicles';
 import { QUALITY_TIERS } from './quality';
 import { DAMAGE, BUSTED } from './damage';
+import { SKID } from './fx';
 
 /**
  * Registry of every tunable config block, keyed by name. The dev tuning panel (leva)
@@ -41,4 +43,5 @@ export const CONFIG = {
   QUALITY_TIERS,
   DAMAGE,
   BUSTED,
+  SKID,
 } as const;

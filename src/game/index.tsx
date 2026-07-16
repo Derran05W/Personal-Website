@@ -22,6 +22,7 @@ import { getGameState, useGameStore } from './state/store';
 import { useInputSystem } from './input';
 import { AiSystem, CameraFxSystem, EventDrainSystem } from './core/frameOrder';
 import { TestPlane } from './world/TestPlane';
+import { SkidMarks } from './fx/SkidMarks';
 import { PlayerVehicle } from './vehicles/PlayerVehicle';
 import { RustySedanMesh } from './vehicles/RustySedanMesh';
 import { applyDetectedQuality } from './core/quality';
@@ -153,6 +154,7 @@ export default function Game() {
             <CameraFxSystem />
 
             <TestPlane />
+            <SkidMarks />
             <PlayerVehicle>
               <RustySedanMesh />
             </PlayerVehicle>
