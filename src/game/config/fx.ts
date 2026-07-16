@@ -23,8 +23,9 @@ export const SKID = {
   // span, then hides (scale 0) until its slot is recycled. Longer = more persistent skid
   // history on screen at once (watch the pool budget above).
   fadeSeconds: 6,
-  // Quad height above the ground plane (m). The ground slab top is y=0 and TestPlane's
-  // readability Grid sits at y=0.02; 0.03 clears both so marks never z-fight either.
+  // Quad height above the ground plane (m). The ground slab top is y=0 and
+  // world/CityScape.tsx's road surface sits at y=0.01; 0.03 clears both so marks never
+  // z-fight either.
   yOffset: 0.03,
   // Flat-ground guard: only emit when the transformed wheel point's world y is within
   // this of the wheel radius (i.e. the chassis is sitting level on the y=0 slab). This
@@ -41,9 +42,9 @@ export const SKID = {
   colors: {
     // Near-black fresh rubber, the colour of a just-laid mark (t=0).
     rubber: '#1c1f24',
-    // TestPlane ground colour — the fade target (t=1). Kept in sync with
-    // world/TestPlane.tsx's slab so a fully-faded mark dissolves into the ground with no
-    // alpha blend; if the world ground colour changes, change this too.
-    ground: '#39404d',
+    // City ground colour — the fade target (t=1). Kept in sync with
+    // world/CityScape.tsx's ground slab so a fully-faded mark dissolves into the ground
+    // with no alpha blend; if the world ground colour changes, change this too.
+    ground: '#454b54',
   },
 } as const;

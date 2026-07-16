@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { gameEvents } from './events';
 import { getGameState, tierForHeat, useGameStore } from './store';
+import { WORLD_GEN } from '../config';
 
 const SETTINGS_KEY = 'smashy6ix:settings';
 
@@ -27,7 +28,7 @@ describe('initial state', () => {
     expect(state.tier).toBe(0);
     expect(state.score).toBe(0);
     expect(state.playerHp).toBe(100);
-    expect(state.seed).toBe(0);
+    expect(state.seed).toBe(WORLD_GEN.defaultSeed);
     expect(state.settings).toEqual({ quality: 'high', muted: false });
   });
 });

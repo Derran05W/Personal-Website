@@ -67,7 +67,7 @@ Status: `[ ]` todo · `[~]` in progress · `[!]` blocked / awaiting user · `[x]
 - [x] **Phase 3 — Driving prototype & fun gate** (M1) — 2026-07-16: raycast vehicle + §5.3 camera + test scene shipped; found & fixed reversed steering (D steered left), sensitivity re-tune + reverse-steer invert + handbrake skid marks folded in, full battery green; USER GATE passed — user signed off on feel 2026-07-16 (see phase-03-notes.md). Push/Vercel connect still user-blocked.
 
 ### Part 2 — The City (`.planning/part-2-city.md`)
-- [ ] **Phase 4 — World generation: tiles, roads, districts, boundaries** (M2a)
+- [x] **Phase 4 — World generation: tiles, roads, districts, boundaries** (M2a) — 2026-07-16: seeded generator (1.24 ms, 88 new tests, golden-hash pinned), traffic graph (1,932 nodes seed 416), city scene + diegetic boundaries + water sensor + minimap/debug tooling shipped; all gates + live battery green; push still user-blocked (see phase-04-notes.md).
 - [ ] **Phase 5 — City rendering: instancing, palette, assets, blue hour** (M2b) — USER look check
 - [ ] **Phase 6 — Destruction physics: props go flying** (M2c)
 

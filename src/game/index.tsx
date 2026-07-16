@@ -13,7 +13,7 @@
 // deterministic 60 Hz step the frame order assumes, `interpolate` smooths render frames
 // between physics steps (TDD §7).
 
-import { lazy, Suspense, useEffect, type CSSProperties } from 'react';
+import { lazy, Suspense, useEffect, useMemo, type CSSProperties } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Physics } from '@react-three/rapier';
 import { useProgress } from '@react-three/drei';
@@ -21,12 +21,19 @@ import { QUALITY_TIERS } from './config';
 import { getGameState, useGameStore } from './state/store';
 import { useInputSystem } from './input';
 import { AiSystem, CameraFxSystem, EventDrainSystem } from './core/frameOrder';
-import { TestPlane } from './world/TestPlane';
+import { generate } from './world/generate';
+import { getSpawnPose } from './world/spawn';
+import { CityScape } from './world/CityScape';
 import { SkidMarks } from './fx/SkidMarks';
 import { PlayerVehicle } from './vehicles/PlayerVehicle';
 import { RustySedanMesh } from './vehicles/RustySedanMesh';
 import { applyDetectedQuality } from './core/quality';
 import { GarageOverlay } from './GarageOverlay';
+// Dependency-free (no leva/three-heavy deps), same as core/renderOwner.ts — safe to import
+// unconditionally here even though this file ships in every build; only the DEV-gated
+// components below (Minimap, GraphViz) that CONSUME these are what actually get stripped
+// from prod.
+import { useDevToggle } from './core/devToggles';
 
 // Dev-only overlays, code-split so leva / r3f-perf never enter a production chunk. The
 // `import.meta.env.DEV ? … : null` guard is a compile-time constant in prod builds
@@ -34,6 +41,11 @@ import { GarageOverlay } from './GarageOverlay';
 // is eliminated and its chunk is never emitted. (Verified via the prod-bundle grep audit.)
 const DevPanel = import.meta.env.DEV ? lazy(() => import('./core/devPanel')) : null;
 const PerfOverlay = import.meta.env.DEV ? lazy(() => import('./core/PerfOverlay')) : null;
+// Dev minimap (DOM overlay, mounted alongside DevPanel below) and in-scene traffic-graph
+// visualizer (mounted alongside PerfOverlay, inside <Physics>) — both leva-toggle-gated
+// (core/devToggles.ts) on top of this DEV guard.
+const Minimap = import.meta.env.DEV ? lazy(() => import('./hud/Minimap')) : null;
+const GraphViz = import.meta.env.DEV ? lazy(() => import('./world/GraphViz')) : null;
 
 // core/debugBridge.ts isn't a component (no default export for lazy()/Suspense to hang
 // off of) — it's a side-effect module that assigns window.__smashy once loaded, purely
@@ -88,6 +100,19 @@ export default function Game() {
 
   const machine = useGameStore((s) => s.machine);
   const quality = useGameStore((s) => s.settings.quality);
+
+  // Reactive read of the leva "graphViz" toggle (core/devToggles.ts) — always false/no-op
+  // in prod (nothing ever calls setDevToggle there), cheap enough to call unconditionally.
+  const graphVizOn = useDevToggle('graphViz');
+
+  // The generated city (TDD §5.4): pure data, ~1–2 ms, memoized per seed. Changing the
+  // store seed (leva "World" folder / future garage UI) regenerates here, and the
+  // key={seed} on CityScape + PlayerVehicle below remounts the whole physical world —
+  // colliders torn down and rebuilt by @react-three/rapier, player dropped at the new
+  // map's spawn tile. No incremental mutation, no leak surface.
+  const seed = useGameStore((s) => s.seed);
+  const world = useMemo(() => generate(seed), [seed]);
+  const spawn = useMemo(() => getSpawnPose(world), [world]);
 
   // drei asset-load progress (TDD §4.3). No real assets stream this phase, so `active`
   // is false from the start and LOADING resolves to GARAGE in the next tick — the seam
@@ -153,9 +178,14 @@ export default function Game() {
             <EventDrainSystem />
             <CameraFxSystem />
 
-            <TestPlane />
+            <CityScape key={`city-${seed}`} world={world} />
             <SkidMarks />
-            <PlayerVehicle>
+            {/* key: spawn position is read once at body create (PlayerVehicle contract) —
+                remount on regenerate rather than mutate. */}
+            <PlayerVehicle
+              key={`player-${seed}`}
+              position={[spawn.position.x, spawn.position.y, spawn.position.z]}
+            >
               <RustySedanMesh />
             </PlayerVehicle>
 
@@ -164,9 +194,21 @@ export default function Game() {
                 <PerfOverlay />
               </Suspense>
             ) : null}
+
+            {GraphViz && graphVizOn ? (
+              <Suspense fallback={null}>
+                <GraphViz world={world} />
+              </Suspense>
+            ) : null}
           </Physics>
         </Suspense>
       </Canvas>
+
+      {Minimap ? (
+        <Suspense fallback={null}>
+          <Minimap />
+        </Suspense>
+      ) : null}
 
       {machine === 'LOADING' ? (
         <div style={overlayStyle} role="status" aria-live="polite" data-testid="game-asset-loading">

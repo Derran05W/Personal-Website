@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { type GameState, assertTransition, canTransition } from './machine';
 import { gameEvents } from './events';
+import { WORLD_GEN } from '../config';
 
 // Store rule (TDD §6 `game/state/`): this is the ONLY zustand store, and it holds ONLY
 // machine state, meta-progression numbers, and HUD-visible values. Per-frame hot data —
@@ -101,7 +102,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   tier: 0,
   score: 0,
   playerHp: 100,
-  seed: 0,
+  seed: WORLD_GEN.defaultSeed,
   settings: loadSettings(),
 
   transition: (to) => {

@@ -1,0 +1,75 @@
+// Deterministic player spawn point (Phase 4 Task 3). getSpawnPose() picks the road tile
+// nearest the map's center and returns a pose sitting on it, identity-facing. Consumed by
+// game/index.tsx (PlayerVehicle's spawn position) and core/debugBridge.ts (the dev reset
+// default) — the phase orchestrator wires both call sites; this module only computes the
+// pose and exposes it.
+
+import type { VehiclePose } from '../vehicles/IVehicleModel';
+import { WORLD } from '../config';
+import { tileCenter, tileIndex, type WorldData } from './types';
+
+const IDENTITY_ROTATION = { x: 0, y: 0, z: 0, w: 1 } as const;
+// Just above the measured suspension settle height (~0.837 m): the wheel rays are in
+// ground contact from the very first physics step, so even a stalled first frame's
+// catch-up burst (see BOUNDARY.fellOutResetY) can't drop the chassis past the ray reach.
+// Spawning a full meter up — the old TestPlane default — left a ~0.2 m airborne window
+// that a 30-step burst could blow straight through.
+const SPAWN_HEIGHT_M = 0.85;
+
+function poseAt(col: number, row: number): VehiclePose {
+  const { x, z } = tileCenter(col, row);
+  return { position: { x, y: SPAWN_HEIGHT_M, z }, rotation: IDENTITY_ROTATION };
+}
+
+/**
+ * The road tile nearest the map's center, found by an expanding square-ring (Chebyshev)
+ * search outward from the center tile. Deterministic scan order within each ring (top row
+ * left→right, then sides top→bottom, then bottom row left→right) makes the chosen tile
+ * reproducible for a given seed — WorldData.tiles never changes shape between calls.
+ */
+export function getSpawnPose(world: WorldData): VehiclePose {
+  const n = WORLD.tiles;
+  const centerCol = Math.floor((n - 1) / 2);
+  const centerRow = Math.floor((n - 1) / 2);
+
+  const isRoadAt = (col: number, row: number): boolean => {
+    if (col < 0 || row < 0 || col >= n || row >= n) return false;
+    return world.tiles[tileIndex(col, row)].type === 'road';
+  };
+
+  if (isRoadAt(centerCol, centerRow)) return poseAt(centerCol, centerRow);
+
+  for (let radius = 1; radius < n; radius++) {
+    const top = centerRow - radius;
+    const bottom = centerRow + radius;
+    const left = centerCol - radius;
+    const right = centerCol + radius;
+
+    for (let col = left; col <= right; col++) {
+      if (isRoadAt(col, top)) return poseAt(col, top);
+    }
+    for (let row = top + 1; row < bottom; row++) {
+      if (isRoadAt(left, row)) return poseAt(left, row);
+      if (isRoadAt(right, row)) return poseAt(right, row);
+    }
+    for (let col = left; col <= right; col++) {
+      if (isRoadAt(col, bottom)) return poseAt(col, bottom);
+    }
+  }
+
+  // Unreachable given the generator's guaranteed ring road (world/generate.ts always
+  // stamps col/row 0 and N-1 as road), but a defensive throw beats silently spawning at
+  // a bogus position if that invariant is ever broken.
+  throw new Error('getSpawnPose: world has no road tiles');
+}
+
+/** Module-scope handle to the current run's spawn pose, mirroring vehicles/playerRef.ts's
+ * pattern: debug tooling (dev reset, future respawn-after-BUSTED) needs a whole-object
+ * read outside React's props tree. Set by the city root (world/CityScape.tsx) once
+ * `getSpawnPose()` resolves for the current WorldData; reassigned wholesale on every
+ * regenerate, never mutated in place. Initialized to the old TestPlane-era default
+ * ({0,1,0}, identity) so early readers (before the first world generates) get a sane pose
+ * instead of undefined. */
+export const spawnPoseRef: { current: VehiclePose } = {
+  current: { position: { x: 0, y: SPAWN_HEIGHT_M, z: 0 }, rotation: IDENTITY_ROTATION },
+};

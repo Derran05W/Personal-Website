@@ -20,6 +20,9 @@ export interface GameEventMap {
   runStarted: { seed: number };
   runEnded: { score: number; reason: 'wrecked' | 'busted' | 'quit' };
   darkCity: Record<string, never>;
+  /** Player (or, once Phase 7/9 add them, any vehicle) entered the south lakefront WATER
+   * sensor (world/CityScape.tsx). Logged only in Phase 4; Phase 9 wires instant WRECKED. */
+  enteredWater: Record<string, never>;
 }
 
 type Handler<K extends keyof GameEventMap> = (payload: GameEventMap[K]) => void;

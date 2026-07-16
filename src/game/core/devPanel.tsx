@@ -13,7 +13,9 @@ import { getGameState, useGameStore } from '../state/store';
 import { canTransition, TRANSITIONS } from '../state/machine';
 import { CONFIG, QUALITY_TIERS, type QualityTier } from '../config';
 import { playerVehicle } from '../vehicles/playerRef';
+import { spawnPoseRef } from '../world/spawn';
 import type { VehiclePose } from '../vehicles/IVehicleModel';
+import { getDevToggles, setDevToggle } from './devToggles';
 
 // leva's `Schema` type isn't part of its public export surface; recover it structurally
 // from `folder`'s first parameter (whose constraint IS Schema) so we never import an
@@ -71,11 +73,6 @@ function buildConfigSchema(): Record<string, unknown> {
   }
   return schema;
 }
-
-const SPAWN_POSE: VehiclePose = {
-  position: { x: 0, y: 1, z: 0 },
-  rotation: { x: 0, y: 0, z: 0, w: 1 },
-};
 
 /**
  * Strips pitch/roll from a pose's rotation, keeping only yaw (rotation about world Y).
@@ -145,12 +142,61 @@ export default function DevPanel() {
 
       // Teleport reset: back to spawn, identity yaw. No-op if no run is live.
       schema['teleport reset'] = button(() => {
-        playerVehicle.current?.reset(SPAWN_POSE);
+        playerVehicle.current?.reset(spawnPoseRef.current);
       });
 
       return schema as unknown as LevaSchema;
     },
     [machine],
+  );
+
+  // --- World folder: seed control + regenerate/randomize, dev-tool visibility toggles ---
+  // Split into two useControls calls (both `deps: []`, so leva builds each schema exactly
+  // once and never rebuilds it): leva's `useControls` re-fires every onChange with
+  // `{initial: true}` whenever its schema is rebuilt (i.e. whenever `deps` changes) — so a
+  // single call with `seed`'s onChange writing into a piece of React state that's ALSO in
+  // that same call's `deps` is a feedback loop (typing/"randomize" → state changes → deps
+  // change → schema rebuilds → onChange re-fires with whatever leva's store held at that
+  // instant → can clobber the just-written value straight back to stale). Keeping `deps: []`
+  // sidesteps that entirely: leva owns the field's live value itself once mounted, and
+  // `getSeed`/`setSeed` (leva's own store accessors, returned because the schema arg is a
+  // function — see leva's useControls.d.ts) read/write it directly, imperatively, without
+  // ever needing this component to re-render or its schema to rebuild.
+  //
+  // `getSeed`/`setSeed` must come from an EARLIER, separate call: referencing a
+  // useControls call's own return value inside a button defined by that SAME call trips
+  // eslint-plugin-react-hooks' `immutability` rule (flagged as "used before declared" even
+  // though the closure only runs on click, well after the const exists) — splitting into a
+  // fields-only call followed by a buttons/toggles call keeps every reference strictly
+  // textually-after its declaration.
+  const [, setSeed, getSeed] = useControls(
+    'World',
+    () => ({ seed: { value: getGameState().seed, step: 1 } }),
+    [],
+  );
+  useControls(
+    'World',
+    () => ({
+      // Changing the store's seed IS the regeneration trigger — the city subtree remounts
+      // keyed on it (Task 3). This button (not the field's onChange) is what actually
+      // fires it, so typing a seed never regenerates until asked to.
+      regenerate: button(() => getGameState().setSeed(getSeed('seed'))),
+      // Math.random is fine here: a dev-only button, not part of generation itself.
+      randomize: button(() => {
+        const next = Math.floor(Math.random() * 0xffffffff);
+        setSeed({ seed: next });
+        getGameState().setSeed(next);
+      }),
+      minimap: {
+        value: getDevToggles().minimap,
+        onChange: (value: boolean) => setDevToggle('minimap', value),
+      },
+      graphViz: {
+        value: getDevToggles().graphViz,
+        onChange: (value: boolean) => setDevToggle('graphViz', value),
+      },
+    }),
+    [],
   );
 
   // --- Config folders: auto-built from the CONFIG registry, live-tunable ---
