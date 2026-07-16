@@ -62,7 +62,7 @@ blocker into the handoff notes, mark the phase `[!]`, tell the user, stop.
 Status: `[ ]` todo · `[~]` in progress · `[!]` blocked / awaiting user · `[x]` done
 
 ### Part 1 — Foundation (`.planning/part-1-foundation.md`)
-- [ ] **Phase 1 — App shell & deploy pipeline** (M0)
+- [x] **Phase 1 — App shell & deploy pipeline** (M0) — 2026-07-15: shell/routes/CI/a11y shipped, Lighthouse 100×4 on all 3 routes; Vercel repo connection still needs the user's one manual dashboard step (see phase-01-notes.md).
 - [ ] **Phase 2 — Game bootstrap: canvas, state machine, config, input**
 - [ ] **Phase 3 — Driving prototype & fun gate** (M1) — USER GATE: driving feel sign-off
 
@@ -218,5 +218,6 @@ Score = Σ heat events + 5 × tier per second while ≥ ★1.
 | Session-authored phase plans | `.planning/phases/phase-NN-plan.md` |
 | Session handoff notes | `.planning/phases/phase-NN-notes.md` |
 | Templates | `.planning/templates/` |
+| Autonomous multi-phase runner (for the sandbox devcontainer) | `.devcontainer/run-all-phases.sh` |
 
 `.planning/` is gitignored (local workflow docs); `CLAUDE.md` and the TDD are committed.

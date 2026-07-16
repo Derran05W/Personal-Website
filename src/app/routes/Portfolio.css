@@ -1,0 +1,44 @@
+.portfolio {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 5rem 1.5rem 4rem;
+}
+
+.portfolio__intro {
+  color: var(--color-text-muted);
+  margin-bottom: 2.5rem;
+}
+
+.portfolio__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.portfolio__card {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1.25rem;
+  background: var(--color-bg-elevated);
+}
+
+.portfolio__card-thumb {
+  height: 120px;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(59, 47, 99, 0.35));
+}
+
+.portfolio__card-title {
+  margin: 0 0 0.4rem;
+  font-size: 1.05rem;
+}
+
+.portfolio__card-body {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}

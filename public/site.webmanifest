@@ -1,0 +1,16 @@
+{
+  "name": "Smashy the 6ix",
+  "short_name": "Smashy 6ix",
+  "description": "A low-poly 3D driving game homepage paired with a portfolio and résumé.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111827",
+  "theme_color": "#111827",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
