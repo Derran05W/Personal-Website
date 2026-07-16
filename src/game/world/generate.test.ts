@@ -61,9 +61,12 @@ describe('generate — determinism', () => {
   // Golden hash: pins the entire output for seed 416 so accidental generator drift fails
   // loudly. An INTENTIONAL generator change must recompute and update this constant.
   it('matches the pinned golden hash for seed 416', () => {
-    // '477d3671' was the pre-traffic-graph stub era; recomputed 2026-07-16 when the real
-    // buildTrafficGraph() landed (graph output is now part of the hashed WorldData).
-    expect(stableHash(JSON.stringify(generate(416)))).toBe('2d72d2a1');
+    // Hash history: '477d3671' pre-traffic-graph stub era → '2d72d2a1' when the real
+    // buildTrafficGraph() landed → '6611450f' when Phase 5's camera-occlusion decision
+    // retuned WORLD_GEN tower weight/heights → 'a7181498' street-front tower zoning →
+    // '71399c6f' street-front small-height cap (road-adjacent smalls roll only the lowest
+    // bucket so the follow camera clears their roofs).
+    expect(stableHash(JSON.stringify(generate(416)))).toBe('71399c6f');
   });
 });
 
@@ -221,6 +224,33 @@ describe('generate — building footprints', () => {
             expect(tile.blockId).toBe(anchorBlock); // never crosses a block boundary
             expect(occupied.has(idx)).toBe(false); // pairwise non-overlapping
             occupied.add(idx);
+          }
+        }
+      }
+    }
+  });
+
+  it('zoning: no tower footprint tile is adjacent to a road (street-front stays low-rise)', () => {
+    // Phase 5 camera-occlusion rule (see fillBlock) — the fixed follow camera must never
+    // end up inside a roadside tower.
+    for (const seed of SEEDS) {
+      const w = generate(seed);
+      for (const b of w.buildings) {
+        if (b.kind !== 'tower') continue;
+        for (let dr = 0; dr < b.h; dr++) {
+          for (let dc = 0; dc < b.w; dc++) {
+            const col = b.col + dc;
+            const row = b.row + dr;
+            const neighbours = [
+              [col, row - 1],
+              [col, row + 1],
+              [col - 1, row],
+              [col + 1, row],
+            ] as const;
+            for (const [nc, nr] of neighbours) {
+              if (nc < 0 || nr < 0 || nc >= N || nr >= N) continue;
+              expect(w.tiles[tileIndex(nc, nr)].type).not.toBe('road');
+            }
           }
         }
       }

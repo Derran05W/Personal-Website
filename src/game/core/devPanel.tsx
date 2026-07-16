@@ -7,7 +7,7 @@
 // tier, grant heat, spawn unit X, blackout district, teleport, invincible, chaos bench…),
 // so it is structured around a top-level "Debug" folder plus auto-generated config folders.
 
-import { Quaternion, Euler } from 'three';
+import { Quaternion, Euler, Color } from 'three';
 import { useControls, folder, button, monitor, Leva } from 'leva';
 import { getGameState, useGameStore } from '../state/store';
 import { canTransition, TRANSITIONS } from '../state/machine';
@@ -16,6 +16,13 @@ import { playerVehicle } from '../vehicles/playerRef';
 import { spawnPoseRef } from '../world/spawn';
 import type { VehiclePose } from '../vehicles/IVehicleModel';
 import { getDevToggles, setDevToggle } from './devToggles';
+import { ARCHETYPES, EMISSIVE_ARCHETYPES } from '../world/archetypes';
+import { DISTRICT_COUNT, setDistrictColor, setDistrictEmissive } from '../world/instancing';
+
+// Task 5 debug-tint colour: the ONE end-to-end proof that an archetype's district-grouped
+// [start,count] ranges (world/instancing.ts) are correct — a single button recolours every
+// instance in exactly one district, nothing else. Module-scope: one Color, reused per click.
+const TINT_COLOR = new Color('#ff2222');
 
 // leva's `Schema` type isn't part of its public export surface; recover it structurally
 // from `folder`'s first parameter (whose constraint IS Schema) so we never import an
@@ -169,9 +176,17 @@ export default function DevPanel() {
   // though the closure only runs on click, well after the const exists) — splitting into a
   // fields-only call followed by a buttons/toggles call keeps every reference strictly
   // textually-after its declaration.
-  const [, setSeed, getSeed] = useControls(
+  // `getWorldField` is the folder's generic (path-keyed) getter — used below for both
+  // `seed` (regenerate/randomize) and `tintDistrict` (the Task 5 tint/blackout buttons),
+  // per the doc comment above on why fields and buttons must live in separate calls.
+  const [, setSeed, getWorldField] = useControls(
     'World',
-    () => ({ seed: { value: getGameState().seed, step: 1 } }),
+    () => ({
+      seed: { value: getGameState().seed, step: 1 },
+      // Task 5 debug proof target district (0..DISTRICT_COUNT-1, 4x4 grid): which
+      // district the tint/blackout/relight buttons below act on.
+      tintDistrict: { value: 0, min: 0, max: DISTRICT_COUNT - 1, step: 1 },
+    }),
     [],
   );
   useControls(
@@ -180,7 +195,7 @@ export default function DevPanel() {
       // Changing the store's seed IS the regeneration trigger — the city subtree remounts
       // keyed on it (Task 3). This button (not the field's onChange) is what actually
       // fires it, so typing a seed never regenerates until asked to.
-      regenerate: button(() => getGameState().setSeed(getSeed('seed'))),
+      regenerate: button(() => getGameState().setSeed(getWorldField('seed'))),
       // Math.random is fine here: a dev-only button, not part of generation itself.
       randomize: button(() => {
         const next = Math.floor(Math.random() * 0xffffffff);
@@ -195,6 +210,21 @@ export default function DevPanel() {
         value: getDevToggles().graphViz,
         onChange: (value: boolean) => setDevToggle('graphViz', value),
       },
+      // Task 5 district-range proof: each button fans over every archetype (or every
+      // EMISSIVE archetype) and writes exactly one district's [start,count] slice. Eyeball
+      // adjacent districts in the result — only `tintDistrict`'s district should change.
+      'tint district (red)': button(() => {
+        const d = getWorldField('tintDistrict');
+        for (const name of ARCHETYPES) setDistrictColor(name, d, TINT_COLOR);
+      }),
+      'blackout district': button(() => {
+        const d = getWorldField('tintDistrict');
+        for (const name of EMISSIVE_ARCHETYPES) setDistrictEmissive(name, d, 0);
+      }),
+      'relight district': button(() => {
+        const d = getWorldField('tintDistrict');
+        for (const name of EMISSIVE_ARCHETYPES) setDistrictEmissive(name, d, 1);
+      }),
     }),
     [],
   );

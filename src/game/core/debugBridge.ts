@@ -3,11 +3,32 @@
 // real gameplay input. Loaded exclusively via the `import.meta.env.DEV` dynamic-import
 // branch in game/index.tsx — never a static import — so, like devPanel.tsx and
 // PerfOverlay.tsx, this module is dead-code-eliminated out of production chunks.
+import { Color } from 'three';
+import { getPerf as getR3fPerfState } from 'r3f-perf';
 import { getGameState } from '../state/store';
 import { canTransition, type GameState } from '../state/machine';
 import { playerVehicle } from '../vehicles/playerRef';
 import { spawnPoseRef } from '../world/spawn';
 import type { VehiclePose, VehicleState } from '../vehicles/IVehicleModel';
+import { ARCHETYPES, EMISSIVE_ARCHETYPES } from '../world/archetypes';
+import { setDistrictColor, setDistrictEmissive as setDistrictEmissiveRange } from '../world/instancing';
+
+// Task 5 debug-tint colour — same value the devPanel "tint district (red)" button uses, so
+// a screenshot script driving this bridge headlessly reproduces exactly what the leva
+// button does.
+const TINT_COLOR = new Color('#ff2222');
+
+/** Task 5 perf snapshot for the screenshot suite. The PerfOverlay draws these numbers to a
+ * canvas (not DOM text), so a screenshot script can't scrape them from the page — this
+ * reads the SAME r3f-perf zustand store PerfOverlay renders from instead. `gl.info.render`
+ * is last-frame draw calls/triangles (reset every frame, autoReset disabled by r3f-perf's
+ * PerfHeadless — see its source); `log.fps` is r3f-perf's own smoothed reading. All fields
+ * are null until PerfOverlay has mounted and rendered at least one frame. */
+export interface PerfSnapshot {
+  readonly calls: number | null;
+  readonly triangles: number | null;
+  readonly fps: number | null;
+}
 
 declare global {
   interface Window {
@@ -21,6 +42,17 @@ declare global {
       /** Teleports the player vehicle to `pose` (default: spawn, identity yaw). No-op
        * if no run is live. */
       reset: (pose?: VehiclePose) => void;
+      /** Task 5 district-range proof, headless mirror of the devPanel "tint district
+       * (red)" button: recolours district `n`'s [start,count] slice red across every
+       * archetype in ARCHETYPES. No-op for archetypes not built this run. */
+      tintDistrict: (n: number) => void;
+      /** Task 5 district-range proof, headless mirror of the devPanel "blackout
+       * district"/"relight district" buttons: flips district `n`'s aEmissiveOn slice
+       * across every EMISSIVE_ARCHETYPES archetype (0 = dark, 1 = lit). */
+      setDistrictEmissive: (n: number, on: 0 | 1) => void;
+      /** Task 5 perf snapshot (draw calls / triangles / fps) for the screenshot suite —
+       * see PerfSnapshot's doc comment for why this reads the r3f-perf store directly. */
+      readPerf: () => PerfSnapshot;
     };
   }
 }
@@ -33,4 +65,18 @@ window.__smashy = {
   },
   readState: () => playerVehicle.current?.readState() ?? null,
   reset: (pose) => playerVehicle.current?.reset(pose ?? spawnPoseRef.current),
+  tintDistrict: (n) => {
+    for (const name of ARCHETYPES) setDistrictColor(name, n, TINT_COLOR);
+  },
+  setDistrictEmissive: (n, on) => {
+    for (const name of EMISSIVE_ARCHETYPES) setDistrictEmissiveRange(name, n, on);
+  },
+  readPerf: () => {
+    const state = getR3fPerfState();
+    return {
+      calls: state.gl?.info.render.calls ?? null,
+      triangles: state.gl?.info.render.triangles ?? null,
+      fps: state.log?.fps ?? null,
+    };
+  },
 };

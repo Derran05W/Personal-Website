@@ -29,8 +29,12 @@ import {
 import { BOUNDARY, WORLD, interactionGroups } from '../config';
 import { gameEvents } from '../state/events';
 import { playerVehicle } from '../vehicles/playerRef';
+import { BlueHourRig } from './BlueHourRig';
+import { CityArchetypes } from './CityArchetypes';
+import { WorldColliders } from './CityColliders';
+import { buildCityInstanceSets } from './cityInstances';
 import { getSpawnPose, spawnPoseRef } from './spawn';
-import { tileCenter, type BuildingFootprint, type Tile, type WorldData } from './types';
+import { type Tile, type WorldData } from './types';
 import { worldRef } from './worldRef';
 
 export interface CityScapeProps {
@@ -47,25 +51,13 @@ const ROAD_COLOR = '#2b2f36';
 const PARK_COLOR = new Color('#3f7a4e');
 const PARKING_LOT_COLOR = new Color('#31353c');
 const TRANSFORMER_LOT_COLOR = new Color('#8a7a3f');
-const TRANSFORMER_PROP_COLOR = '#c9a227';
 const WATER_COLOR = '#2f6f93';
 const BARRIER_COLOR = '#9aa0a8';
-// Two small-building tones (alternated by tile parity) + one tower tone — "2-3 tones by
-// kind" per the plan.
-const SMALL_BUILDING_COLOR_A = new Color('#6b7280');
-const SMALL_BUILDING_COLOR_B = new Color('#5b6472');
-const TOWER_COLOR = new Color('#818a99');
 
 // --- Placeholder layout numbers (visual-only, no physics implication) ---------------------
 const ROAD_Y = 0.01; // A hair above the ground slab (y=0 top face) — no z-fighting.
 const OVERLAY_Y = 0.012; // Parks/lots: fractionally above roads (tile sets never overlap).
 const WATER_VISUAL_Y = 0.05;
-// Shrinks each building footprint's rendered box a little inside its tile bounds so the
-// street grid still reads between buildings instead of one solid slab per block.
-const BUILDING_INSET_M = 0.6;
-const TRANSFORMER_PROP_SIZE_M = 2;
-const TRANSFORMER_PROP_HEIGHT_M = 2.5;
-
 const HALF_MAP_M = (WORLD.tiles * WORLD.tileSize) / 2;
 const GROUND_SIZE_M = WORLD.tiles * WORLD.tileSize + 2 * BOUNDARY.groundMarginM;
 const GROUND_GROUPS = interactionGroups('GROUND');
@@ -92,19 +84,6 @@ const BARRIER_SPECS: readonly BarrierSpec[] = (() => {
     { position: [-edge, h / 2, 0], size: [t, h, span] }, // West
   ];
 })();
-
-/** World-space center of a footprint spanning `w`×`h` tiles anchored at (col,row). */
-function footprintCenter(col: number, row: number, w: number, h: number): { x: number; z: number } {
-  return {
-    x: (col + w / 2) * WORLD.tileSize - HALF_MAP_M,
-    z: (row + h / 2) * WORLD.tileSize - HALF_MAP_M,
-  };
-}
-
-function buildingColorOf(b: BuildingFootprint): Color {
-  if (b.kind === 'tower') return TOWER_COLOR;
-  return (b.col + b.row) % 2 === 0 ? SMALL_BUILDING_COLOR_A : SMALL_BUILDING_COLOR_B;
-}
 
 function overlayColorOf(tile: Tile): Color {
   if (tile.type === 'parkingLot') return PARKING_LOT_COLOR;
@@ -194,48 +173,11 @@ export function CityScape({ world }: CityScapeProps) {
   );
   useEffect(() => () => overlayGeometry.dispose(), [overlayGeometry]);
 
-  // Buildings: one InstancedMesh of unit boxes, scaled per footprint/height, tinted via
-  // instanceColor (2-3 flat tones by kind — see the palette block above). Populated
-  // imperatively post-mount (InstancedMesh.setMatrixAt/setColorAt need the live three.js
-  // object), same pattern as GraphViz's geometry-build effect.
-  const buildingsRef = useRef<InstancedMesh>(null);
-  useEffect(() => {
-    const mesh = buildingsRef.current;
-    if (!mesh) return;
-    const dummy = new Object3D();
-    world.buildings.forEach((b, i) => {
-      const { x, z } = footprintCenter(b.col, b.row, b.w, b.h);
-      dummy.position.set(x, b.heightM / 2, z);
-      dummy.scale.set(
-        b.w * WORLD.tileSize - BUILDING_INSET_M * 2,
-        b.heightM,
-        b.h * WORLD.tileSize - BUILDING_INSET_M * 2,
-      );
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-      mesh.setColorAt(i, buildingColorOf(b));
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    mesh.computeBoundingSphere();
-  }, [world]);
-
-  // Transformer lot props: one small placeholder box per district's fenced lot (exactly
-  // 16, TDD §5.8), one InstancedMesh.
-  const transformersRef = useRef<InstancedMesh>(null);
-  useEffect(() => {
-    const mesh = transformersRef.current;
-    if (!mesh) return;
-    const dummy = new Object3D();
-    world.transformers.forEach((t, i) => {
-      const { x, z } = tileCenter(t.col, t.row);
-      dummy.position.set(x, TRANSFORMER_PROP_HEIGHT_M / 2, z);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.computeBoundingSphere();
-  }, [world]);
+  // Instanced archetypes (Phase 5): buildings + street props via the palette/instancing
+  // layer. Assembled ONCE per world — the sorted sets feed both the renderer below and
+  // (once mounted) the collider layer, keeping instanceId agreement (see CityArchetypes'
+  // header invariant).
+  const instanceSets = useMemo(() => buildCityInstanceSets(world), [world]);
 
   // Boundary barriers: visual-only InstancedMesh (3 instances); physics colliders are
   // separate fixed RigidBodies below, decoupled from the visual mesh (draw-call budget
@@ -267,18 +209,10 @@ export function CityScape({ world }: CityScapeProps) {
 
   return (
     <>
-      {/* Phase 2/3 lighting, unchanged (real lighting rig is Phase 5). */}
-      <ambientLight intensity={0.6} />
-      <directionalLight
-        position={[25, 35, 15]}
-        intensity={1.4}
-        castShadow
-        shadow-mapSize={[1024, 1024]}
-        shadow-camera-left={-40}
-        shadow-camera-right={40}
-        shadow-camera-top={40}
-        shadow-camera-bottom={-40}
-      />
+      {/* Blue-hour lighting rig (Phase 5, TDD §8.1-8.2): dusk key with a player-following,
+          texel-quantized shadow frustum + hemisphere ambient + gradient sky/fog + ACES
+          tone mapping. Owns all scene/renderer lighting state; see world/lighting.ts. */}
+      <BlueHourRig />
 
       {/* Ground: the ONE thing wheel rays are allowed to hit (GROUND membership) — see the
           file header. Spans the whole 640x640 map plus a margin under the boundary ring. */}
@@ -300,32 +234,11 @@ export function CityScape({ world }: CityScapeProps) {
         <meshStandardMaterial vertexColors />
       </mesh>
 
-      {/* Buildings: one InstancedMesh, no colliders yet (Phase 5/6). */}
-      {world.buildings.length > 0 ? (
-        <instancedMesh
-          ref={buildingsRef}
-          args={[undefined, undefined, world.buildings.length]}
-          frustumCulled={false}
-          castShadow
-          receiveShadow
-        >
-          <boxGeometry args={[1, 1, 1]} />
-          <meshStandardMaterial />
-        </instancedMesh>
-      ) : null}
-
-      {/* Transformer lot props: one InstancedMesh, 16 instances (one per district). */}
-      {world.transformers.length > 0 ? (
-        <instancedMesh
-          ref={transformersRef}
-          args={[undefined, undefined, world.transformers.length]}
-          frustumCulled={false}
-          castShadow
-        >
-          <boxGeometry args={[TRANSFORMER_PROP_SIZE_M, TRANSFORMER_PROP_HEIGHT_M, TRANSFORMER_PROP_SIZE_M]} />
-          <meshStandardMaterial color={TRANSFORMER_PROP_COLOR} />
-        </instancedMesh>
-      ) : null}
+      {/* Buildings + street props: real instanced archetypes (palette material, district-
+          grouped buffers, emissive plumbing) + their fixed colliders, both fed the SAME
+          sorted sets so registry instanceIds and mesh instances agree (cityInstances.ts). */}
+      <CityArchetypes sets={instanceSets} />
+      <WorldColliders sets={instanceSets} />
 
       {/* Boundary barriers: one visual InstancedMesh (3 instances)... */}
       <instancedMesh ref={barriersRef} args={[undefined, undefined, BARRIER_SPECS.length]} frustumCulled={false} castShadow>

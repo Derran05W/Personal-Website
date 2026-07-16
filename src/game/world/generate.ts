@@ -263,9 +263,15 @@ function pickTransformerTile(
 
 /**
  * Fill one block: parks/parking lots retype every (non-reserved) tile; building blocks keep
- * the default 'building' type and overlay non-overlapping footprints. Towers pack 2×2 only;
- * a block too small/skinny for even one 2×2 degrades to smallBuildings so it never renders
- * empty. Reserved (transformer) tiles are never retyped and never packed over.
+ * the default 'building' type and overlay non-overlapping footprints. Reserved (transformer)
+ * tiles are never retyped and never packed over.
+ *
+ * ZONING RULE (Phase 5 camera-occlusion decision): tower footprints (2×2, tall) may only
+ * occupy tiles with NO road neighbour — the street-front row of every block stays low-rise
+ * so the fixed §5.3 follow camera (eye height ≈ 14 m, offset ~1.3 tiles diagonally from the
+ * car) skims over roofs instead of ending up inside a roadside tower. Tower blocks
+ * therefore MIX: interior towers + street-front smalls. A block with no valid interior
+ * tower anchor degrades to all-smallBuildings so it never renders empty.
  */
 function fillBlock(
   block: Block,
@@ -289,34 +295,93 @@ function fillBlock(
   // the reserved (transformer) tiles so packing skips them and never double-covers a tile.
   const blockSet = new Set(block.tileIndices);
   const occupied = new Set<number>(reserved);
+
+  const towerAnchorOk = (col: number, row: number): boolean =>
+    fits(col, row, 2, 2, blockSet, occupied, N) && !footprintTouchesRoad(col, row, 2, 2, N, type);
   const effective: BlockKind =
-    kind === 'tower' && !anyFits(block, blockSet, occupied, N, 2, 2) ? 'smallBuildings' : kind;
+    kind === 'tower' && !anyTowerAnchor(block, N, towerAnchorOk) ? 'smallBuildings' : kind;
 
   for (const idx of block.tileIndices) {
     if (occupied.has(idx)) continue;
     const col = idx % N;
     const row = (idx - col) / N;
 
-    // Towers are always 2×2; small buildings roll a weighted size.
-    let w = 2;
-    let h = 2;
-    if (effective === 'smallBuildings') {
+    // Tower blocks: interior anchors get 2×2 towers; street-front (or non-fitting) anchors
+    // fall through to a rolled small footprint. Small blocks always roll.
+    let fpKind: BuildingFootprint['kind'] = 'small';
+    let w: number;
+    let h: number;
+    if (effective === 'tower' && towerAnchorOk(col, row)) {
+      fpKind = 'tower';
+      w = 2;
+      h = 2;
+    } else {
       const shape = weightedPick(packRng, WORLD_GEN.footprintSizes, (s) => s.weight);
       w = shape.w;
       h = shape.h;
+      if (!fits(col, row, w, h, blockSet, occupied, N)) continue; // leftover paved yard
     }
-    if (!fits(col, row, w, h, blockSet, occupied, N)) continue; // leftover paved yard
 
     for (let dr = 0; dr < h; dr++) {
       for (let dc = 0; dc < w; dc++) {
         occupied.add(tileIndex(col + dc, row + dr));
       }
     }
-    const fpKind: BuildingFootprint['kind'] = effective === 'tower' ? 'tower' : 'small';
-    const [minH, maxH] = fpKind === 'tower' ? WORLD_GEN.towerHeightM : WORLD_GEN.smallHeightM;
+    // Street-front height cap (same zoning rationale as the tower rule above): the fixed
+    // follow camera sits ~12.6-14.8 m up and ~13.8 m laterally from the car, i.e. INSIDE
+    // the first building row along every road — so road-adjacent smalls draw from only the
+    // bottom third of the small range (the lowest render bucket, ≈7 m) and the camera
+    // clears their roofs. Interior smalls keep the full range for skyline variety.
+    const [minH, fullMaxH] = fpKind === 'tower' ? WORLD_GEN.towerHeightM : WORLD_GEN.smallHeightM;
+    const maxH =
+      fpKind === 'small' && footprintTouchesRoad(col, row, w, h, N, type)
+        ? minH + (fullMaxH - minH) / 3
+        : fullMaxH;
     const heightM = Math.round((minH + heightRng.next() * (maxH - minH)) * 100) / 100;
     buildings.push({ col, row, w, h, kind: fpKind, heightM, districtId: districtIdAt(col, row) });
   }
+}
+
+/** True iff any tile of a w×h footprint at (col,row) has a 4-neighbour road tile. */
+function footprintTouchesRoad(
+  col: number,
+  row: number,
+  w: number,
+  h: number,
+  N: number,
+  type: readonly TileType[],
+): boolean {
+  for (let dr = 0; dr < h; dr++) {
+    for (let dc = 0; dc < w; dc++) {
+      const c = col + dc;
+      const r = row + dr;
+      const neighbours: Array<[number, number]> = [
+        [c, r - 1],
+        [c, r + 1],
+        [c - 1, r],
+        [c + 1, r],
+      ];
+      for (const [nc, nr] of neighbours) {
+        if (nc < 0 || nr < 0 || nc >= N || nr >= N) continue;
+        if (type[tileIndex(nc, nr)] === 'road') return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** True iff at least one anchor in the block satisfies `anchorOk` for a 2×2 tower. */
+function anyTowerAnchor(
+  block: Block,
+  N: number,
+  anchorOk: (col: number, row: number) => boolean,
+): boolean {
+  for (const idx of block.tileIndices) {
+    const col = idx % N;
+    const row = (idx - col) / N;
+    if (anchorOk(col, row)) return true;
+  }
+  return false;
 }
 
 /** True iff a w×h footprint anchored at (col,row) lands entirely on free in-block tiles. */
@@ -339,23 +404,6 @@ function fits(
     }
   }
   return true;
-}
-
-/** True iff a w×h footprint fits anywhere in the block given current occupancy. */
-function anyFits(
-  block: Block,
-  blockSet: ReadonlySet<number>,
-  occupied: ReadonlySet<number>,
-  N: number,
-  w: number,
-  h: number,
-): boolean {
-  for (const idx of block.tileIndices) {
-    const col = idx % N;
-    const row = (idx - col) / N;
-    if (fits(col, row, w, h, blockSet, occupied, N)) return true;
-  }
-  return false;
 }
 
 // --- Weighted choice ---------------------------------------------------------------------

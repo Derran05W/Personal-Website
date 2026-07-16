@@ -1,14 +1,18 @@
-// Deterministic player spawn point (Phase 4 Task 3). getSpawnPose() picks the road tile
-// nearest the map's center and returns a pose sitting on it, identity-facing. Consumed by
-// game/index.tsx (PlayerVehicle's spawn position) and core/debugBridge.ts (the dev reset
-// default) — the phase orchestrator wires both call sites; this module only computes the
-// pose and exposes it.
+// Deterministic player spawn point (Phase 4 Task 3; road-aligned facing added at Phase 5
+// integration). getSpawnPose() picks the road tile nearest the map's center and returns a
+// pose sitting on it, FACING ALONG the road — buildings have colliders from Phase 5 on,
+// so spawning nose-first into the wall across the street would make the first W press a
+// crash. Consumed by game/index.tsx (PlayerVehicle's spawn position) and
+// core/debugBridge.ts (the dev reset default).
 
 import type { VehiclePose } from '../vehicles/IVehicleModel';
 import { WORLD } from '../config';
 import { tileCenter, tileIndex, type WorldData } from './types';
 
-const IDENTITY_ROTATION = { x: 0, y: 0, z: 0, w: 1 } as const;
+const IDENTITY_ROTATION = { x: 0, y: 0, z: 0, w: 1 } as const; // faces +Z (south)
+// Quaternion for a +90-degree yaw about +Y: forward becomes +X (east). Used when the
+// spawn road runs east-west. (sin 45, cos 45 halves — axis-angle about Y.)
+const FACE_EAST_ROTATION = { x: 0, y: 0.7071067811865476, z: 0, w: 0.7071067811865476 } as const;
 // Just above the measured suspension settle height (~0.837 m): the wheel rays are in
 // ground contact from the very first physics step, so even a stalled first frame's
 // catch-up burst (see BOUNDARY.fellOutResetY) can't drop the chassis past the ray reach.
@@ -16,9 +20,17 @@ const IDENTITY_ROTATION = { x: 0, y: 0, z: 0, w: 1 } as const;
 // that a 30-step burst could blow straight through.
 const SPAWN_HEIGHT_M = 0.85;
 
-function poseAt(col: number, row: number): VehiclePose {
+type IsRoadAt = (col: number, row: number) => boolean;
+
+/** Pose at a tile, yawed to face along the local road: east if the east/west neighbours
+ * are road (east-west street), otherwise south (north-south street / intersection —
+ * either axis is drivable there, and south keeps the old default). */
+function poseAt(col: number, row: number, isRoadAt: IsRoadAt): VehiclePose {
   const { x, z } = tileCenter(col, row);
-  return { position: { x, y: SPAWN_HEIGHT_M, z }, rotation: IDENTITY_ROTATION };
+  const eastWest = isRoadAt(col + 1, row) || isRoadAt(col - 1, row);
+  const northSouth = isRoadAt(col, row + 1) || isRoadAt(col, row - 1);
+  const rotation = eastWest && !northSouth ? FACE_EAST_ROTATION : IDENTITY_ROTATION;
+  return { position: { x, y: SPAWN_HEIGHT_M, z }, rotation };
 }
 
 /**
@@ -37,7 +49,7 @@ export function getSpawnPose(world: WorldData): VehiclePose {
     return world.tiles[tileIndex(col, row)].type === 'road';
   };
 
-  if (isRoadAt(centerCol, centerRow)) return poseAt(centerCol, centerRow);
+  if (isRoadAt(centerCol, centerRow)) return poseAt(centerCol, centerRow, isRoadAt);
 
   for (let radius = 1; radius < n; radius++) {
     const top = centerRow - radius;
@@ -46,14 +58,14 @@ export function getSpawnPose(world: WorldData): VehiclePose {
     const right = centerCol + radius;
 
     for (let col = left; col <= right; col++) {
-      if (isRoadAt(col, top)) return poseAt(col, top);
+      if (isRoadAt(col, top)) return poseAt(col, top, isRoadAt);
     }
     for (let row = top + 1; row < bottom; row++) {
-      if (isRoadAt(left, row)) return poseAt(left, row);
-      if (isRoadAt(right, row)) return poseAt(right, row);
+      if (isRoadAt(left, row)) return poseAt(left, row, isRoadAt);
+      if (isRoadAt(right, row)) return poseAt(right, row, isRoadAt);
     }
     for (let col = left; col <= right; col++) {
-      if (isRoadAt(col, bottom)) return poseAt(col, bottom);
+      if (isRoadAt(col, bottom)) return poseAt(col, bottom, isRoadAt);
     }
   }
 

@@ -68,7 +68,7 @@ Status: `[ ]` todo · `[~]` in progress · `[!]` blocked / awaiting user · `[x]
 
 ### Part 2 — The City (`.planning/part-2-city.md`)
 - [x] **Phase 4 — World generation: tiles, roads, districts, boundaries** (M2a) — 2026-07-16: seeded generator (1.24 ms, 88 new tests, golden-hash pinned), traffic graph (1,932 nodes seed 416), city scene + diegetic boundaries + water sensor + minimap/debug tooling shipped; all gates + live battery green; push still user-blocked (see phase-04-notes.md).
-- [ ] **Phase 5 — City rendering: instancing, palette, assets, blue hour** (M2b) — USER look check
+- [x] **Phase 5 — City rendering: instancing, palette, assets, blue hour** (M2b) — 2026-07-16: palette material + emissive plumbing, district-ranged instancing (blackout write path proven visibly), 15 building variants + 8 street props all-procedural (kenney.nl firewalled — fetch pipeline deferred), blue-hour rig w/ texel-quantized shadow follow, 3,754 registry-wired colliders, street-front zoning for the camera; 55 calls / 147.6k tris; 365 tests green; USER look check posted (non-blocking; see phase-05-notes.md).
 - [ ] **Phase 6 — Destruction physics: props go flying** (M2c)
 
 ### Part 3 — Core Loop (`.planning/part-3-core-loop.md`)

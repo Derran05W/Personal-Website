@@ -62,7 +62,11 @@ export const WORLD_GEN = {
   // arbitrary — only their ratios matter. TDD §5.4 block set.
   blockKindWeights: {
     smallBuildings: 6,
-    tower: 3,
+    // Lowered 3 → 2 alongside the tower height cut (below): fewer, shorter towers reduce
+    // how often the fixed §5.3 camera (eye height ≈ 14 m) is fully occluded by a tower
+    // adjacent to the road. Phase 5 look-check decision — accept brief occlusion,
+    // Smashy-style; a fade shader remains a Phase 16 candidate if the user disagrees.
+    tower: 2,
     parkingLot: 2,
     park: 2,
   },
@@ -82,7 +86,9 @@ export const WORLD_GEN = {
   // Placeholder scale-feel only — Phase 5 owns real silhouettes. Small = low-rise;
   // tower = midtown-ish (TDD §5.4 "mid towers").
   smallHeightM: [6, 14],
-  towerHeightM: [25, 45],
+  // Cut from [25, 45] at Phase 5 integration (camera-occlusion decision — see
+  // blockKindWeights.tower above). Still ~2× the small range, so towers read as towers.
+  towerHeightM: [16, 28],
 } as const;
 
 // Traffic-graph tunables consumed only by world/trafficGraph.ts (Phase 4 Task 2; the
@@ -112,6 +118,110 @@ export const POWER_GRID = {
   lightPoolSize: 6,
 } as const;
 
+// Procedural geometry dimensions for the instanced city (world/geometry/*.ts, Phase 5 Task
+// 2). Every builder there is parameterless except buildings (which take a bucketed variant
+// spec) — one canonical geometry per street-prop archetype, shared by every instance via
+// InstancedMesh. All lengths in metres; kept small on purpose (thousands of instances city-
+// wide multiply whatever a single variant costs).
+export const PROP_DIMS = {
+  // Window-grid + parapet tunables (world/geometry/buildings.ts). All windows on one
+  // building share ONE wall tone (windowSeed-rolled) and the SAME emissive cell
+  // (windowWarm) — whether a given building instance actually glows is a per-instance
+  // attribute set elsewhere (TDD §5.8), not baked into the geometry.
+  building: {
+    floorHeightM: 4, // target vertical spacing between window rows
+    windowColSpacingM: 4, // target horizontal spacing between window columns
+    windowWidthM: 1.4,
+    windowHeightM: 1.8,
+    windowSideMarginM: 1.2, // clearance from a wall's side edges before the first/last column
+    windowBottomMarginM: 1.5, // clearance from ground level (no street-level windows)
+    windowTopMarginM: 1, // clearance from the roofline
+    windowInsetM: 0.04, // window quads sit this far proud of the wall plane (z-fight guard)
+    parapetHeightM: 1.2, // tower-only roof lip, stacked on top of the wall height
+    // Representative heights rendered per kind (see buildingVariantKey/bucketHeightM) —
+    // both the instancing consumer and this module derive buckets from the SAME
+    // WORLD_GEN.smallHeightM/towerHeightM range split into this many equal spans, so they
+    // can never disagree.
+    heightBuckets: 3,
+  },
+  streetlight: {
+    poleHeightM: 5.5,
+    poleRadiusM: 0.09,
+    poleSides: 8,
+    armLengthM: 1.3,
+    armThicknessM: 0.1,
+    headWidthM: 0.5,
+    headDepthM: 0.4,
+    headHeightM: 0.3,
+  },
+  trafficLight: {
+    poleHeightM: 3.4,
+    poleRadiusM: 0.08,
+    poleSides: 8,
+    headWidthM: 0.4,
+    headHeightM: 1,
+    headDepthM: 0.28,
+    cellSizeM: 0.24,
+    cellGapM: 0.06, // vertical spacing between the 3 stacked signal cells
+    cellInsetM: 0.03, // signal cell quads sit this far proud of the head's front face
+  },
+  tree: {
+    trunkHeightM: 1.3,
+    trunkRadiusM: 0.15,
+    trunkSides: 6,
+    foliageSides: 8,
+    foliageTiers: 3,
+    foliageBaseRadiusM: 1.15, // bottom (widest) tier's base radius
+    foliageShrink: 0.68, // each higher tier's base radius = previous * this
+    foliageTierHeightM: 1, // each tier's own base-to-apex height
+    foliageOverlapM: 0.4, // each tier starts this far below the previous tier's base
+  },
+  bench: {
+    seatWidthM: 1.6,
+    seatDepthM: 0.42,
+    seatThicknessM: 0.08,
+    seatHeightM: 0.45, // ground clearance to the underside of the seat
+    backHeightM: 0.5,
+    backThicknessM: 0.06,
+    legThicknessM: 0.08,
+  },
+  hydrant: {
+    bodyHeightM: 0.55,
+    bodyRadiusM: 0.14,
+    bodySides: 8,
+    capHeightM: 0.12,
+    capRadiusM: 0.17,
+    nozzleRadiusM: 0.05,
+    nozzleLengthM: 0.12,
+  },
+  mailbox: {
+    postHeightM: 0.9,
+    postRadiusM: 0.05,
+    postSides: 6,
+    bodyWidthM: 0.45,
+    bodyHeightM: 0.4,
+    bodyDepthM: 0.35,
+  },
+  fenceSegment: {
+    lengthM: 2.5, // divides WORLD.tileSize (10) exactly — 4 segments close one tile edge
+    heightM: 1.2,
+    postThicknessM: 0.07,
+    railThicknessM: 0.05,
+    crossbarThicknessM: 0.04,
+  },
+  transformerBox: {
+    widthM: 1.5,
+    depthM: 1.1,
+    heightM: 1.6,
+    plinthHeightM: 0.15,
+    plinthOutsetM: 0.08,
+    knobRadiusM: 0.06,
+    knobHeightM: 0.2,
+    knobSides: 6,
+    knobCount: 3,
+  },
+} as const;
+
 export const PROPS = {
   // Dynamic prop pool cap (posts, hydrants, benches, parked cars once struck). TDD §7.
   dynamicPoolCap: 60,
@@ -120,4 +230,42 @@ export const PROPS = {
   // PLACEHOLDER — TDD §7 says static props swap to dynamic "on an impact impulse above
   // threshold" without giving a number; tune once the physics/damage systems exist.
   wakeImpulseThreshold: 100,
+} as const;
+
+// Prop-placement density/geometry tunables consumed only by world/propPlacements.ts (Phase
+// 5 Task 2). Purely cosmetic placement — never shifts the LAYOUT rng stream (placements
+// fork a dedicated 'props' child of the world seed), so retuning any of these can never
+// change generate.ts's golden hash.
+export const PROP_PLACEMENT = {
+  // Streetlights: one per this many qualifying (road-adjacent) road tiles walked in
+  // row-major order.
+  streetlightStrideRoadTiles: 2,
+  // How far a streetlight sits from its road tile's own center, toward the curb edge
+  // bordering the sidewalk (m) — must stay under WORLD.tileSize/2.
+  streetlightEdgeOffsetM: 4,
+  // Fraction of true 4-way intersections (road tile with a road neighbour on both axes)
+  // that actually get a traffic light — keeps them sparse, not on every corner.
+  trafficLightProbability: 0.35,
+  // How far a traffic light sits from its intersection tile's center, toward one of its
+  // 4 diagonal corners (m).
+  trafficLightCornerOffsetM: 3.5,
+  // Trees per park tile, inclusive range.
+  parkTreesRange: [2, 4] as readonly [number, number],
+  // Chance a park tile also gets one bench.
+  parkBenchProbability: 0.5,
+  // Keep jittered park props at least this far from the tile's own edges (m).
+  parkEdgeMarginM: 1.5,
+  // Hydrants/mailboxes: sparse on road-adjacent building tiles — one placement roughly
+  // every [min,max] eligible tiles walked in row-major order (re-rolled per placement).
+  edgePropSampleEvery: [6, 10] as readonly [number, number],
+  // How far a hydrant/mailbox sits from its tile's center, toward the road-adjacent edge (m).
+  edgePropOffsetM: 3.5,
+  // Fence-ring segments hug a transformer lot's tile boundary; nudged this far INSIDE the
+  // tile so a segment's position always resolves back to the lot's own tileIndex (a point
+  // exactly on a shared edge belongs to only one of the two tiles by convention).
+  fenceEdgeInsetM: 0.1,
+  // Chain-link fence ring around a transformer lot: exactly 3 of the tile's 4 sides get a
+  // row of fenceSegment instances (the 4th — the road-facing side, if detectable — stays
+  // open); WORLD.tileSize / PROP_DIMS.fenceSegment.lengthM segments per side (4 at the
+  // current numbers).
 } as const;
