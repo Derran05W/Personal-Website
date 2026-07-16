@@ -177,6 +177,32 @@ describe('derivePlacements — archetype-appropriate tile types (seed 416)', () 
     }
   });
 
+  it('parked cars only occur on parkingLot tiles, 1-3 per tile', () => {
+    const cars = byArchetype.get('parkedCar') ?? [];
+    expect(cars.length).toBeGreaterThan(0);
+    const perLot = new Map<number, number>();
+    for (const p of cars) {
+      expect(world.tiles[p.tileIndex].type).toBe('parkingLot');
+      perLot.set(p.tileIndex, (perLot.get(p.tileIndex) ?? 0) + 1);
+    }
+    expect(perLot.size).toBeGreaterThan(0);
+    for (const count of perLot.values()) {
+      expect(count).toBeGreaterThanOrEqual(1);
+      expect(count).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it("parked cars' rotationY sits within jitter of one of the 4 cardinal yaws", () => {
+    const cars = byArchetype.get('parkedCar') ?? [];
+    const BASE_YAWS = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2];
+    for (const p of cars) {
+      const nearest = BASE_YAWS.reduce((best, yaw) =>
+        Math.abs(p.rotationY - yaw) < Math.abs(p.rotationY - best) ? yaw : best,
+      );
+      expect(Math.abs(p.rotationY - nearest)).toBeLessThan(0.3);
+    }
+  });
+
   it('every transformer lot gets exactly a 3-sided fence ring (12 segments at the current dimensions)', () => {
     const fences = byArchetype.get('fenceSegment') ?? [];
     const perLot = new Map<number, number>();

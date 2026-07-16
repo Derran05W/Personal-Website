@@ -60,6 +60,7 @@ const OVERLAY_Y = 0.012; // Parks/lots: fractionally above roads (tile sets neve
 const WATER_VISUAL_Y = 0.05;
 const HALF_MAP_M = (WORLD.tiles * WORLD.tileSize) / 2;
 const GROUND_SIZE_M = WORLD.tiles * WORLD.tileSize + 2 * BOUNDARY.groundMarginM;
+const GROUND_THICKNESS_M = BOUNDARY.groundThicknessM;
 const GROUND_GROUPS = interactionGroups('GROUND');
 const BUILDING_GROUPS = interactionGroups('BUILDING');
 const WATER_GROUPS = interactionGroups('WATER');
@@ -215,10 +216,13 @@ export function CityScape({ world }: CityScapeProps) {
       <BlueHourRig />
 
       {/* Ground: the ONE thing wheel rays are allowed to hit (GROUND membership) — see the
-          file header. Spans the whole 640x640 map plus a margin under the boundary ring. */}
+          file header. Spans the whole 640x640 map plus a margin under the boundary ring. The
+          slab's TOP face stays at y=0 (the wheel-ray contract); its thickness only extends
+          downward (BOUNDARY.groundThicknessM), so a chassis can never exit a thin underside
+          during a stall — defense-in-depth behind the vehicle's fall-through catch. */}
       <RigidBody type="fixed" colliders="cuboid" collisionGroups={GROUND_GROUPS}>
-        <mesh position={[0, -0.5, 0]} receiveShadow>
-          <boxGeometry args={[GROUND_SIZE_M, 1, GROUND_SIZE_M]} />
+        <mesh position={[0, -GROUND_THICKNESS_M / 2, 0]} receiveShadow>
+          <boxGeometry args={[GROUND_SIZE_M, GROUND_THICKNESS_M, GROUND_SIZE_M]} />
           <meshStandardMaterial color={GROUND_COLOR} />
         </mesh>
       </RigidBody>

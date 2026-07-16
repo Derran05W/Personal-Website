@@ -75,3 +75,42 @@ export function nextSteerAngle(
 export function throttleGovernor(forwardSpeed: number, topSpeed: number): number {
   return clamp01(1 - Math.max(forwardSpeed, 0) / topSpeed);
 }
+
+export interface FallThroughSafety {
+  /** Chassis-center world Y below which the car is deemed to have punched through the
+   * ground (below the ground plane at y=0, unreachable while driving on top of it). */
+  readonly triggerY: number;
+  /** World Y to lift a caught chassis back to — just above the ~0.837 m settle height, so
+   * the wheel-ray suspension re-engages immediately without a bounce. */
+  readonly liftToY: number;
+}
+
+export interface FallThroughCorrection {
+  /** Whether the chassis had fallen through and needs correcting this step. */
+  readonly caught: boolean;
+  /** Chassis Y to write when caught (else the input Y, unchanged). */
+  readonly y: number;
+  /** Vertical velocity to write when caught — any downward motion arrested (else input vy). */
+  readonly vy: number;
+}
+
+/**
+ * Fall-through safety catch (Phase 6, wave-2 physics session). Belt-and-suspenders behind the
+ * primary defenses (the chassis↔GROUND cuboid collision + CCD, which a headless Rapier
+ * reproduction proved already stop the car dead under a stall). If the chassis center has
+ * nonetheless dropped below `triggerY` — i.e. it is fully submerged beneath the ground plane,
+ * which only happens if that primary backstop is somehow inactive — report a correction that
+ * lifts it to `liftToY` and kills any downward velocity, so the suspension re-engages instead
+ * of the car plummeting to the fell-out net (BOUNDARY.fellOutResetY).
+ *
+ * Pure number-in/number-out (no Rapier) so it unit-tests without the wasm module. Feel-neutral
+ * by construction: the trigger sits below the ground surface, unreachable in normal play (the
+ * deepest a stalled-but-grounded chassis dips is ≈0.32 m — well above 0), so this never fires
+ * while the car is driving and cannot alter the M1-signed-off feel.
+ */
+export function fallThroughCatch(y: number, vy: number, cfg: FallThroughSafety): FallThroughCorrection {
+  if (y < cfg.triggerY) {
+    return { caught: true, y: cfg.liftToY, vy: vy < 0 ? 0 : vy };
+  }
+  return { caught: false, y, vy };
+}

@@ -8,7 +8,7 @@
 // Input is cityInstances.ts's ArchetypeInstanceSet[] (buildings + street props, already
 // district-sorted) — this module owns no generation/placement/sorting logic of its own.
 
-import { POWER_GRID, PROP_DIMS, WORLD } from '../config';
+import { POWER_GRID, PROP_DIMS, PROPS, WORLD } from '../config';
 import { ARCHETYPES, type ArchetypeName } from './archetypes';
 import type { ArchetypeInstanceSet } from './cityInstances';
 import { footprintCenter } from './cityInstances';
@@ -149,6 +149,16 @@ export function propColliderBox(archetype: ArchetypeName): ColliderBox {
         centerY: topM / 2,
       };
     }
+    case 'parkedCar': {
+      const d = PROP_DIMS.parkedCar;
+      // Full car height (body + cabin, ground clearance included) and full car length
+      // (body + both bumpers) — a slightly generous over-cover of the actual geometry
+      // (rounds the cabin's narrower width up to the full body width), same "never
+      // under-cover a destructible prop" spirit as transformerBox above.
+      const topM = d.bodyBottomM + d.bodyHeightM + d.cabinHeightM;
+      const halfLengthM = d.bodyLengthM / 2 + d.bumperDepthM;
+      return { halfExtents: [d.bodyWidthM / 2, topM / 2, halfLengthM], centerY: topM / 2 };
+    }
     case 'buildingSmall':
     case 'buildingTower':
       throw new Error(`propColliderBox: ${archetype} is a building archetype, not a street prop`);
@@ -168,12 +178,14 @@ export function buildingEntityEntry(building: BuildingFootprint, instanceId: num
 
 export function propEntityEntry(placement: PropPlacement, instanceId: number): EntityEntry {
   const isTransformer = placement.archetype === 'transformerBox';
+  const isParkedCar = placement.archetype === 'parkedCar';
   return {
     kind: isTransformer ? 'transformer' : 'propStatic',
     archetype: placement.archetype,
     instanceId,
     districtId: placement.districtId,
     ...(isTransformer ? { hp: POWER_GRID.transformerHp } : {}),
+    ...(isParkedCar ? { hp: PROPS.parkedCarHp } : {}),
   };
 }
 

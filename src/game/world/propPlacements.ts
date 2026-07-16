@@ -314,10 +314,57 @@ function transformerPlacements(world: WorldData): PropPlacement[] {
   return out;
 }
 
+// --- Parked cars -------------------------------------------------------------------------
+// 1-3 per parkingLot tile, grid-ish: all cars in one tile share a single rolled facing (one
+// of the 4 cardinal yaws), arranged as a row of slots spread along the axis PERPENDICULAR to
+// that facing (i.e. the cars' own width axis — a row of cars parked side-by-side, nose all
+// pointing the same way), each slot getting small independent jitter on both axes plus a
+// small rotation jitter off the shared base yaw. Margined off the tile edges like
+// parkPlacements above.
+const PARKED_CAR_YAWS: readonly number[] = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2];
+
+function parkingLotPlacements(world: WorldData, rng: Rng): PropPlacement[] {
+  const out: PropPlacement[] = [];
+  const N = WORLD.tiles;
+  const half = WORLD.tileSize / 2 - PROP_PLACEMENT.parkingLotEdgeMarginM;
+  const [minCars, maxCars] = PROP_PLACEMENT.parkingLotCarsRange;
+  const posJitter = PROP_PLACEMENT.parkingLotJitterM;
+  const rotJitter = PROP_PLACEMENT.parkingLotRotationJitterRad;
+  for (let row = 0; row < N; row++) {
+    for (let col = 0; col < N; col++) {
+      const idx = tileIndex(col, row);
+      const tile = world.tiles[idx];
+      if (tile.type !== 'parkingLot') continue;
+      const center = tileCenter(col, row);
+      const count = rng.int(minCars, maxCars);
+      const baseYaw = rng.pick(PARKED_CAR_YAWS);
+      // yaw 0/π faces ±Z, so the cars' width axis (the row) runs along X; yaw π/2/3π/2
+      // faces ±X, so the row runs along Z instead.
+      const rowAlongX = baseYaw === 0 || baseYaw === Math.PI;
+      for (let i = 0; i < count; i++) {
+        const t = count === 1 ? 0 : i / (count - 1) - 0.5; // -0.5..0.5
+        const rowOffset = t * 2 * half;
+        const x = center.x + (rowAlongX ? rowOffset : 0) + jitter(rng, posJitter);
+        const z = center.z + (rowAlongX ? 0 : rowOffset) + jitter(rng, posJitter);
+        out.push({
+          archetype: 'parkedCar',
+          x,
+          z,
+          rotationY: baseYaw + jitter(rng, rotJitter),
+          districtId: tile.districtId,
+          tileIndex: idx,
+        });
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Derive every street-prop placement for `world`. Pure and deterministic — see the file
  * header. Order is stable (streetlights, traffic lights, park furniture, edge props,
- * transformer lots) but callers should never depend on it beyond that stability.
+ * transformer lots, parking lots) but callers should never depend on it beyond that
+ * stability.
  */
 export function derivePlacements(world: WorldData): PropPlacement[] {
   const rng = createRng(world.seed).fork('props');
@@ -327,5 +374,10 @@ export function derivePlacements(world: WorldData): PropPlacement[] {
     ...parkPlacements(world, rng.fork('park')),
     ...edgePropPlacements(world, rng.fork('edge')),
     ...transformerPlacements(world),
+    // NEW independent fork label ('parkingLot') — per rng.ts, fork() derives purely from
+    // (parent base seed, label), never from consumption order, so appending this call can
+    // never perturb any of the categories above (verified by propPlacements.test.ts's
+    // determinism suite, which runs unchanged against the full output including this).
+    ...parkingLotPlacements(world, rng.fork('parkingLot')),
   ];
 }

@@ -24,6 +24,9 @@ import { AiSystem, CameraFxSystem, EventDrainSystem } from './core/frameOrder';
 import { generate } from './world/generate';
 import { getSpawnPose } from './world/spawn';
 import { CityScape } from './world/CityScape';
+import { PropDynamics } from './world/PropDynamicsMount';
+import { DamageSystem } from './combat/damage';
+import { onImpact } from './combat/contacts';
 import { SkidMarks } from './fx/SkidMarks';
 import { PlayerVehicle } from './vehicles/PlayerVehicle';
 import { RustySedanMesh } from './vehicles/RustySedanMesh';
@@ -179,6 +182,11 @@ export default function Game() {
             <CameraFxSystem />
 
             <CityScape key={`city-${seed}`} world={world} />
+            {/* Destruction spine (Phase 6): impacts flow contacts→damage/propDynamics.
+                Keyed on seed like the city — a regenerate must reset the pool + hp state
+                with the world it belongs to. */}
+            <DamageSystem key={`damage-${seed}`} />
+            <PropDynamics key={`props-${seed}`} source={onImpact} />
             <SkidMarks />
             {/* key: spawn position is read once at body create (PlayerVehicle contract) —
                 remount on regenerate rather than mutate. */}

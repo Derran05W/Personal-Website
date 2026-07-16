@@ -12,6 +12,32 @@ import { spawnPoseRef } from '../world/spawn';
 import type { VehiclePose, VehicleState } from '../vehicles/IVehicleModel';
 import { ARCHETYPES, EMISSIVE_ARCHETYPES } from '../world/archetypes';
 import { setDistrictColor, setDistrictEmissive as setDistrictEmissiveRange } from '../world/instancing';
+import { getImpactCount, onImpact } from '../combat/contacts';
+
+// Phase 6 contact-spine verification: a small ring buffer of the most recent dispatched
+// ImpactRecords, resolved to the registry identities the spine attached. The contact-force
+// drain writes nothing to the DOM/canvas a screenshot could scrape, so — like readState/
+// readPerf — a scripted check reads impacts through this bridge instead of watching pixels.
+// DEV-only (this whole module is dynamically imported only under import.meta.env.DEV).
+interface ImpactSample {
+  readonly aKind: string | undefined;
+  readonly aArchetype: string | undefined;
+  readonly bKind: string | undefined;
+  readonly bArchetype: string | undefined;
+  readonly forceMag: number;
+}
+const RECENT_IMPACTS_CAP = 16;
+const recentImpacts: ImpactSample[] = [];
+onImpact((impact) => {
+  recentImpacts.push({
+    aKind: impact.a?.kind,
+    aArchetype: impact.a?.archetype,
+    bKind: impact.b?.kind,
+    bArchetype: impact.b?.archetype,
+    forceMag: impact.forceMag,
+  });
+  if (recentImpacts.length > RECENT_IMPACTS_CAP) recentImpacts.shift();
+});
 
 // Task 5 debug-tint colour — same value the devPanel "tint district (red)" button uses, so
 // a screenshot script driving this bridge headlessly reproduces exactly what the leva
@@ -53,6 +79,11 @@ declare global {
       /** Task 5 perf snapshot (draw calls / triangles / fps) for the screenshot suite —
        * see PerfSnapshot's doc comment for why this reads the r3f-perf store directly. */
       readPerf: () => PerfSnapshot;
+      /** Phase 6 contact-spine proof: total ImpactRecords dispatched since load. */
+      impactCount: () => number;
+      /** Phase 6 contact-spine proof: the last few dispatched impacts, resolved to registry
+       * identities (kind/archetype of each side + force magnitude). */
+      recentImpacts: () => readonly ImpactSample[];
     };
   }
 }
@@ -79,4 +110,6 @@ window.__smashy = {
       fps: state.log?.fps ?? null,
     };
   },
+  impactCount: () => getImpactCount(),
+  recentImpacts: () => recentImpacts.slice(),
 };

@@ -19,6 +19,7 @@ export const ARCHETYPES = [
   'mailbox',
   'fenceSegment', // transformer-lot fencing
   'transformerBox', // the destructible prop itself (hp — TDD §5.8)
+  'parkedCar', // parking-lot prop (Phase 6): heavy, HP-bearing, shoves/tumbles when hit
 ] as const;
 
 export type ArchetypeName = (typeof ARCHETYPES)[number];

@@ -5,3 +5,4 @@
 export * from './kit';
 export * from './buildings';
 export * from './streetProps';
+export * from './parkedCar';

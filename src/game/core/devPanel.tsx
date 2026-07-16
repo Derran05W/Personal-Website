@@ -18,6 +18,8 @@ import type { VehiclePose } from '../vehicles/IVehicleModel';
 import { getDevToggles, setDevToggle } from './devToggles';
 import { ARCHETYPES, EMISSIVE_ARCHETYPES } from '../world/archetypes';
 import { DISTRICT_COUNT, setDistrictColor, setDistrictEmissive } from '../world/instancing';
+import { derivePlacements } from '../world/propPlacements';
+import { worldRef } from '../world/worldRef';
 
 // Task 5 debug-tint colour: the ONE end-to-end proof that an archetype's district-grouped
 // [start,count] ranges (world/instancing.ts) are correct — a single button recolours every
@@ -151,6 +153,49 @@ export default function DevPanel() {
       schema['teleport reset'] = button(() => {
         playerVehicle.current?.reset(spawnPoseRef.current);
       });
+
+      // Phase 6 Task 4 debug tooling ------------------------------------------------------
+      // "launch test prop" per the task brief: world/propDynamics.ts (the fixed->dynamic
+      // swap + impulse pool, Task 2) is a concurrent sibling module that doesn't exist yet
+      // in this wave, so a debug hook into it isn't buildable without depending on
+      // unfinished internals. What IS cleanly buildable now: find the nearest parkedCar
+      // placement to the player (derivePlacements() over the live world) and teleport the
+      // player a driveable approach distance north of it, facing south (identity yaw) —
+      // straight-line throttle drives the player into the car's front, so a human (or the
+      // Playwright smoke) can ram it to verify the static collider today, and the dynamic
+      // shove/tumble once Task 2 lands.
+      schema['teleport near parked car'] = button(() => {
+        const vehicle = playerVehicle.current;
+        const world = worldRef.current;
+        if (!vehicle || !world) return;
+        const { position } = vehicle.readState().pose;
+        const cars = derivePlacements(world).filter((p) => p.archetype === 'parkedCar');
+        if (cars.length === 0) return;
+        let nearest = cars[0];
+        let bestDistSq = Infinity;
+        for (const p of cars) {
+          const distSq = (p.x - position.x) ** 2 + (p.z - position.z) ** 2;
+          if (distSq < bestDistSq) {
+            bestDistSq = distSq;
+            nearest = p;
+          }
+        }
+        const approachM = 3 + CONFIG.PROP_DIMS.parkedCar.bodyLengthM / 2;
+        vehicle.reset({
+          position: { x: nearest.x, y: position.y, z: nearest.z - approachM },
+          rotation: { x: 0, y: 0, z: 0, w: 1 }, // identity yaw faces +Z (world south) — a
+          // straight line south from here runs into the car regardless of its own facing.
+        });
+      });
+
+      // TODO(Phase 6 Task 2 integration): world/propDynamics.ts doesn't exist yet this wave
+      // (concurrent sibling task) — wake-all needs its dynamic-pool API. No-op until then;
+      // the orchestrator wires this up once Task 2 lands.
+      schema['wake all props'] = button(() => {});
+
+      // TODO(Phase 6 Task 2 integration): placeholder 0 until world/propDynamics.ts exposes
+      // getPoolStats() (concurrent sibling task, not built yet this wave).
+      schema['prop pool occupancy'] = monitor(() => 0, { interval: 250 });
 
       return schema as unknown as LevaSchema;
     },

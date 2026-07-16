@@ -26,7 +26,7 @@ import type { RapierContext, RapierCollider, RapierRigidBody } from '@react-thre
 import type { IVehicleModel, VehicleInputs, VehiclePose, VehicleState } from './IVehicleModel';
 import { CollisionGroup } from '../config/collision';
 import { STARTER_TOP_SPEED, VEHICLE_TUNING } from '../config/vehicles';
-import { nextSteerAngle, throttleGovernor } from './steering';
+import { fallThroughCatch, nextSteerAngle, throttleGovernor } from './steering';
 
 type RapierWorld = RapierContext['world'];
 type RapierNamespace = RapierContext['rapier'];
@@ -193,7 +193,20 @@ export class RaycastVehicle implements IVehicleModel {
     const controller = this.controller;
     if (!controller) return;
 
-    const { engine, stability, wheels } = VEHICLE_TUNING;
+    const { engine, stability, wheels, safety } = VEHICLE_TUNING;
+
+    // Fall-through safety catch (see steering.fallThroughCatch). Runs first, every physics
+    // sub-step: under a main-thread stall @react-three/rapier bursts up to 30 fixed sub-steps
+    // in one frame, each firing this callback, so a catch here fires WITHIN the stall's own
+    // burst — arresting a punched-through chassis before it can plummet to the fell-out net.
+    // The trigger is below the ground plane, so this is a no-op in all normal driving.
+    const pos = this.body.translation();
+    const vel = this.body.linvel();
+    const rescue = fallThroughCatch(pos.y, vel.y, safety);
+    if (rescue.caught) {
+      this.body.setTranslation({ x: pos.x, y: rescue.y, z: pos.z }, true);
+      this.body.setLinvel({ x: vel.x, y: rescue.vy, z: vel.z }, true);
+    }
 
     // Damping is re-applied every step so the fun-gate session can scrub the main arcade
     // stabilizer (angular damping) live.

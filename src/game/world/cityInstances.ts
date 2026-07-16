@@ -11,7 +11,7 @@
 // the visual instance in the mesh all agree by construction. Colliders must be built from
 // THESE arrays, never from raw derivePlacements()/world.buildings order.
 
-import { Matrix4, Quaternion, Vector3, type BufferGeometry } from 'three';
+import { Color, Matrix4, Quaternion, Vector3, type BufferGeometry } from 'three';
 import type { ArchetypeName } from './archetypes';
 import type { BuildingFootprint, WorldData } from './types';
 import { WORLD } from '../config';
@@ -24,6 +24,7 @@ import {
   buildFenceSegment,
   buildHydrant,
   buildMailbox,
+  buildParkedCar,
   buildStreetlight,
   buildTrafficLight,
   buildTransformerBox,
@@ -32,6 +33,22 @@ import {
   buildingHeightBucket,
   buildingVariantKey,
 } from './geometry';
+
+// Phase 6 Task 4: parked cars roll a per-instance tint from this small muted palette via the
+// InstanceSource.color path (world/instancing.ts's instanceColor multiply over the palette
+// albedo) — the ONE canonical parkedCar geometry (liveryRed body, geometry/parkedCar.ts)
+// reads as a lot full of visually distinct cars with no extra draw calls or geometry
+// variants. Deliberately muted/desaturated (not the palette's own liveryRed/liveryWhite
+// cells) so tinted instances still read as "a car", not a colour clash against the body's
+// baked-in albedo.
+const PARKED_CAR_TINTS: readonly Color[] = [
+  new Color('#7a2f2f'), // muted brick red
+  new Color('#39424c'), // slate blue-grey
+  new Color('#8a8f94'), // dull silver
+  new Color('#2f3b2f'), // muted olive
+  new Color('#4a3626'), // rust brown
+  new Color('#dcded9'), // off-white
+];
 
 const HALF_MAP_M = (WORLD.tiles * WORLD.tileSize) / 2;
 
@@ -77,6 +94,7 @@ const PROP_BUILDERS: ReadonlyArray<[ArchetypeName, () => BufferGeometry]> = [
   ['mailbox', buildMailbox],
   ['fenceSegment', buildFenceSegment],
   ['transformerBox', buildTransformerBox],
+  ['parkedCar', buildParkedCar],
 ];
 
 type TaggedSource = InstanceSource & {
@@ -113,6 +131,10 @@ export function buildCityInstanceSets(world: WorldData): ArchetypeInstanceSet[] 
     if (list) list.push(p);
     else byArchetype.set(p.archetype, [p]);
   }
+  // Parked-car tints: one dedicated rng stream, forked off the world seed (never the
+  // 'props' placement stream — this is a pure rendering roll, not a layout one), consumed
+  // in placement-list order so a given seed always paints the same lot the same way.
+  const carTintRng = createRng(world.seed).fork('parkedCarTint');
   for (const [archetype, build] of PROP_BUILDERS) {
     const list = byArchetype.get(archetype);
     if (!list || list.length === 0) continue;
@@ -120,6 +142,7 @@ export function buildCityInstanceSets(world: WorldData): ArchetypeInstanceSet[] 
       districtId: placement.districtId,
       matrix: composeMatrix(placement.x, placement.z, placement.rotationY),
       placement,
+      ...(archetype === 'parkedCar' ? { color: carTintRng.pick(PARKED_CAR_TINTS) } : {}),
     }));
     const { sorted, ranges } = sortByDistrict(tagged);
     sets.push({

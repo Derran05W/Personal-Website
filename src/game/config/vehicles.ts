@@ -154,6 +154,20 @@ export const VEHICLE_TUNING = {
     // Mild speed-scaled downforce: N per (m/s), applied -Y at chassis center.
     downforcePerSpeed: 40,
   },
+  // Fall-through safety catch (Phase 6 wave-2). Belt-and-suspenders behind the chassis↔GROUND
+  // cuboid collision + CCD (which a headless Rapier reproduction proved already stop a stalled
+  // car dead). NOT a feel parameter — the trigger sits below the ground plane (y=0), which the
+  // car can only reach by punching clean through the map, so it never fires during normal
+  // driving and cannot touch the M1-signed-off feel. See vehicles/steering.ts fallThroughCatch.
+  safety: {
+    // Chassis-center world Y below which the car counts as fallen-through and is caught.
+    // Deep enough to sit under any legitimate suspension sag (worst measured ≈0.32 m) yet
+    // above the fell-out net (BOUNDARY.fellOutResetY −5), so the catch fires first.
+    triggerY: -0.5,
+    // Lift a caught chassis to here — just above the ≈0.837 m settle height, so the wheel
+    // rays are already in ground contact and the suspension takes over without a bounce.
+    liftToY: 0.85,
+  },
 } as const;
 
 // Enemy AI behavior kinds. TDD §5.6.

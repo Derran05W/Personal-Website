@@ -21,6 +21,13 @@ export const BOUNDARY = {
   // Ground slab margin beyond the 640x640 playable map, on every edge (m) — keeps the
   // slab comfortably under the barrier ring with a couple meters to spare.
   groundMarginM: 10,
+  // Ground slab thickness (m). The TOP face stays at y=0 (the wheel-ray contract) — this is
+  // only how far the slab extends DOWNWARD, so it never affects gameplay visuals or feel.
+  // Thickened 1 → 30 m in the Phase 6 wave-2 fall-through session: cheap insurance so that
+  // even if a chassis ever got below the surface, there is deep solid ground to land on and
+  // no thin-shell bottom to exit through. (The load-bearing fall-through fix is the vehicle
+  // suspension catch — VEHICLE_TUNING.safety; this slab depth is defense-in-depth.)
+  groundThicknessM: 30,
   // South lakefront water: how far south of the map edge the plane/sensor extends, and
   // how wide (wider than the map so it reads as unbroken lake past the map's SE/SW
   // corners, not a thin flooded strip poking past them).
@@ -220,16 +227,97 @@ export const PROP_DIMS = {
     knobSides: 6,
     knobCount: 3,
   },
+  // Parked car (Phase 6 Task 4): a chunky low-poly sedan echoing RustySedanMesh's
+  // proportions (vehicles/RustySedanMesh.tsx), built ground-up (origin y=0) instead of
+  // chassis-centered since this is a static world prop, not a physics-driven mesh. Overall
+  // footprint lands close to the ~4.4 x 1.5 x 1.9 m target: bodyBottomM + bodyHeightM +
+  // cabinHeightM ~= 1.54 m tall, bodyWidthM 1.9 m wide, bodyLengthM 4.4 m long (bumpers add
+  // a little more at each end, same spirit as RustySedanMesh's bumper overhang).
+  parkedCar: {
+    bodyWidthM: 1.9,
+    bodyHeightM: 0.8,
+    bodyLengthM: 4.4,
+    bodyBottomM: 0.32, // ground clearance to the body's underside
+    cabinWidthM: 1.5,
+    cabinLengthM: 2.1,
+    cabinHeightM: 0.42,
+    cabinZOffsetM: -0.15, // aft shift off body center, sedan-ish greenhouse
+    bumperWidthM: 1.82,
+    bumperHeightM: 0.24,
+    bumperDepthM: 0.16,
+    bumperCenterYM: 0.28,
+    lightWidthM: 0.32,
+    lightHeightM: 0.14,
+    lightInsetM: 0.02, // light quads sit this far proud of the body's front/rear face
+    wheelRadiusM: 0.35,
+    wheelWidthM: 0.26,
+    halfTrackM: 0.8,
+    frontZM: 1.5,
+    rearZM: -1.55,
+  },
 } as const;
 
 export const PROPS = {
   // Dynamic prop pool cap (posts, hydrants, benches, parked cars once struck). TDD §7.
+  // Also the per-archetype dynamic InstancedMesh size (world/propDynamics.ts) — every
+  // archetype's flying-prop mesh is allocated this many slots, of which at most this many
+  // are ever live GLOBALLY (the pool cap is a single global budget, never per-archetype).
   dynamicPoolCap: 60,
   // Dynamic props auto-sleep and despawn after this many seconds. TDD §7.
   despawnAfterSec: 20,
-  // PLACEHOLDER — TDD §7 says static props swap to dynamic "on an impact impulse above
-  // threshold" without giving a number; tune once the physics/damage systems exist.
-  wakeImpulseThreshold: 100,
+  // Parked-car hit points (Phase 6 Task 4) — heavier/tougher than a transformer (30 hp,
+  // POWER_GRID.transformerHp) since a parked car is a much bigger mass to total; tuned
+  // alongside the damage resolver (sibling task) against feel, not a TDD-given number.
+  parkedCarHp: 40,
+
+  // --- Fixed → dynamic swap (Phase 6 Task 2, world/propDynamics.ts; reused verbatim by
+  //     Phase 12 tank explosions) ---------------------------------------------------------
+  // The "everything is nailed down until you hit it" trick: a street prop lives as a zero-
+  // cost fixed collider until an impact whose contact force reaches its per-archetype
+  // threshold knocks it into the dynamic pool, inheriting a launch impulse.
+  //
+  // Per-archetype rigid-body mass (kg) the prop is given the instant it swaps. Toy-physics
+  // plausible, not real — heavier props shove/tumble more ponderously under an equal launch
+  // impulse (F = ma), which is exactly the intended mass-feel. FEEL-TUNABLE PLACEHOLDERS
+  // (Phase 06 plan proposal table); tune live via leva against how a drive-through reads.
+  // transformerBox is intentionally ABSENT: it is HP-based (registry kind 'transformer'),
+  // killed by the damage resolver, and never impulse-swaps through propDynamics.
+  masses: {
+    mailbox: 30,
+    fenceSegment: 40,
+    bench: 60,
+    hydrant: 90,
+    streetlight: 120,
+    trafficLight: 150,
+    tree: 200,
+    parkedCar: 1200,
+  },
+  // Per-archetype contact-force magnitude (N) an impact must REACH to swap the prop to
+  // dynamic; below it the prop stays nailed down (love-taps are free — TDD §5.10). An
+  // archetype absent here never impulse-swaps (the swap gate treats a missing threshold as
+  // "not swappable"). FEEL-TUNABLE PLACEHOLDERS — calibrated live via the debug sliders
+  // once the real contact spine (combat/contacts.ts) feeds true Rapier forces.
+  forceThresholds: {
+    mailbox: 300,
+    bench: 300,
+    fenceSegment: 300,
+    streetlight: 600,
+    hydrant: 600,
+    trafficLight: 600,
+    tree: 800,
+    parkedCar: 1500,
+  },
+  // Launch feel once swapped. The impulse applied at the contact point (so the prop tumbles):
+  //   dir     = normalize(propPos − impactPoint), then dir.y += launchUpKick
+  //   impulse = dir × min(forceMag, launchForceCap) × launchImpulseScale
+  // All FEEL-TUNABLE PLACEHOLDERS.
+  launchImpulseScale: 0.14, // N → kg·m/s toss conversion (a solid hit throws a post satisfyingly)
+  launchUpKick: 0.55, // +Y added to the unit horizontal launch dir → arc + tumble
+  launchForceCap: 9000, // clamp runaway contact forces so one huge hit can't over-launch (N)
+  // Settling damping on a freshly-swapped body so it comes to rest (and auto-sleeps) within
+  // a few seconds instead of skating forever. Feel-tunable placeholders.
+  settleLinearDamping: 0.4,
+  settleAngularDamping: 0.6,
 } as const;
 
 // Prop-placement density/geometry tunables consumed only by world/propPlacements.ts (Phase
@@ -268,4 +356,12 @@ export const PROP_PLACEMENT = {
   // row of fenceSegment instances (the 4th — the road-facing side, if detectable — stays
   // open); WORLD.tileSize / PROP_DIMS.fenceSegment.lengthM segments per side (4 at the
   // current numbers).
+  // Parked cars (Phase 6 Task 4): 1-3 per parkingLot tile, grid-ish — a single row of
+  // slots spread along the axis perpendicular to the cars' shared facing (i.e. their width
+  // axis), small per-slot position jitter on both axes, small rotation jitter off one of
+  // the 4 cardinal yaws.
+  parkingLotEdgeMarginM: 1.5,
+  parkingLotCarsRange: [1, 3] as readonly [number, number],
+  parkingLotJitterM: 0.4,
+  parkingLotRotationJitterRad: 0.15,
 } as const;

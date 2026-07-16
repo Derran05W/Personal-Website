@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { POWER_GRID, PROP_DIMS, WORLD } from '../config';
+import { POWER_GRID, PROP_DIMS, PROPS, WORLD } from '../config';
 import { ARCHETYPES, type ArchetypeName } from './archetypes';
 import { buildCityInstanceSets, type ArchetypeInstanceSet } from './cityInstances';
 import { generate } from './generate';
@@ -129,6 +129,14 @@ describe('propColliderBox', () => {
     expect(box.halfExtents[2]).toBeCloseTo(d.depthM / 2 + d.plinthOutsetM);
   });
 
+  it('parkedCar: covers body+cabin height and body+bumpers length, full body width', () => {
+    const d = PROP_DIMS.parkedCar;
+    const box = propColliderBox('parkedCar');
+    expect(box.centerY * 2).toBeCloseTo(d.bodyBottomM + d.bodyHeightM + d.cabinHeightM);
+    expect(box.halfExtents[0]).toBeCloseTo(d.bodyWidthM / 2);
+    expect(box.halfExtents[2]).toBeCloseTo(d.bodyLengthM / 2 + d.bumperDepthM);
+  });
+
   it('throws for the two building archetypes (not a street prop)', () => {
     expect(() => propColliderBox('buildingSmall')).toThrow();
     expect(() => propColliderBox('buildingTower')).toThrow();
@@ -215,9 +223,18 @@ describe('propEntityEntry', () => {
     expect(entry.hp).toBe(POWER_GRID.transformerHp);
   });
 
+  it('parkedCar registers as kind "propStatic" with PROPS.parkedCarHp', () => {
+    const entry = propEntityEntry(placement({ archetype: 'parkedCar', districtId: 8 }), 4);
+    expect(entry.kind).toBe('propStatic');
+    expect(entry.archetype).toBe('parkedCar');
+    expect(entry.instanceId).toBe(4);
+    expect(entry.districtId).toBe(8);
+    expect(entry.hp).toBe(PROPS.parkedCarHp);
+  });
+
   it('every other archetype registers as kind "propStatic" with no hp', () => {
     for (const archetype of PROP_ARCHETYPES) {
-      if (archetype === 'transformerBox') continue;
+      if (archetype === 'transformerBox' || archetype === 'parkedCar') continue;
       const entry = propEntityEntry(placement({ archetype, districtId: 6 }), 0);
       expect(entry.kind).toBe('propStatic');
       expect(entry.archetype).toBe(archetype);

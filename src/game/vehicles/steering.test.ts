@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   approach,
+  fallThroughCatch,
   nextSteerAngle,
   steerClampRad,
   throttleGovernor,
+  type FallThroughSafety,
   type SteerTuning,
 } from './steering';
 import { STARTER_TOP_SPEED, VEHICLE_TUNING } from '../config';
@@ -109,5 +111,43 @@ describe('throttleGovernor', () => {
   it('clamps to zero past top speed and to one while reversing', () => {
     expect(throttleGovernor(STARTER_TOP_SPEED * 2, STARTER_TOP_SPEED)).toBe(0);
     expect(throttleGovernor(-5, STARTER_TOP_SPEED)).toBe(1);
+  });
+});
+
+describe('fallThroughCatch', () => {
+  const CFG: FallThroughSafety = VEHICLE_TUNING.safety;
+
+  it('is a no-op at the settle height and in the air (feel-neutral in normal play)', () => {
+    // Settle height, worst-case stalled sag (≈0.32 m), and a legit airborne pose all pass.
+    for (const y of [0.837, 0.32, 0, 5, 0.001]) {
+      const r = fallThroughCatch(y, -3, CFG);
+      expect(r.caught).toBe(false);
+      expect(r.y).toBe(y); // pose untouched
+      expect(r.vy).toBe(-3); // velocity untouched
+    }
+  });
+
+  it('does not fire exactly at the trigger boundary (strict below)', () => {
+    expect(fallThroughCatch(CFG.triggerY, -9, CFG).caught).toBe(false);
+  });
+
+  it('catches a punched-through chassis: lifts to liftToY and arrests downward velocity', () => {
+    const r = fallThroughCatch(-6, -18.7, CFG);
+    expect(r.caught).toBe(true);
+    expect(r.y).toBe(CFG.liftToY);
+    expect(r.vy).toBe(0); // downward plunge killed
+  });
+
+  it('preserves an upward velocity when catching (only downward motion is arrested)', () => {
+    const r = fallThroughCatch(-1, 4, CFG);
+    expect(r.caught).toBe(true);
+    expect(r.vy).toBe(4);
+  });
+
+  it('trigger sits below the ground plane and above the fell-out net', () => {
+    // Guards the feel-neutrality + ordering invariants the comments promise.
+    expect(CFG.triggerY).toBeLessThan(0);
+    expect(CFG.triggerY).toBeGreaterThan(-5); // BOUNDARY.fellOutResetY — catch fires first
+    expect(CFG.liftToY).toBeGreaterThan(0);
   });
 });

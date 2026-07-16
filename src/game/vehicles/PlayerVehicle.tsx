@@ -26,6 +26,8 @@ import { interactionGroups, VEHICLE_TUNING } from '../config';
 import { getDrivingInput } from '../input';
 import { createRaycastVehicle } from './raycastVehicle';
 import { playerVehicle } from './playerRef';
+import { dispatchContactForce } from '../combat/contacts';
+import { registerEntity, unregisterEntity } from '../world/registry';
 
 // Mirrors <Physics timeStep={1/60}> in game/index.tsx: useBeforePhysicsStep fires once per
 // fixed step, so the model integrates against this exact dt.
@@ -76,6 +78,23 @@ export function PlayerVehicle({ position = [0, 1, 0], children }: PlayerVehicleP
     playerVehicle.current?.applyInputs(getDrivingInput(), PHYSICS_DT);
   });
 
+  // Register the player's chassis collider in world/registry.ts so Phase 6's contact spine
+  // (combat/contacts.ts) can resolve player-involved impacts back to gameplay identity — the
+  // reader side of the onContactForce wiring below. The chassis has exactly one collider
+  // (the single <CuboidCollider> child); child collider effects run before this parent
+  // effect, so body.collider(0) is live by now. Registered on mount, unregistered on unmount
+  // (StrictMode-safe: the unregister in cleanup clears the handle before any dev remount
+  // re-registers it, even if Rapier's generational arena hands back the same numeric handle).
+  // kind 'player', districtId -1 (the player is not districted). No collision-response side
+  // effects — the registry is a pure identity lookup.
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body || body.numColliders() === 0) return;
+    const handle = body.collider(0).handle;
+    registerEntity(handle, { kind: 'player', districtId: -1 });
+    return () => unregisterEntity(handle);
+  }, []);
+
   return (
     <RigidBody
       ref={bodyRef}
@@ -84,6 +103,12 @@ export function PlayerVehicle({ position = [0, 1, 0], children }: PlayerVehicleP
       ccd
       canSleep={false}
       position={position}
+      // Contact-spine mechanism (combat/contacts.ts header): attaching onContactForce to the
+      // player RigidBody makes @react-three/rapier flag this body's collider with
+      // ActiveEvents.CONTACT_FORCE_EVENTS and route every player-involved contact-force event
+      // (against buildings/props/vehicles) to dispatchContactForce during its per-frame drain.
+      // This is the ONLY consumer of that callback — all gameplay reads impacts via onImpact().
+      onContactForce={dispatchContactForce}
     >
       <CuboidCollider
         args={[chassis.halfWidth, chassis.halfHeight, chassis.halfLength]}
