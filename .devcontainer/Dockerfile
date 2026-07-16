@@ -54,11 +54,15 @@ RUN ARCH=$(dpkg --print-architecture) && \
   sudo dpkg -i "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
   rm "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb"
 
+# This project uses pnpm (see CLAUDE.md conventions), activated via corepack. Must run
+# as root, before the USER node switch below: `corepack enable` symlinks pnpm/pnpx into
+# /usr/local/bin, which isn't writable by the non-root `node` user in the base node:22
+# image (unlike /usr/local/share, chowned to node above) — corepack has no equivalent of
+# npm's NPM_CONFIG_PREFIX to redirect that, so root is the only fix.
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
 # Set up non-root user
 USER node
-
-# This project uses pnpm (see CLAUDE.md conventions), activated via corepack
-RUN corepack enable && corepack prepare pnpm@latest --activate
 
 # Install global packages
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global

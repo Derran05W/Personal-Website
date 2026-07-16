@@ -16,7 +16,14 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        // Headless CI runners have no GPU. Chrome 139+ gates software WebGL (needed to
+        // even get a context at all in that environment) behind this flag — without it,
+        // r3f/three's canvas.getContext('webgl2') resolves to null and the game chunk
+        // never mounts a <canvas>. Desktop dev machines with a real GPU are unaffected.
+        launchOptions: { args: ['--enable-unsafe-swiftshader'] },
+      },
     },
   ],
   webServer: {

@@ -60,7 +60,7 @@ while read -r cidr; do
         exit 1
     fi
     echo "Adding GitHub range $cidr"
-    ipset add allowed-domains "$cidr"
+    ipset add allowed-domains -exist "$cidr"
 done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | aggregate -q)
 
 # Resolve and add other allowed domains
@@ -69,27 +69,38 @@ done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | aggregate -q)
 # only needs registry.npmjs.org (already listed below). But two later phases
 # will need additional domains added here, or their network calls will be
 # silently dropped by the firewall:
-#   - Whichever phase wires up `pnpm smoke` (Playwright) — Playwright downloads
-#     browser binaries from a Microsoft-owned CDN whose hostname has changed
-#     across Playwright versions, so don't guess it; run
-#     `pnpm exec playwright install`, read the failing hostname from the error,
-#     and add it below.
 #   - Phase 5 (`pnpm assets:fetch`) — whichever CC0 asset CDNs
 #     (Kenney/Quaternius/Poly Pizza) that script actually calls.
+#
+# playwright.download.prss.microsoft.com added 2026-07-15 (Phase 2): it's the
+# browser-binary CDN for Playwright 1.61 — hostname read from the actual
+# `pnpm exec playwright install` failure, not guessed, per the note that used
+# to sit here. If a Playwright upgrade changes the CDN hostname again, repeat
+# that procedure and swap the entry below.
+#
+# statsig.anthropic.com was removed 2026-07-16: it now hard-NXDOMAINs (confirmed
+# via two independent resolvers, SOA-authoritative on anthropic.com's zone — not
+# a transient blip), superseded by statsig.com below. A single dead/renamed
+# domain here used to hard-exit this whole script (see the resolution-failure
+# branch below) — since this runs as postStartCommand with waitFor set, that
+# bricked the entire devcontainer on every startup until someone edited this
+# file. If another domain in this list rots the same way, this script now warns
+# and skips it instead of failing the container — but you should still swap in
+# whatever the domain renamed to, the same way this one was fixed.
 for domain in \
     "registry.npmjs.org" \
     "api.anthropic.com" \
     "sentry.io" \
-    "statsig.anthropic.com" \
     "statsig.com" \
+    "playwright.download.prss.microsoft.com" \
     "marketplace.visualstudio.com" \
     "vscode.blob.core.windows.net" \
     "update.code.visualstudio.com"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
     if [ -z "$ips" ]; then
-        echo "ERROR: Failed to resolve $domain"
-        exit 1
+        echo "WARNING: Failed to resolve $domain — skipping (not added to allowlist, container startup continues)"
+        continue
     fi
 
     while read -r ip; do
@@ -98,7 +109,7 @@ for domain in \
             exit 1
         fi
         echo "Adding $ip for $domain"
-        ipset add allowed-domains "$ip"
+        ipset add allowed-domains -exist "$ip"
     done < <(echo "$ips")
 done
 

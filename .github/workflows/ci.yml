@@ -43,6 +43,11 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # Shell budget + lazy-seam guard (TDD §4.1): entry chunk ≤ 150 KB gz and free of
+      # game deps — catches src/game/ imports leaking outside GameCanvas.tsx.
+      - name: Check shell chunk budget
+        run: node scripts/check-shell-size.mjs
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 

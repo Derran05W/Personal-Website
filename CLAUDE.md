@@ -63,7 +63,7 @@ Status: `[ ]` todo · `[~]` in progress · `[!]` blocked / awaiting user · `[x]
 
 ### Part 1 — Foundation (`.planning/part-1-foundation.md`)
 - [x] **Phase 1 — App shell & deploy pipeline** (M0) — 2026-07-15: shell/routes/CI/a11y shipped, Lighthouse 100×4 on all 3 routes; Vercel repo connection still needs the user's one manual dashboard step (see phase-01-notes.md).
-- [ ] **Phase 2 — Game bootstrap: canvas, state machine, config, input**
+- [x] **Phase 2 — Game bootstrap: canvas, state machine, config, input** — 2026-07-15: full runtime skeleton shipped (canvas/physics/store/machine/events/config/leva/input, 105 tests); smoke+deploy verification pending user push/Vercel; Phase 3 needs a container rebuild for browsers (see phase-02-notes.md).
 - [ ] **Phase 3 — Driving prototype & fun gate** (M1) — USER GATE: driving feel sign-off
 
 ### Part 2 — The City (`.planning/part-2-city.md`)

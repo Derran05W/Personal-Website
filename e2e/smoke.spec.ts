@@ -68,12 +68,14 @@ test('skip link is the first focusable element and moves focus to #main-content'
   await expect(page.locator('#main-content')).toBeFocused();
 });
 
-test('home route renders the game-canvas stub with its aria-label', async ({ page }) => {
+test('home route renders the labeled game-canvas container', async ({ page }) => {
   await page.goto('/');
 
-  // Nothing is asserted about actual game rendering (src/game is a stub) — only that
-  // the labeled container GameCanvas.tsx renders is present in the DOM.
-  const canvas = page.getByRole('img', { name: '3D driving game canvas — not yet loaded' });
+  // Only the shell's always-present, labeled container (GameCanvas.tsx) is asserted
+  // here — actual game rendering (a mounted <canvas>, chunk-load timing) is covered by
+  // e2e/game.spec.ts, which needs the WebGL software-rendering launch flag and much
+  // more generous timeouts than this shell-level smoke test does.
+  const canvas = page.getByRole('img', { name: '3D driving game canvas' });
   await expect(canvas).toBeVisible();
 });
 
