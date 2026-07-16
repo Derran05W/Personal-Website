@@ -64,7 +64,7 @@ Status: `[ ]` todo · `[~]` in progress · `[!]` blocked / awaiting user · `[x]
 ### Part 1 — Foundation (`.planning/part-1-foundation.md`)
 - [x] **Phase 1 — App shell & deploy pipeline** (M0) — 2026-07-15: shell/routes/CI/a11y shipped, Lighthouse 100×4 on all 3 routes; Vercel repo connection still needs the user's one manual dashboard step (see phase-01-notes.md).
 - [x] **Phase 2 — Game bootstrap: canvas, state machine, config, input** — 2026-07-15: full runtime skeleton shipped (canvas/physics/store/machine/events/config/leva/input, 105 tests); smoke+deploy verification pending user push/Vercel; Phase 3 needs a container rebuild for browsers (see phase-02-notes.md).
-- [!] **Phase 3 — Driving prototype & fun gate** (M1) — USER GATE: driving feel sign-off — 2026-07-15: raycast vehicle + §5.3 camera + test scene shipped, all mechanical fun-gate checks pass (targets met, 0 errors, 59 fps); awaiting user feel sign-off + push/Vercel connect (see phase-03-notes.md).
+- [!] **Phase 3 — Driving prototype & fun gate** (M1) — USER GATE: driving feel sign-off — 2026-07-15: raycast vehicle + §5.3 camera + test scene shipped, all mechanical checks pass. 2026-07-16: found & fixed reversed steering (D steered left — root cause of "insensitive" feel report), folded in sensitivity re-tune + reverse-steer invert + handbrake skid marks, full battery re-verified green; gate RE-ARMED — user must re-test feel post-fix (see phase-03-notes.md banner).
 
 ### Part 2 — The City (`.planning/part-2-city.md`)
 - [ ] **Phase 4 — World generation: tiles, roads, districts, boundaries** (M2a)

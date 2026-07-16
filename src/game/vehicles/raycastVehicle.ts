@@ -52,8 +52,12 @@ const WHEEL_COUNT = 4;
 const STEERED_WHEELS = [FRONT_LEFT, FRONT_RIGHT] as const;
 const DRIVEN_WHEELS = [REAR_LEFT, REAR_RIGHT] as const;
 
-// Chassis axes for the controller (0 = X, 1 = Y, 2 = Z). Y up, Z forward → +X is the car's
-// right, which makes a positive setWheelSteering() turn right (matches DrivingInput.steer).
+// Chassis axes for the controller (0 = X, 1 = Y, 2 = Z). Y up, Z forward → the car's right
+// is -X (three.js is right-handed: facing -Z puts +X on your right, so facing +Z flips it).
+// A positive setWheelSteering() is a positive rotation about +Y, which points the wheels
+// toward +X — the car's LEFT. DrivingInput.steer is +1 = right, so the angle is NEGATED at
+// the setWheelSteering() call. Measured, not theorized: with the sign unflipped, W+D bends
+// the path toward +X / CCW-from-above (position trace, 2026-07-16 gate-response session).
 const UP_AXIS = 1;
 const FORWARD_AXIS = 2;
 
@@ -203,16 +207,23 @@ export class RaycastVehicle implements IVehicleModel {
     const speed = Math.hypot(linvel.x, linvel.y, linvel.z);
     const forwardSpeed = this.forwardSpeed(linvel);
 
-    // Steering (front wheels only).
+    // Steering (front wheels only). While clearly reversing, the input sign flips so the
+    // heading follows the pressed arrow (steering.invertInReverse — arcade convention;
+    // see the config comment). The brakeToReverseSpeed deadband keeps the sign stable
+    // around 0 so crawling/stopping never oscillates the steer target.
+    const reversing =
+      VEHICLE_TUNING.steering.invertInReverse && forwardSpeed < -engine.brakeToReverseSpeed;
     this.steerAngle = nextSteerAngle(
       this.steerAngle,
-      inputs.steer,
+      reversing ? -inputs.steer : inputs.steer,
       speed,
       STARTER_TOP_SPEED,
       VEHICLE_TUNING.steering,
       dt,
     );
-    for (const i of STEERED_WHEELS) controller.setWheelSteering(i, this.steerAngle);
+    // Negated: positive steer input means turn right, but positive wheel steering is a +Y
+    // rotation toward the car's left (see the axes comment at the top of this file).
+    for (const i of STEERED_WHEELS) controller.setWheelSteering(i, -this.steerAngle);
 
     // Throttle / brake / reverse.
     let engineForce = 0;

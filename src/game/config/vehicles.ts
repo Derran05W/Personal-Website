@@ -109,11 +109,18 @@ export const VEHICLE_TUNING = {
   },
   steering: {
     // Steer clamp eases from maxAngleDeg (standstill) to highSpeedAngleDeg (top speed).
-    maxAngleDeg: 35,
-    highSpeedAngleDeg: 14,
-    // How fast the wheel angle chases the input, per second.
-    rateDegPerSec: 260,
-    returnRateDegPerSec: 340,
+    // Raised from 35/14 after the M1 user gate: "steering should be more sensitive".
+    maxAngleDeg: 42,
+    highSpeedAngleDeg: 22,
+    // How fast the wheel angle chases the input, per second. Raised 260/340 → 400/500
+    // for the same user-gate feedback (snappier response).
+    rateDegPerSec: 400,
+    returnRateDegPerSec: 500,
+    // Arcade reverse steering (M1 user gate): while clearly reversing, flip the steer
+    // response so the car's HEADING swings toward the pressed arrow. Physically-correct
+    // reverse geometry (nose swings away from the wheel direction) reads as "backwards
+    // controls" in a top-down arcade game.
+    invertInReverse: true,
   },
   suspension: {
     restLength: 0.4,
@@ -132,11 +139,17 @@ export const VEHICLE_TUNING = {
     rearZ: -1.3,
     connectionY: -0.15,
     frictionSlip: 3.2,
-    sideFrictionStiffness: 1.0,
+    // Raised 1.0 → 1.4 at the M1 user gate: the at-speed turn was grip-limited (more
+    // steer angle changed nothing — fronts were sliding), so sensitivity comes from
+    // lateral grip. Watch the flip-risk tradeoff (flat-ground torture must stay clean).
+    sideFrictionStiffness: 1.4,
   },
   stability: {
-    // High angular damping is the main arcade self-stabilizer (TDD §7).
-    angularDamping: 3.0,
+    // High angular damping is the main arcade self-stabilizer (TDD §7). Lowered 3.0 →
+    // 1.8 at the M1 user gate: at 3.0 it capped the yaw rate so hard that steering felt
+    // numb at speed (raising steer angle/grip changed nothing). Flat-ground torture
+    // stays clean at 1.8 (re-verified — see phase notes).
+    angularDamping: 1.8,
     linearDamping: 0.05,
     // Mild speed-scaled downforce: N per (m/s), applied -Y at chassis center.
     downforcePerSpeed: 40,
