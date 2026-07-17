@@ -1,0 +1,283 @@
+// Gameplay HUD (Phase 8 Task 2, TDD §9): wanted stars, score, HP silhouette, control
+// hints, and a dev-only seed readout. Rendered as a plain DOM overlay OUTSIDE the r3f
+// <Canvas> — same layer as GarageOverlay.tsx / hud/Minimap.tsx — so it never touches R3F's
+// render loop, and reads the store via a throttled poll (useHudSnapshot.ts), not a
+// zustand selector hook that would fire every physics step (CLAUDE.md: "HUD reads store
+// selectors; ≤10 Hz updates").
+//
+// Layering & clickability: every element below sets `pointerEvents: 'none'` (root and
+// descendants) — the site header (app/Header.css, z-index 50, pointer-events auto) is a
+// SIBLING of game/index.tsx's whole subtree at the page root (app/GameCanvas.css's
+// `.game-canvas-container` is itself z-index 0 and its own stacking context, per CSS
+// stacking rules a positioned z-index:0 ancestor can never paint above a z-index:50
+// sibling no matter what z-index its children use), so the header already always paints
+// above this HUD — pointer-events:none is the actual, belt-and-suspenders guarantee that
+// nothing here can ever intercept a click.
+//
+// Mount contract: game/index.tsx mounts <Hud /> unconditionally; this component decides
+// whether to render anything (null outside PLAYING/PAUSED) — the same "owns its own
+// visibility" pattern as hud/Minimap.tsx (dev-toggle-gated) and GarageOverlay.tsx
+// (machine === 'GARAGE'-gated).
+//
+// Visual language (phase-08-plan.md T2 decision): minimal-clean matching the shell
+// header's typography (dark translucent chips, muted body text) with exactly ONE chunky
+// element — the score, set in the header's own display font (--font-display, index.css)
+// at a much larger size/weight than anything else in the HUD.
+
+import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
+import { gameEvents } from '../state/events';
+import { useHudSnapshot } from './useHudSnapshot';
+import { filledStarCount, formatScore, hpColor, hpFillPercent } from './hudFormat';
+import './Hud.css';
+
+const STAR_COUNT = 5;
+const FLARE_MS = 600; // Must match Hud.css's hud-star-flare animation-duration.
+const CONTROL_HINTS_MS = 8000;
+
+// Below the fixed 64px site header (app/Header.css) with a small gap — same offset
+// reasoning as core/PerfOverlay.tsx (top:70) and core/devPanel.tsx's Leva titleBar
+// (y:70; also top-right). Stars sit lower still (112, not 76) to additionally clear
+// Leva's own collapsed title bar, which is dev-only and also anchored top-right — the two
+// never visually collide during a dev session. Production ships without Leva, so this is
+// pure dev polish with no player-facing cost.
+const HEADER_CLEARANCE = 76;
+const STARS_TOP = 112;
+
+// hud/Minimap.tsx is fixed at left:12, bottom:12, 192x192 (dev-only, default-on toggle).
+// The HP silhouette also wants bottom-left (TDD §9); rather than overlap the minimap in
+// dev builds, it sits just above it instead. Production never renders the minimap, so
+// this only costs a bit of extra bottom margin there.
+const HP_BOTTOM = 12 + 192 + 12;
+
+const rootStyle: CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  pointerEvents: 'none',
+  // Above the bare canvas/GarageOverlay (both effectively z-index 0/auto), below the
+  // dev-only overlays that should always win legibility during debugging (Minimap z-40,
+  // Leva's own high default z-index).
+  zIndex: 20,
+};
+
+// Blue-hour-legible: a subtle dark translucent chip behind every text cluster (TDD §9 /
+// task brief point 8), same treatment repeated per element rather than one big panel —
+// keeps the "minimal-clean" language instead of a single HUD "frame".
+const chipStyle: CSSProperties = {
+  background: 'rgba(10, 14, 22, 0.55)',
+  borderRadius: 8,
+  padding: '0.35rem 0.7rem',
+  pointerEvents: 'none',
+};
+
+function WantedStars({ tier }: { tier: number }) {
+  const [flareTier, setFlareTier] = useState<number | null>(null);
+  const timeoutRef = useRef<number | undefined>(undefined);
+
+  // Event-driven (not derived from the polled snapshot) so the flare fires on the exact
+  // tier-up frame rather than up to 100ms late, and so it can target precisely the
+  // newly-lit star via the event payload's `tier`/`prevTier` (state/events.ts).
+  useEffect(() => {
+    const off = gameEvents.on('tierChanged', ({ tier: newTier, prevTier }) => {
+      if (newTier <= prevTier) return; // heat is monotonic (never decays) so tier only
+      // rises in practice — guard defensively anyway rather than assume that forever.
+      window.clearTimeout(timeoutRef.current);
+      setFlareTier(newTier);
+      timeoutRef.current = window.setTimeout(() => setFlareTier(null), FLARE_MS);
+    });
+    return () => {
+      off();
+      window.clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  const filled = filledStarCount(tier);
+
+  return (
+    <div
+      style={{ position: 'fixed', top: STARS_TOP, right: 16, display: 'flex', gap: 4, ...chipStyle }}
+      data-testid="hud-stars"
+    >
+      {Array.from({ length: STAR_COUNT }, (_, i) => {
+        const starTier = i + 1;
+        const isFilled = starTier <= filled;
+        return (
+          <span
+            key={starTier}
+            className={starTier === flareTier ? 'hud-star hud-star--flare' : 'hud-star'}
+            style={{
+              fontSize: '1.35rem',
+              lineHeight: 1,
+              // Dimmed outline at tier 0 (all unfilled) rather than fully invisible, per
+              // TDD §9 / task brief point 2.
+              color: isFilled ? '#f59e0b' : 'rgba(245, 245, 245, 0.25)',
+              textShadow: isFilled ? '0 0 8px rgba(245, 158, 11, 0.75)' : 'none',
+            }}
+            aria-hidden="true"
+          >
+            ★
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function ScoreDisplay({ score }: { score: number }) {
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: HEADER_CLEARANCE,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        ...chipStyle,
+      }}
+      data-testid="hud-score"
+    >
+      {/* The ONE chunky element (T2 visual-language decision): the shell's display font
+          (--font-display, index.css's self-hosted Fredoka Variable — that file's comment
+          notes "the game HUD reuses this font later"), at ~3x the header wordmark's size
+          and full 700 weight, everything else in the HUD stays at body-text scale. */}
+      <span
+        style={{
+          display: 'block',
+          fontFamily: 'var(--font-display)',
+          fontWeight: 700,
+          fontSize: 'clamp(1.75rem, 4vw, 2.75rem)',
+          letterSpacing: '0.02em',
+          color: '#f5f5f5',
+          textShadow: '0 2px 16px rgba(0, 0, 0, 0.55)',
+        }}
+      >
+        {formatScore(score)}
+      </span>
+    </div>
+  );
+}
+
+// Simple low-poly sedan side profile, hand-drawn to a 120x48 viewBox (faceted
+// roof/hood/trunk line + two wheel circles) — reused for both the always-visible dim
+// "ghost" outline and the hp-clipped color fill below, same currentColor-free,
+// fill-driven approach as app/icons.tsx's hand-authored SVGs.
+const CAR_BODY_D = 'M8 34 L8 30 L14 30 L20 18 L46 18 L52 10 L74 10 L82 18 L104 18 L110 26 L112 34 Z';
+const CAR_WHEELS: readonly { cx: number; cy: number; r: number }[] = [
+  { cx: 26, cy: 36, r: 8 },
+  { cx: 92, cy: 36, r: 8 },
+];
+
+function CarShape({ fill }: { fill: string }) {
+  return (
+    <>
+      <path d={CAR_BODY_D} fill={fill} />
+      {CAR_WHEELS.map((w) => (
+        <circle key={`${w.cx}-${w.cy}`} cx={w.cx} cy={w.cy} r={w.r} fill={fill} />
+      ))}
+    </>
+  );
+}
+
+function HpSilhouette({ hp }: { hp: number }) {
+  // useId rather than a string literal clip-path id: keeps this component collision-safe
+  // if it's ever rendered twice in the same DOM (tests, Storybook-style previews) — a
+  // duplicate `id="hud-hp-clip"` would silently clip against the wrong instance.
+  const clipId = useId();
+  const pct = hpFillPercent(hp);
+  const fillHeight = (pct / 100) * 48;
+  const color = hpColor(hp);
+
+  return (
+    <div style={{ position: 'fixed', left: 16, bottom: HP_BOTTOM, ...chipStyle }} data-testid="hud-hp">
+      <svg width={120} height={48} viewBox="0 0 120 48" aria-hidden="true" focusable="false">
+        {/* Always-visible faint ghost of the full car, so the silhouette reads as "a car"
+            even at 0 hp (an empty gauge with nothing to compare it against would just
+            look broken). */}
+        <g opacity={0.22}>
+          <CarShape fill="#ffffff" />
+        </g>
+        <clipPath id={clipId}>
+          {/* Vertical fill mask proportional to hp/100 (task brief point 4): a rect
+              anchored to the bottom edge, growing upward as hp rises — a fuel-gauge-style
+              fill rather than a horizontal wipe. */}
+          <rect x={0} y={48 - fillHeight} width={120} height={fillHeight} />
+        </clipPath>
+        <g clipPath={`url(#${clipId})`} style={{ transition: 'fill 300ms ease' }}>
+          <CarShape fill={color} />
+        </g>
+      </svg>
+    </div>
+  );
+}
+
+function ControlHints() {
+  const [visible, setVisible] = useState(true);
+
+  // Mount-only effect (empty deps): <Hud/> — and therefore this component — mounts fresh
+  // exactly when PLAYING is (re)entered from GARAGE or GAMEOVER (see the visible-state
+  // gate in the default export below) and then stays mounted across PLAYING<->PAUSED,
+  // because pausing never unmounts the HUD (CLAUDE.md's pause model: the canvas/HUD stay
+  // mounted, only <Physics paused> flips). So a plain mount effect already satisfies "show
+  // on entry, not on pause/resume" with no machine-transition bookkeeping needed — a
+  // resume from PAUSED can never re-run this effect because it never remounts the
+  // component in the first place.
+  //
+  // The 8s fade is real (wall-clock) time — it does NOT pause alongside physics, so
+  // pausing shortly after starting does not extend the hint's visible window. Documented
+  // here per the task brief; revisit if playtesting shows this reads as unfair/confusing.
+  useEffect(() => {
+    const id = window.setTimeout(() => setVisible(false), CONTROL_HINTS_MS);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  return (
+    <div
+      className={visible ? 'hud-control-hints' : 'hud-control-hints hud-control-hints--hidden'}
+      style={{ position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', ...chipStyle }}
+      data-testid="hud-control-hints"
+    >
+      <span style={{ fontSize: '0.85rem', color: 'rgba(245, 245, 245, 0.85)' }}>
+        WASD drive · Space handbrake · Esc pause
+      </span>
+    </div>
+  );
+}
+
+// DEV-only (import.meta.env.DEV-gated by the caller below, same pattern as every other
+// dev-only piece of this codebase) tiny corner readout of the active world seed. Placed
+// bottom-right — the one corner nothing else in this HUD or the dev overlays (Minimap
+// bottom-left, PerfOverlay/Leva top corners) already claims.
+function SeedReadout({ seed }: { seed: number }) {
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        right: 8,
+        bottom: 8,
+        fontSize: '0.65rem',
+        fontFamily: 'monospace',
+        color: 'rgba(245, 245, 245, 0.4)',
+      }}
+      data-testid="hud-seed"
+    >
+      seed {seed}
+    </div>
+  );
+}
+
+export default function Hud() {
+  const { machine, tier, score, playerHp, seed } = useHudSnapshot();
+  // Task brief point 1: PLAYING + PAUSED only (not GAMEOVER-adjacent) — the game-over
+  // screen is a separate future surface (Phase 9), and showing the run HUD underneath it
+  // would just be visual noise once the run has ended.
+  const visible = machine === 'PLAYING' || machine === 'PAUSED';
+  if (!visible) return null;
+
+  return (
+    <div style={rootStyle} data-testid="hud-root">
+      <WantedStars tier={tier} />
+      <ScoreDisplay score={score} />
+      <HpSilhouette hp={playerHp} />
+      <ControlHints />
+      {import.meta.env.DEV ? <SeedReadout seed={seed} /> : null}
+    </div>
+  );
+}

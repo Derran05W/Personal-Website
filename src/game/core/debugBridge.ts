@@ -93,6 +93,11 @@ declare global {
       /** Task 5 perf snapshot (draw calls / triangles / fps) for the screenshot suite —
        * see PerfSnapshot's doc comment for why this reads the r3f-perf store directly. */
       readPerf: () => PerfSnapshot;
+      /** Phase 8 audit: HUD-visible store numbers in one read. */
+      readHud: () => { heat: number; tier: number; score: number; playerHp: number };
+      /** Phase 8 audit: monotonic heat grant — the scripted mirror of the devPanel
+       * "+N heat" buttons (leva DOM automation is canvas-occluded in headless). */
+      addHeat: (delta: number) => void;
       /** Phase 6 contact-spine proof: total ImpactRecords dispatched since load. */
       impactCount: () => number;
       /** Phase 6 contact-spine proof: the last few dispatched impacts, resolved to registry
@@ -138,6 +143,11 @@ window.__smashy = {
   setDistrictEmissive: (n, on) => {
     for (const name of EMISSIVE_ARCHETYPES) setDistrictEmissiveRange(name, n, on);
   },
+  readHud: () => {
+    const s = getGameState();
+    return { heat: s.heat, tier: s.tier, score: s.score, playerHp: s.playerHp };
+  },
+  addHeat: (delta) => getGameState().addHeat(delta),
   readPerf: () => {
     const state = getR3fPerfState();
     return {

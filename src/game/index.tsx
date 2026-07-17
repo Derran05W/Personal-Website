@@ -29,6 +29,9 @@ import { DamageSystem } from './combat/damage';
 import { onImpact } from './combat/contacts';
 import { Traffic } from './ai/TrafficMount';
 import { TrafficMesh } from './ai/TrafficMesh';
+import { HeatScoreSystem } from './state/heatScoreSystem';
+import { initProgressPersistence } from './state/persistence';
+import Hud from './hud/Hud';
 import { SkidMarks } from './fx/SkidMarks';
 import { PlayerVehicle } from './vehicles/PlayerVehicle';
 import { RustySedanMesh } from './vehicles/RustySedanMesh';
@@ -132,6 +135,10 @@ export default function Game() {
     applyDetectedQuality();
   }, []);
 
+  // Best/lifetime score persistence (Phase 8): subscribes runEnded for the game's whole
+  // mounted lifetime; unsubscribes on route-away unmount.
+  useEffect(() => initProgressPersistence(), []);
+
   // Bootstrap seam: BOOT → LOADING → GARAGE. Every branch reads the *current* machine
   // state fresh from the store and only fires the transition it expects, so the store's
   // dev-mode invalid-transition throw can never trigger under StrictMode's double mount
@@ -193,6 +200,9 @@ export default function Game() {
                 Same seed-keyed remount contract as the city/pool systems. */}
             <Traffic key={`traffic-${seed}`} graph={world.graph} seed={seed} source={onImpact} />
             <TrafficMesh key={`traffic-mesh-${seed}`} />
+            {/* Heat/score accrual runs in fixed-step land (Phase 8) — pausing Physics
+                pauses accrual for free. */}
+            <HeatScoreSystem />
             <SkidMarks />
             {/* key: spawn position is read once at body create (PlayerVehicle contract) —
                 remount on regenerate rather than mutate. */}
@@ -234,6 +244,10 @@ export default function Game() {
       ) : null}
 
       {machine === 'GARAGE' ? <GarageOverlay /> : null}
+
+      {/* Gameplay HUD (Phase 8): DOM overlay, pointer-events none, self-gates to
+          PLAYING/PAUSED, ≤10 Hz store sampling. */}
+      <Hud />
 
       {DevPanel ? (
         <Suspense fallback={null}>

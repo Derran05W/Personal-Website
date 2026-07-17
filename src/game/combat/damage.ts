@@ -172,14 +172,19 @@ function maybeShake(forceMag: number): void {
 // --- top-level impact handler --------------------------------------------------------------
 
 /** One side of an impact: damages `target` (if it's the player, or has registry hp) using the
- * OTHER side's (`other`'s) mass factor. A no-op if `target` is undefined (unregistered
- * collider — ground, a stray sensor, …) or the computed damage is 0 (below threshold). */
+ * OTHER side's (`other`'s) mass factor. A no-op if EITHER side is undefined: an undefined
+ * target has nothing to damage, and an undefined OTHER is unregistered world furniture —
+ * in practice the GROUND slab, whose suspension-settle contact spikes (measured ~380 kN on
+ * the first frames after spawn) would otherwise read as a fatal crash and drain the player
+ * to 0 hp on arrival (found by the Phase 8 HUD task, the first thing to ever render hp).
+ * Every entity that SHOULD deal damage — buildings, props, civilians, later pursuit units
+ * and projectiles — is registry-registered, so requiring `other` costs nothing real. */
 function applySideDamage(
   target: EntityEntry | undefined,
   other: EntityEntry | undefined,
   forceMag: number,
 ): void {
-  if (!target) return;
+  if (!target || !other) return;
   const damage = computeDamage(forceMag, massFactorOf(other));
   if (damage <= 0) return;
   if (target.kind === 'player') {

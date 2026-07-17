@@ -82,6 +82,36 @@ describe('addHeat', () => {
     expect(tierHandler).toHaveBeenCalledWith({ tier: 1, prevTier: 0 });
   });
 
+  it('a multi-tier jump emits tierChanged once PER crossing, in ascending order', () => {
+    const tierHandler = vi.fn();
+    gameEvents.on('tierChanged', tierHandler);
+
+    useGameStore.getState().addHeat(10); // heat 10, tier 0
+    useGameStore.getState().addHeat(200); // heat 210: crosses tier 1 (15), 2 (75), 3 (180)
+
+    expect(useGameStore.getState().heat).toBe(210);
+    expect(useGameStore.getState().tier).toBe(3);
+    expect(tierHandler).toHaveBeenCalledTimes(3);
+    expect(tierHandler).toHaveBeenNthCalledWith(1, { tier: 1, prevTier: 0 });
+    expect(tierHandler).toHaveBeenNthCalledWith(2, { tier: 2, prevTier: 1 });
+    expect(tierHandler).toHaveBeenNthCalledWith(3, { tier: 3, prevTier: 2 });
+  });
+
+  it('a jump that lands exactly on the max tier does not overshoot or repeat', () => {
+    const tierHandler = vi.fn();
+    gameEvents.on('tierChanged', tierHandler);
+
+    useGameStore.getState().addHeat(600); // straight to tier 5 from 0
+    expect(useGameStore.getState().tier).toBe(5);
+    expect(tierHandler).toHaveBeenCalledTimes(5);
+    expect(tierHandler).toHaveBeenNthCalledWith(5, { tier: 5, prevTier: 4 });
+
+    tierHandler.mockClear();
+    useGameStore.getState().addHeat(1000); // already at tier 5 (max) — no further crossings
+    expect(useGameStore.getState().tier).toBe(5);
+    expect(tierHandler).not.toHaveBeenCalled();
+  });
+
   it('emits heatChanged on every call with the applied (post-clamp) delta', () => {
     const heatHandler = vi.fn();
     gameEvents.on('heatChanged', heatHandler);

@@ -16,6 +16,7 @@ import { playerVehicle } from '../vehicles/playerRef';
 import { spawnPoseRef } from '../world/spawn';
 import type { VehiclePose } from '../vehicles/IVehicleModel';
 import { getDevToggles, setDevToggle } from './devToggles';
+import { loadProgress, resetProgress } from '../state/persistence';
 import { trafficRef } from '../ai/trafficTypes';
 import { ARCHETYPES, EMISSIVE_ARCHETYPES } from '../world/archetypes';
 import { DISTRICT_COUNT, setDistrictColor, setDistrictEmissive } from '../world/instancing';
@@ -217,6 +218,43 @@ export default function DevPanel() {
       schema['civilians'] = monitor(() => trafficRef.current?.activeCount() ?? 0, {
         interval: 250,
       });
+
+      // Phase 8 Task 3 debug tooling — heat/score/persistence ---------------------------
+      // getGameState().addHeat is a store action that has existed since Phase 2 (it's the
+      // ONE write path for heat, monotonic-clamped there); Task 1 (concurrent this wave)
+      // only extends what *calls* it (state/heat.ts's event→delta map) and wires it to the
+      // real config, it doesn't touch the action's signature. Checked state/store.ts at
+      // this task's runtime and confirmed addHeat is present and required (not optional)
+      // on GameStoreState, so these call it directly rather than through an `addHeat?.()`
+      // guard — there's nothing to guard against.
+      schema['+10 heat'] = button(() => getGameState().addHeat(10));
+      schema['+100 heat'] = button(() => getGameState().addHeat(100));
+
+      // "set tier": grants exactly enough heat to reach the target tier's threshold
+      // (config/heat.ts's tierThresholds, index = tier). Heat is monotonic and never
+      // decays (locked design decision) — picking a tier at or below the current one
+      // computes a <= 0 delta, and addHeat's own clamp turns that into a no-op, so this
+      // can only ever move the wanted level up, same as real play.
+      schema['set tier'] = {
+        value: 0,
+        options: CONFIG.HEAT.tierThresholds.map((_, tier) => tier),
+        onChange: (tier: number) => {
+          const state = getGameState();
+          const target = CONFIG.HEAT.tierThresholds[tier];
+          if (target === undefined) return;
+          const delta = target - state.heat;
+          if (delta > 0) state.addHeat(delta);
+        },
+      };
+
+      // Live run score (state/store.ts) vs. persisted meta-progression
+      // (state/persistence.ts, written on `runEnded`) — the monitors below make the
+      // save/load loop visible without leaving the game: play, smash things, watch
+      // `score` climb; end the run and watch `best score`/`lifetime score` pick it up.
+      schema['score'] = monitor(() => getGameState().score, { interval: 250 });
+      schema['best score'] = monitor(() => loadProgress().bestScore, { interval: 250 });
+      schema['lifetime score'] = monitor(() => loadProgress().lifetimeScore, { interval: 250 });
+      schema['reset progress'] = button(() => resetProgress());
 
       return schema as unknown as LevaSchema;
     },

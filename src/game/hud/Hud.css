@@ -1,0 +1,51 @@
+/* Gameplay HUD (hud/Hud.tsx). Only what can't be expressed as a plain inline style object
+   (keyframe animation + a delayed-visibility fade) lives here — layout/color/typography
+   stay inline, same "game/ uses inline styles" split as GarageOverlay.tsx/.css. */
+
+@keyframes hud-star-flare {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.6);
+    filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.9));
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.hud-star {
+  display: inline-block;
+}
+
+/* Duration must match Hud.tsx's FLARE_MS constant. */
+.hud-star--flare {
+  animation: hud-star-flare 600ms ease-out;
+}
+
+/* Mirrors app/routes/Home.css's `.home__hero--hidden`: opacity fades immediately, then
+   `visibility` (and hit-testing) drops only once the fade finishes, so the fade is never
+   abruptly cut short mid-transition. */
+.hud-control-hints {
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity 0.6s ease,
+    visibility 0s linear 0.6s;
+}
+
+.hud-control-hints--hidden {
+  opacity: 0;
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-star--flare {
+    animation: none;
+  }
+
+  .hud-control-hints {
+    transition: none;
+  }
+}

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { type GameState, assertTransition, canTransition } from './machine';
 import { gameEvents } from './events';
-import { WORLD_GEN } from '../config';
+import { HEAT, WORLD_GEN } from '../config';
 
 // Store rule (TDD §6 `game/state/`): this is the ONLY zustand store, and it holds ONLY
 // machine state, meta-progression numbers, and HUD-visible values. Per-frame hot data —
@@ -24,11 +24,10 @@ export const SETTINGS_STORAGE_KEY = 'smashy6ix:settings';
 
 const DEFAULT_SETTINGS: Settings = { quality: 'high', muted: false };
 
-// Mirrors game/config/heat.ts — Phase 8 wires the real config through. Kept as a local
-// literal (not imported) because game/config is being authored in parallel with this
-// task; ascending, index = tier, thresholds[0] must be 0 so heat 0 always resolves to
-// tier 0.
-const DEFAULT_TIER_THRESHOLDS = [0, 15, 75, 180, 350, 600] as const;
+// Phase 8: wired to the real config (was a local literal mirror while game/config was
+// authored in parallel — see git history). Ascending, index = tier, thresholds[0] must be
+// 0 so heat 0 always resolves to tier 0 (asserted by config/config.test.ts).
+const TIER_THRESHOLDS = HEAT.tierThresholds;
 
 /**
  * Highest tier index `i` such that `heat >= thresholds[i]`. `thresholds` must be
@@ -129,12 +128,20 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 
     const { heat: prevHeat, tier: prevTier } = get();
     const heat = prevHeat + clampedDelta;
-    const tier = tierForHeat(heat, DEFAULT_TIER_THRESHOLDS);
+    const tier = tierForHeat(heat, TIER_THRESHOLDS);
     set({ heat, tier });
 
     gameEvents.emit('heatChanged', { heat, delta: clampedDelta });
-    if (tier !== prevTier) {
-      gameEvents.emit('tierChanged', { tier, prevTier });
+
+    // Emit tierChanged once PER crossing, in ascending order, on a multi-tier jump (e.g.
+    // a +200 event from heat 10 crosses tiers 1, 2, and 3 in the same call — each must
+    // fire its own tierChanged so tier-up consumers (stinger audio, HUD star flare, spawn
+    // director's "immediately fill the new cap") see every intermediate tier, not just the
+    // final one). Heat only ever increases (monotonic, asserted above) and thresholds are
+    // ascending, so tier can only climb here — a plain ascending loop from prevTier+1 to
+    // tier is sufficient; no descending case to handle.
+    for (let t = prevTier + 1; t <= tier; t++) {
+      gameEvents.emit('tierChanged', { tier: t, prevTier: t - 1 });
     }
   },
 
