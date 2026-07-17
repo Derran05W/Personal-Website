@@ -26,6 +26,14 @@ import { tankDebugSnapshot } from '../ai/units/tank';
 import { projectilesRef } from '../combat/projectiles';
 import { setDevToggle } from './devToggles';
 import { getSirenDebugSnapshot, type SirenDebugVoice } from '../audio/sirens';
+import { busGains, getAudioContextState, liveVoiceCount } from '../audio/manager';
+import {
+  getHumCandidatesDebug,
+  getHumDebugSnapshot,
+  getRotorDebugSnapshot,
+  type HumVoiceSnapshot,
+  type RotorVoiceSnapshot,
+} from '../audio/positional';
 import { startChaosBench, type BenchReport } from '../ai/chaosBench';
 import { heliDebugRef } from '../ai/helicopter';
 import { heliRef, type HeliLivery } from '../ai/heliTypes';
@@ -248,6 +256,49 @@ export function heliSlotsSummary(): string {
   return `${head} | ${body}`;
 }
 
+// Phase 15 Task 1 debug tooling: shared WebAudio manager introspection -----------------------
+// audio/manager.ts's context/bus/pool are otherwise invisible to a scripted check (no DOM/
+// canvas surface, and jsdom has no Web Audio implementation at all — see that module's file
+// header). This snapshot is the one read path a Playwright script or manual dev-console poke
+// needs to confirm: the context unlocks on the start gesture (`contextState === 'running'`),
+// `M` flips master gain, pause zeroes the sfx/engine buses (ambient may stay partially
+// audible per that module's documented GARAGE-only exception), and a repeated-play soak
+// returns every pool to 0 (no orphaned/leaked voices).
+export interface AudioSnapshot {
+  readonly contextState: AudioContextState | null;
+  readonly busGains: {
+    readonly master: number;
+    readonly sfx: number;
+    readonly engine: number;
+    readonly ambient: number;
+  };
+  readonly liveVoices: {
+    readonly impact: number;
+    readonly gun: number;
+    readonly explosion: number;
+    readonly loop: number;
+    readonly ui: number;
+    readonly stinger: number;
+  };
+  readonly liveVoiceTotal: number;
+}
+
+export function audioSnapshot(): AudioSnapshot {
+  return {
+    contextState: getAudioContextState(),
+    busGains: busGains(),
+    liveVoices: {
+      impact: liveVoiceCount('impact'),
+      gun: liveVoiceCount('gun'),
+      explosion: liveVoiceCount('explosion'),
+      loop: liveVoiceCount('loop'),
+      ui: liveVoiceCount('ui'),
+      stinger: liveVoiceCount('stinger'),
+    },
+    liveVoiceTotal: liveVoiceCount(),
+  };
+}
+
 declare global {
   interface Window {
     __smashy?: {
@@ -351,6 +402,29 @@ declare global {
         readonly contextState: AudioContextState | null;
         readonly voices: readonly SirenDebugVoice[];
       };
+      /** Phase 15 Task 1 proof: shared AudioContext state, bus gains, and per-group live
+       * voice-pool counts (audio/manager.ts) — see AudioSnapshot's doc comment above. */
+      audioSnapshot: () => AudioSnapshot;
+      /** Phase 15 Task 3 proof: per-district-hum voice snapshot (audio/positional.ts) —
+       * `liveCount` is how many transformers are currently sounding (drops when a district is
+       * blacked out or leaves audible range), each voice carries its district binding + gain +
+       * pan. Audible output is a human-on-hardware check — see positional.ts's file header. */
+      humSnapshot: () => {
+        readonly contextState: AudioContextState | null;
+        readonly liveCount: number;
+        readonly voices: readonly HumVoiceSnapshot[];
+      };
+      /** Phase 15 Task 3 proof: per-heli-rotor voice snapshot (audio/positional.ts) —
+       * `liveCount` is how many rotors are sounding (goes live when a heli tier is forced,
+       * fades with presence), each voice carries its livery + active flag + gain + pan. */
+      rotorSnapshot: () => {
+        readonly contextState: AudioContextState | null;
+        readonly liveCount: number;
+        readonly voices: readonly RotorVoiceSnapshot[];
+      };
+      /** Phase 15 Task 3 helper: transformer (hum-candidate) positions for the current world —
+       * lets a scripted check teleport the player onto one to exercise the hum + blackout path. */
+      humCandidates: () => readonly { readonly districtId: number; readonly x: number; readonly z: number }[];
       /** Phase 12 Task 4: runs the ★5 chaos bench (ai/chaosBench.ts) — forces max heat,
        * fills the pursuit roster, auto-drives the player around a road-graph circuit for
        * ~60 s while sampling perf, and resolves with the printed budget report. Idempotent
@@ -479,6 +553,10 @@ window.__smashy = {
   setInvincible: (value) => setDevToggle('invincible', value),
   forceBustedGameOver,
   sirenSnapshot: () => getSirenDebugSnapshot(),
+  audioSnapshot,
+  humSnapshot: () => getHumDebugSnapshot(),
+  rotorSnapshot: () => getRotorDebugSnapshot(),
+  humCandidates: () => getHumCandidatesDebug(),
   runChaosBench: () => startChaosBench(),
   blastHere: () => {
     const api = projectilesRef.current;

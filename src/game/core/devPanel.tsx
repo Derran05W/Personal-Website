@@ -33,12 +33,69 @@ import { startChaosBench } from '../ai/chaosBench';
 import { ARCHETYPES } from '../world/archetypes';
 import { DISTRICT_COUNT, setDistrictColor } from '../world/instancing';
 import { derivePlacements } from '../world/propPlacements';
+import {
+  SOUND_NAMES,
+  playEvent as playSound,
+  registerAllEventSounds,
+  stopAllLoops as stopAllAudioLoops,
+  getEventMapSnapshot,
+  type SoundName,
+} from '../audio/eventMap';
 import { worldRef } from '../world/worldRef';
 
 // Task 5 debug-tint colour: the ONE end-to-end proof that an archetype's district-grouped
 // [start,count] ranges (world/instancing.ts) are correct — a single button recolours every
 // instance in exactly one district, nothing else. Module-scope: one Color, reused per click.
 const TINT_COLOR = new Color('#ff2222');
+
+// Phase 15 Task 4 debug tooling: sound-test board -------------------------------------------
+// Reasonable-for-a-preview param bag per SoundName (audio/synth.ts's SoundParams — a loose,
+// all-optional bag, so passing fields a given builder ignores is harmless). Loop sounds
+// (engine/ambienceCity/ambienceCrickets/transformerHum) fire via the exact same `playEvent`
+// seam as everything else here — per the task brief ("a button per registered sound name...
+// fire via playEvent") — which means repeated clicks stack additional loop voices (the 'loop'
+// pool group is intentionally uncapped, config/audio.ts's VOICE_POOL_CAPS); "stop all loops
+// (debug)" below is the cleanup button for exactly that.
+const SOUND_PREVIEW_PARAMS: Record<SoundName, Record<string, unknown>> = {
+  engine: { speed: 0.6, throttle: 0.5 },
+  impact: { velocity: 0.6, variant: 1 },
+  gunshot: {},
+  shellLaunch: {},
+  explosionNear: {},
+  explosionFar: {},
+  transformerHum: {},
+  transformerZap: {},
+  powerDownWhoomp: {},
+  ambienceCity: { seed: 1 },
+  ambienceCrickets: { seed: 7 },
+  stingerTier1: { tier: 1 },
+  stingerTier2: { tier: 2 },
+  stingerTier3: { tier: 3 },
+  stingerTier4: { tier: 4 },
+  stingerTier5: { tier: 5 },
+  stingerWrecked: {},
+  stingerBusted: {},
+  uiTick: { gain: 1 },
+};
+
+/** "spam test (30x mixed)": a hand-picked 10-name pattern repeated 3x so every capped pool
+ * group (impact 6, gun 4, explosion 3, stinger 2 — config/audio.ts's VOICE_POOL_CAPS) gets
+ * asked for MORE concurrent voices than its cap, proving refusal/eviction holds under a burst
+ * rather than just a single fire-once click per sound. `ui` (cap 8) and the loop group
+ * (uncapped) are included too so the button's own doc claim ("mixed events") is literal. */
+const SPAM_MIX_PATTERN: readonly SoundName[] = [
+  'impact',
+  'impact',
+  'impact',
+  'gunshot',
+  'gunshot',
+  'explosionNear',
+  'explosionFar',
+  'stingerTier2',
+  'stingerTier4',
+  'uiTick',
+];
+const SPAM_MIX: readonly SoundName[] = [...SPAM_MIX_PATTERN, ...SPAM_MIX_PATTERN, ...SPAM_MIX_PATTERN];
 
 // leva's `Schema` type isn't part of its public export surface; recover it structurally
 // from `folder`'s first parameter (whose constraint IS Schema) so we never import an
@@ -577,6 +634,43 @@ export default function DevPanel() {
       'blackout ALL': button(() => blackoutAll()),
       'relight ALL': button(() => relightAll()),
     }),
+    [],
+  );
+
+  // --- Audio folder: Phase 15 Task 4 sound-test board ---------------------------------------
+  // registerAllEventSounds() is idempotent (audio/eventMap.ts) and cheap (no audio plays until
+  // a button is actually clicked) — calling it here means this folder works standalone even
+  // before the orchestrator's integration pass mounts the real `initEventMap()` lifecycle into
+  // the live game tree. A leva button click is itself a real DOM user gesture, so the very
+  // first click here can unlock the shared AudioContext on its own (manager.ts's `playEvent`
+  // already falls back to a lazy `unlockAudioContext()` for exactly this "reached outside the
+  // normal PLAYING-entry trigger" case) — no separate "unlock audio" step needed.
+  useEffect(() => {
+    registerAllEventSounds();
+  }, []);
+
+  useControls(
+    'Audio',
+    () => {
+      const schema: Record<string, unknown> = {};
+      for (const name of SOUND_NAMES) {
+        schema[name] = button(() => playSound(name, SOUND_PREVIEW_PARAMS[name]));
+      }
+      schema['spam test (30x mixed)'] = button(() => {
+        for (const name of SPAM_MIX) playSound(name, SOUND_PREVIEW_PARAMS[name]);
+        console.info('[audio] spam test fired 30 events — snapshot:', getEventMapSnapshot());
+      });
+      schema['stop all loops (debug)'] = button(() => stopAllAudioLoops());
+      schema['live voices'] = monitor(() => getEventMapSnapshot().liveVoiceTotal, { interval: 200 });
+      schema['bus gains'] = monitor(
+        () => {
+          const g = getEventMapSnapshot().busGains;
+          return `m${g.master.toFixed(2)} sfx${g.sfx.toFixed(2)} eng${g.engine.toFixed(2)} amb${g.ambient.toFixed(2)}`;
+        },
+        { interval: 200 },
+      );
+      return schema as unknown as LevaSchema;
+    },
     [],
   );
 

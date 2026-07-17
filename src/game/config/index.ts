@@ -25,7 +25,7 @@ import { DAMAGE, BUSTED } from './damage';
 import { SKID, TRACER, EXPLOSION, TANK_TELEGRAPH, SEARCHLIGHT } from './fx';
 import { LIGHTING } from './lighting';
 import { RENDERING } from './rendering';
-import { SIRENS } from './audio';
+import { SIRENS, SIREN_KINDS, AUDIO_BUSES, VOICE_POOL_CAPS, AUDIO_POSITIONAL, AUDIO_MIX } from './audio';
 
 /**
  * Registry of every tunable config block, keyed by name. The dev tuning panel (leva)
@@ -67,4 +67,9 @@ export const CONFIG = {
   LIGHTING,
   RENDERING,
   SIRENS,
+  SIREN_KINDS,
+  AUDIO_BUSES,
+  VOICE_POOL_CAPS,
+  AUDIO_POSITIONAL,
+  AUDIO_MIX,
 } as const;

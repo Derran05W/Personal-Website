@@ -32,6 +32,9 @@ import { Traffic } from './ai/TrafficMount';
 import { TrafficMesh } from './ai/TrafficMesh';
 import { RunLoopSystem } from './combat/runLoop';
 import { SpawnDirector } from './ai/SpawnDirectorMount';
+import { HeliMount } from './ai/HeliMount';
+import { HeliMesh } from './ai/HeliMesh';
+import { Searchlight } from './fx/Searchlight';
 import { SquadMount } from './ai/SquadMount';
 import { PoliceMesh } from './ai/units/PoliceMesh';
 import { ArmoredMesh } from './ai/units/ArmoredMesh';
@@ -41,9 +44,11 @@ import { ProjectilesMount } from './combat/ProjectilesMount';
 import { Tracers } from './fx/Tracers';
 import GameOver from './hud/GameOver';
 import { SirensSystem } from './audio/SirensSystem';
+import { PositionalAudioSystem } from './audio/PositionalAudioSystem';
 import { HeatScoreSystem } from './state/heatScoreSystem';
 import { initProgressPersistence } from './state/persistence';
 import { initPowerGrid } from './powergrid/grid';
+import { initEventMap } from './audio/eventMap';
 import { PowerGridSystem } from './powergrid/PowerGridMount';
 import Hud from './hud/Hud';
 import { SkidMarks } from './fx/SkidMarks';
@@ -167,6 +172,10 @@ export default function Game() {
   // world/run so district state always matches the freshly-lit remounted city.
   useEffect(() => initPowerGrid(), [worldKey]);
 
+  // Audio event mapping (Phase 15): every gameplay event -> synthesized sound via the
+  // manager seam; game-lifetime subscription.
+  useEffect(() => initEventMap(), []);
+
   // Bootstrap seam: BOOT → LOADING → GARAGE. Every branch reads the *current* machine
   // state fresh from the store and only fires the transition it expects, so the store's
   // dev-mode invalid-transition throw can never trigger under StrictMode's double mount
@@ -251,6 +260,16 @@ export default function Game() {
             {/* Heat/score accrual runs in fixed-step land (Phase 8) — pausing Physics
                 pauses accrual for free. */}
             <HeatScoreSystem />
+            {/* Ambient helicopters (Phase 14): HeliMount drives the flight controller and
+                populates heliRef (the HeliSlot seam) from a priority-0 useFrame, keyed off
+                wanted tier; HeliMesh renders the fuselage/rotor instances + shadow blob and
+                Searchlight the lead heli's spotlight/cone. Phase 15 Task 3's rotor audio tracks
+                the same heliRef slots. NOTE: this whole trio was missing from the tree (Phase 14
+                integration gap — the components shipped + were unit-tested but never mounted);
+                wired here so helicopters actually fly, render, and sound at runtime. */}
+            <HeliMount />
+            <HeliMesh />
+            <Searchlight />
             <PowerGridSystem key={`grid-${worldKey}`} />
             <SkidMarks />
             {/* key: spawn position is read once at body create (PlayerVehicle contract) —
@@ -310,6 +329,7 @@ export default function Game() {
       <Hud />
       <GameOver />
       <SirensSystem />
+      <PositionalAudioSystem />
 
       {DevPanel ? (
         <Suspense fallback={null}>
