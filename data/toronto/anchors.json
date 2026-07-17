@@ -1,0 +1,230 @@
+{
+  "_meta": {
+    "purpose": "Calibration anchors for the piecewise map projection (docs/map/TORONTO-MAP-SPEC-v2.md §2). Regenerate derived world coords from these — never hand-tune twice.",
+    "crs": "WGS84",
+    "gathered": "2026-07-17",
+    "method": "Two researcher rounds (Haiku + web search). Round 1 (latitude.to) failed the orchestrator's monotonic-longitude sanity gate along Yonge; round 2 re-verified every station against Wikidata and filled non-station corners via named-landmark proxies (tools/research/out/round2-*.json). Merge reviewed by orchestrator; disagreements > 0.002° resolved toward Wikidata.",
+    "status_key": {
+      "verified": "confirmed via web source",
+      "needs_agent": "unverified — re-run researcher (Phase 22 may fill from OSM road data instead)"
+    },
+    "notes": "yonge-steeles lies OFF the playable polygon (capsule top edge is ~380 m north of Finch); it exists to extend the Yonge-centreline longitude function to the map's top edge and for the '↑ Steeles Ave' signpost — exclude it from on-map anchor tests."
+  },
+  "anchors": [
+    {
+      "id": "yonge-steeles",
+      "name": "Yonge St & Steeles Ave",
+      "kind": "yonge_line",
+      "lat": 43.796,
+      "lon": -79.422,
+      "src": "latitude.to",
+      "proxy": "Centerpoint Mall, 6464 Yonge St",
+      "status": "verified",
+      "confidence": "medium",
+      "notes": "Off-map centreline extension point (see _meta.notes). Single-source (latitude.to); passes ordering sanity vs Finch."
+    },
+    {
+      "id": "yonge-finch",
+      "name": "Yonge St & Finch Ave",
+      "kind": "yonge_line",
+      "lat": 43.7814,
+      "lon": -79.4158,
+      "src": "wikidata.org",
+      "proxy": "Finch station",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-northyorkcentre",
+      "name": "Yonge St & Empress Ave",
+      "kind": "yonge_line",
+      "lat": 43.7686,
+      "lon": -79.4125,
+      "src": "wikidata.org",
+      "proxy": "North York Centre station",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-sheppard",
+      "name": "Yonge St & Sheppard Ave",
+      "kind": "yonge_line",
+      "lat": 43.7614,
+      "lon": -79.4108,
+      "src": "wikidata.org",
+      "proxy": "Sheppard–Yonge station",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-eglinton",
+      "name": "Yonge St & Eglinton Ave",
+      "kind": "yonge_line",
+      "lat": 43.7061,
+      "lon": -79.3983,
+      "src": "wikidata.org",
+      "proxy": "Eglinton station",
+      "status": "verified",
+      "notes": "Round-1 latitude.to value placed Eglinton east of St Clair (impossible); corrected by Wikidata."
+    },
+    {
+      "id": "yonge-stclair",
+      "name": "Yonge St & St Clair Ave",
+      "kind": "yonge_line",
+      "lat": 43.6878,
+      "lon": -79.3936,
+      "src": "wikidata.org",
+      "src2": "latitude.to",
+      "proxy": "St Clair station",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-bloor",
+      "name": "Yonge St & Bloor St",
+      "kind": "yonge_line",
+      "lat": 43.6708,
+      "lon": -79.3856,
+      "src": "wikidata.org",
+      "proxy": "Bloor–Yonge station",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-college",
+      "name": "Yonge St & College/Carlton St",
+      "kind": "yonge_line",
+      "lat": 43.6606,
+      "lon": -79.3828,
+      "src": "wikidata.org",
+      "src2": "latitude.to",
+      "proxy": "College station",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-dundas",
+      "name": "Yonge St & Dundas St",
+      "kind": "yonge_line",
+      "lat": 43.6564,
+      "lon": -79.3808,
+      "src": "wikidata.org",
+      "proxy": "TMU station (formerly Dundas)",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-queen",
+      "name": "Yonge St & Queen St",
+      "kind": "yonge_line",
+      "lat": 43.6528,
+      "lon": -79.3794,
+      "src": "wikidata.org",
+      "src2": "latitude.to",
+      "proxy": "Queen station",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-king",
+      "name": "Yonge St & King St",
+      "kind": "yonge_line",
+      "lat": 43.6489,
+      "lon": -79.3778,
+      "src": "wikidata.org",
+      "proxy": "King station",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-front",
+      "name": "Yonge St & Front St",
+      "kind": "yonge_line",
+      "lat": 43.647,
+      "lon": -79.3773,
+      "src": "latitude.to",
+      "proxy": "Hockey Hall of Fame, 30 Yonge St",
+      "status": "verified",
+      "confidence": "medium",
+      "notes": "Landmark proxy at the true corner; single non-Wikidata source but passes ordering sanity between King and Queens Quay."
+    },
+    {
+      "id": "yonge-queensquay",
+      "name": "Yonge St & Queens Quay",
+      "kind": "yonge_line",
+      "lat": 43.6415,
+      "lon": -79.377,
+      "src": "latitude.to",
+      "status": "verified",
+      "confidence": "medium",
+      "notes": "Round-1 single source; retained because it passes ordering sanity (south of Front, north of shore, lon between both)."
+    },
+    {
+      "id": "queen-bathurst",
+      "name": "Queen St W & Bathurst St",
+      "kind": "cross_lon",
+      "lat": null,
+      "lon": null,
+      "src": "",
+      "proxy": "Occident Hall / CB2 building, 651 Queen St W (identified, coords unconfirmed)",
+      "status": "needs_agent",
+      "confidence": "low",
+      "notes": "Tolerance-check anchor only (not calibration). Phase 22 may fill from OSM road polylines."
+    },
+    {
+      "id": "queen-spadina",
+      "name": "Queen St W & Spadina Ave",
+      "kind": "cross_lon",
+      "lat": null,
+      "lon": null,
+      "src": "",
+      "proxy": "441-443 Queen St W (search gave ~43.653/-79.398, unverified — not accepted)",
+      "status": "needs_agent",
+      "confidence": "low",
+      "notes": "Tolerance-check anchor only (not calibration). Phase 22 may fill from OSM road polylines."
+    },
+    {
+      "id": "queen-university",
+      "name": "Queen St W & University Ave",
+      "kind": "cross_lon",
+      "lat": 43.652,
+      "lon": -79.3858,
+      "src": "apple-maps",
+      "proxy": "Osgoode Hall, 130 Queen St W",
+      "status": "verified",
+      "notes": "Proxy centroid sits east of the University Ave centreline — allow wide (±80 wu) tolerance."
+    },
+    {
+      "id": "queen-bay",
+      "name": "Queen St & Bay St",
+      "kind": "cross_lon",
+      "lat": 43.6525,
+      "lon": -79.3839,
+      "src": "google-maps",
+      "proxy": "Old City Hall, 60 Queen St W",
+      "status": "verified",
+      "notes": "Proxy spans Bay→James; centroid west of Bay centreline — allow wide (±80 wu) tolerance."
+    },
+    {
+      "id": "queen-church",
+      "name": "Queen St E & Church St",
+      "kind": "cross_lon",
+      "lat": 43.6532,
+      "lon": -79.3765,
+      "src": "google-maps",
+      "proxy": "Metropolitan United Church, 56 Queen St E",
+      "status": "verified"
+    },
+    {
+      "id": "queen-jarvis",
+      "name": "Queen St E & Jarvis St",
+      "kind": "cross_lon",
+      "lat": 43.6546,
+      "lon": -79.3729,
+      "src": "latitude.to",
+      "proxy": "Moss Park Armoury, 130 Queen St E",
+      "status": "verified"
+    },
+    {
+      "id": "shore-yonge",
+      "name": "Lake Ontario water's edge due south of Yonge St",
+      "kind": "shore",
+      "lat": 43.6404,
+      "lon": -79.3757,
+      "src": "google-maps",
+      "proxy": "Jack Layton Ferry Terminal, 9 Queens Quay W",
+      "status": "verified"
+    }
+  ]
+}

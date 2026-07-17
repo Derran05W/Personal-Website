@@ -1,0 +1,216 @@
+{
+  "_meta": {
+    "source": "docs/map/TORONTO-MAP-SPEC-v2.md §3c (user-supplied spec, researched July 2026)",
+    "curve": {
+      "coefficient": 2.05,
+      "exponent": 0.6,
+      "shadow_factor": 0.35,
+      "formula": "h_game = coefficient * h_real_m^exponent"
+    },
+    "footprint_rule": "footprint_wu = real_m / 1.55 * 0.5",
+    "confidence_note": "spec confidence: high = stable encyclopedia facts; medium = worth one specs-researcher pass before final tuning (Phase 24)"
+  },
+  "buildings": [
+    {
+      "id": "cn-tower",
+      "name": "CN Tower",
+      "real_h_m": 553.3,
+      "floors": null,
+      "expected_game_h_wu": 91,
+      "footprint_wu": 21,
+      "material": "precast_grey",
+      "confidence": "high",
+      "notes": "grey concrete, glass pods; hero mesh spec §5"
+    },
+    {
+      "id": "first-canadian-place",
+      "name": "First Canadian Place (BMO)",
+      "real_h_m": 298,
+      "floors": 72,
+      "expected_game_h_wu": 63,
+      "footprint_wu": 19,
+      "material": "marble_white",
+      "confidence": "high",
+      "notes": "WHITE (marble→white glass reclad)"
+    },
+    {
+      "id": "scotia-plaza",
+      "name": "Scotia Plaza",
+      "real_h_m": 275,
+      "floors": 68,
+      "expected_game_h_wu": 60,
+      "footprint_wu": 18,
+      "material": "granite_red",
+      "confidence": "high",
+      "notes": "DEEP RED granite"
+    },
+    {
+      "id": "aura",
+      "name": "Aura (Yonge/Gerrard)",
+      "real_h_m": 272,
+      "floors": 78,
+      "expected_game_h_wu": 59,
+      "footprint_wu": 15,
+      "material": "glass_blue",
+      "confidence": "high",
+      "notes": "dark blue-grey glass — closest §4 enum is glass_blue; spec describes a blue-grey tint, not pure blue"
+    },
+    {
+      "id": "cibc-square",
+      "name": "CIBC Square (81 Bay)",
+      "real_h_m": 241,
+      "floors": 49,
+      "expected_game_h_wu": 55,
+      "footprint_wu": 18,
+      "material": "glass_blue",
+      "confidence": "medium",
+      "notes": "blue glass, banded"
+    },
+    {
+      "id": "commerce-court-west",
+      "name": "Commerce Court W (CIBC)",
+      "real_h_m": 239,
+      "floors": 57,
+      "expected_game_h_wu": 55,
+      "footprint_wu": 17,
+      "material": "glass_black",
+      "confidence": "high",
+      "notes": "stainless + grey glass — no plain 'grey glass' enum exists; mapped to glass_black as the closest dark-reflective curtain-wall match"
+    },
+    {
+      "id": "td-bank-tower",
+      "name": "TD Bank Tower",
+      "real_h_m": 223,
+      "floors": 56,
+      "expected_game_h_wu": 53,
+      "footprint_wu": 19,
+      "material": "glass_black",
+      "confidence": "high",
+      "notes": "matte BLACK steel"
+    },
+    {
+      "id": "royal-bank-plaza",
+      "name": "Royal Bank Plaza S (RBC)",
+      "real_h_m": 180,
+      "floors": 41,
+      "expected_game_h_wu": 46,
+      "footprint_wu": 16,
+      "material": "glass_gold",
+      "confidence": "high",
+      "notes": "GOLD glass"
+    },
+    {
+      "id": "the-well",
+      "name": "The Well tower",
+      "real_h_m": 174,
+      "floors": 46,
+      "expected_game_h_wu": 45,
+      "footprint_wu": 15,
+      "material": "glass_blue",
+      "confidence": "medium",
+      "notes": "glass on red-brick podium — spec doesn't name a glass tint; mapped to glass_blue as the default modern-glass enum, brick podium called out separately"
+    },
+    {
+      "id": "hullmark",
+      "name": "Hullmark (Yonge/Shep)",
+      "real_h_m": 161,
+      "floors": 45,
+      "expected_game_h_wu": 43,
+      "footprint_wu": 13,
+      "material": "glass_green",
+      "confidence": "medium",
+      "notes": "blue-green twin — no blue-green enum; mapped to glass_green (closer than glass_blue given 'green' is named second/dominant)"
+    },
+    {
+      "id": "emerald-park",
+      "name": "Emerald Park (Yonge/Shep)",
+      "real_h_m": 147,
+      "floors": 44,
+      "expected_game_h_wu": 41,
+      "footprint_wu": 13,
+      "material": "glass_green",
+      "confidence": "medium",
+      "notes": "GREEN curved twin"
+    },
+    {
+      "id": "fairmont-royal-york",
+      "name": "Fairmont Royal York",
+      "real_h_m": 124,
+      "floors": 28,
+      "expected_game_h_wu": 37,
+      "footprint_wu": 39,
+      "material": "limestone",
+      "confidence": "high",
+      "notes": "limestone + copper-green roof"
+    },
+    {
+      "id": "rogers-centre",
+      "name": "Rogers Centre",
+      "real_h_m": 86,
+      "floors": null,
+      "expected_game_h_wu": 30,
+      "footprint_wu": 66,
+      "dome_diameter_wu": 66,
+      "material": "precast_grey",
+      "confidence": "high",
+      "notes": "86 m is roof height (no floor count applies — domed stadium); white/grey panels"
+    },
+    {
+      "id": "north-york-civic-centre",
+      "name": "North York Civic Centre",
+      "real_h_m": 40,
+      "floors": 10,
+      "expected_game_h_wu": 19,
+      "footprint_wu": 26,
+      "material": "precast_grey",
+      "confidence": "high",
+      "notes": "grey precast"
+    },
+    {
+      "id": "eaton-centre-galleria",
+      "name": "Eaton Centre galleria",
+      "real_h_m": 38,
+      "floors": 4,
+      "expected_game_h_wu": 18,
+      "footprint_wu": 84,
+      "footprint_note": "84 long",
+      "material": "glass_blue",
+      "confidence": "medium",
+      "notes": "glass barrel vault — spec doesn't name a tint; mapped to glass_blue as the default clear/modern-glass enum"
+    },
+    {
+      "id": "casa-loma",
+      "name": "Casa Loma",
+      "real_h_m": 30,
+      "floors": 3,
+      "expected_game_h_wu": 16,
+      "footprint_wu": 32,
+      "material": "limestone",
+      "confidence": "high",
+      "notes": "grey stone castle — mapped to limestone, the only quarried-stone enum (§4 has no separate 'grey stone')"
+    },
+    {
+      "id": "union-station",
+      "name": "Union Station",
+      "real_h_m": 27,
+      "floors": 4,
+      "expected_game_h_wu": 15,
+      "footprint_wu": 74,
+      "footprint_note": "74 long colonnade",
+      "material": "limestone",
+      "confidence": "medium",
+      "notes": "limestone colonnade"
+    },
+    {
+      "id": "two-storey-shop",
+      "name": "2-storey shop",
+      "real_h_m": 12,
+      "floors": 2,
+      "expected_game_h_wu": 9,
+      "footprint_wu": 8,
+      "material": "storefront",
+      "confidence": "high",
+      "notes": "per-district — generic filler archetype; spec table lists footprint as '~8' (approximate), stored as 8"
+    }
+  ]
+}

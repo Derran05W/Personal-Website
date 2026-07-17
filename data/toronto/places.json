@@ -1,0 +1,115 @@
+{
+  "_meta": {
+    "status_key": {
+      "verified": "confirmed via web source, July 2026",
+      "knowledge": "stable fact, high confidence, agent re-check optional",
+      "needs_agent": "placeholder — run `python3 run_researchers.py places` to fill/verify"
+    },
+    "already_mapped_do_not_duplicate": [
+      "Magic Noodle (5453 Yonge)", "Alpha's Shawarma (245 Yonge)",
+      "Shake Shack (10 Dundas E)", "The Fifth Social Club (225 Richmond W)",
+      "Eaton Centre", "St Lawrence Market", "Uncle Tetsu note: see below"
+    ]
+  },
+  "places": [
+    { "name": "Yonge Street Warehouse", "address": "336 Yonge St", "zone": "downtown",
+      "category": "bar_cheap_eats", "status": "verified",
+      "brand_color": "#111111", "building_look": "3-storey brick, big white wordmark band",
+      "logo_hint": "white WAREHOUSE letters on black", "recognizability": 3 },
+
+    { "name": "Queen St. Warehouse", "address": "232 Queen St W", "zone": "downtown",
+      "category": "bar_cheap_eats", "status": "verified",
+      "brand_color": "#111111", "building_look": "2-storey, corner of Queen & John",
+      "logo_hint": "same wordmark, smaller", "recognizability": 2 },
+
+    { "name": "Alo", "address": "163 Spadina Ave (3rd floor)", "zone": "downtown",
+      "category": "fine_dining_icon", "status": "knowledge",
+      "brand_color": "#1e1e1e", "building_look": "understated grey heritage building at Queen & Spadina, tiny door",
+      "logo_hint": "small serif 'Alo' plaque — the joke IS how subtle it is", "recognizability": 2 },
+
+    { "name": "Uncle Tetsu's Japanese Cheesecake", "address": "595 Bay St (Atrium, at Dundas)", "zone": "downtown",
+      "category": "dessert_icon", "status": "verified",
+      "brand_color": "#f5c518", "building_look": "storefront in Atrium podium; render the QUEUE outside as a prop",
+      "logo_hint": "round yellow face logo", "recognizability": 3 },
+
+    { "name": "Loblaws Maple Leaf Gardens", "address": "60 Carlton St", "zone": "downtown",
+      "category": "grocery_icon", "status": "knowledge",
+      "brand_color": "#e21836", "building_look": "the old GARDENS arena — yellow-brick art-deco box with marquee corner",
+      "logo_hint": "orange Loblaws 'L' + faint MAPLE LEAF GARDENS ghost sign", "recognizability": 3 },
+
+    { "name": "The Rec Room", "address": "255 Bremner Blvd (Roundhouse)", "zone": "downtown",
+      "category": "entertainment", "status": "knowledge",
+      "brand_color": "#d22630", "building_look": "long brick railway roundhouse beside CN Tower (shared w/ Steam Whistle)",
+      "logo_hint": "red REC ROOM block letters", "recognizability": 2 },
+
+    { "name": "Real Sports Bar & Grill", "address": "15 York St", "zone": "downtown",
+      "category": "sports_bar", "status": "knowledge",
+      "brand_color": "#004c9b", "building_look": "glass podium at Maple Leaf Square, giant screen visible",
+      "logo_hint": "REAL SPORTS white-on-blue", "recognizability": 3 },
+
+    { "name": "MEC Toronto", "address": "400 King St W", "zone": "downtown",
+      "category": "retail_flagship", "status": "needs_agent",
+      "brand_color": "#00674b", "building_look": "green accents, gear in window",
+      "logo_hint": "green mountain logo", "recognizability": 2 },
+
+    { "name": "Sam the Record Man sign", "address": "277 Victoria St rooftop (faces Sankofa Sq)", "zone": "downtown",
+      "category": "signage_prop", "status": "knowledge",
+      "brand_color": "#e8352c", "building_look": "NOT a building — two giant spinning neon record discs on a roof",
+      "logo_hint": "animate the neon spin; peak nostalgia object", "recognizability": 3 },
+
+    { "name": "Apple Store (Eaton Centre)", "address": "220 Yonge St, Queen-end of mall", "zone": "downtown",
+      "category": "retail_flagship", "status": "knowledge",
+      "brand_color": "#f5f5f7", "building_look": "render as glowing white logo on Eaton Centre's Queen St face",
+      "logo_hint": "white apple", "recognizability": 3 },
+
+    { "name": "Konjiki Ramen (downtown)", "address": "41 Elm St", "zone": "downtown",
+      "category": "ramen", "status": "verified",
+      "brand_color": "#b8860b", "building_look": "small heritage rowhouse off Yonge",
+      "logo_hint": "gold circle + noodles", "recognizability": 2 },
+
+    { "name": "McDonald's (24h, Queen & Spadina)", "address": "TBD — verify exact address", "zone": "downtown",
+      "category": "fast_food_icon", "status": "needs_agent",
+      "brand_color": "#ffc72c", "building_look": "low corner unit, glows at 3am",
+      "logo_hint": "golden arches M", "recognizability": 3 },
+
+    { "name": "Tim Hortons (Union/PATH)", "address": "pick one near Union", "zone": "downtown",
+      "category": "coffee_icon", "status": "needs_agent",
+      "brand_color": "#c8102e", "building_look": "any — it's the red oval that matters",
+      "logo_hint": "red oval wordmark", "recognizability": 3 },
+
+    { "name": "The Alley (bubble tea)", "address": "TBD — Yonge corridor unit", "zone": "downtown",
+      "category": "bubble_tea", "status": "needs_agent",
+      "brand_color": "#2d2a26", "building_look": "narrow storefront, deer logo",
+      "logo_hint": "white stag head on dark", "recognizability": 2 },
+
+    { "name": "Konjiki Ramen (North York)", "address": "5051 Yonge St", "zone": "north_york",
+      "category": "ramen", "status": "verified",
+      "brand_color": "#b8860b", "building_look": "strip storefront, 3 min from North York Centre stn, lineup prop",
+      "logo_hint": "gold circle + noodles", "recognizability": 3 },
+
+    { "name": "H Mart (Yonge & Finch)", "address": "5545 Yonge St", "zone": "north_york",
+      "category": "grocery_icon", "status": "verified",
+      "brand_color": "#e6002d", "building_look": "24/7 K-grocery near Finch stn; bunsik stall at entrance",
+      "logo_hint": "red H MART", "recognizability": 3 },
+
+    { "name": "Buk Chang Dong Soon Tofu", "address": "5445 Yonge St", "zone": "north_york",
+      "category": "korean_icon", "status": "verified",
+      "brand_color": "#8b0000", "building_look": "plaza unit, steam in window, hangul sign",
+      "logo_hint": "red hangul + stone-pot glyph", "recognizability": 3 },
+
+    { "name": "H Mart (Yonge & Sheppard)", "address": "4885 Yonge St", "zone": "north_york",
+      "category": "grocery", "status": "verified",
+      "brand_color": "#e6002d", "building_look": "second strip location — include only if density needed",
+      "logo_hint": "red H MART", "recognizability": 2 },
+
+    { "name": "Korean BBQ anchor (Owl of Minerva or similar)", "address": "TBD Yonge strip", "zone": "north_york",
+      "category": "korean_bbq", "status": "needs_agent",
+      "brand_color": "#6b3fa0", "building_look": "strip unit, smoke-vent props on patio",
+      "logo_hint": "owl / hangul", "recognizability": 2 },
+
+    { "name": "Karaoke box (Echo/BMB or similar)", "address": "TBD Yonge strip", "zone": "north_york",
+      "category": "karaoke", "status": "needs_agent",
+      "brand_color": "#ff2fb3", "building_look": "2nd-floor neon over storefront — signage stacked vertically, very Yonge-North",
+      "logo_hint": "neon mic", "recognizability": 2 }
+  ]
+}

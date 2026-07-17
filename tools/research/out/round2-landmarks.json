@@ -1,0 +1,98 @@
+{
+  "anchors": [
+    {
+      "id": "yonge-steeles",
+      "name": "Yonge St & Steeles Ave",
+      "kind": "yonge_line",
+      "lat": 43.7960,
+      "lon": -79.4220,
+      "src": "latitude.to",
+      "proxy": "Centerpoint Mall, 6464 Yonge St",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-front",
+      "name": "Yonge St & Front St",
+      "kind": "yonge_line",
+      "lat": 43.6470,
+      "lon": -79.3773,
+      "src": "latitude.to",
+      "proxy": "Hockey Hall of Fame, 30 Yonge St",
+      "status": "verified"
+    },
+    {
+      "id": "queen-bathurst",
+      "name": "Queen St W & Bathurst St",
+      "kind": "cross_lon",
+      "lat": null,
+      "lon": null,
+      "src": "",
+      "proxy": "Occident Hall / CB2 building, 651 Queen St W",
+      "status": "needs_agent",
+      "confidence": "low",
+      "notes": "Heritage building identified but precise coordinates require geohack lookup"
+    },
+    {
+      "id": "queen-spadina",
+      "name": "Queen St W & Spadina Ave",
+      "kind": "cross_lon",
+      "lat": 43.653,
+      "lon": -79.398,
+      "src": "search-unverified",
+      "proxy": "Historic building, 441-443 Queen St W at Spadina",
+      "status": "needs_agent",
+      "confidence": "low",
+      "notes": "Approximate coordinates from street intersection; building-level precision requires confirmation"
+    },
+    {
+      "id": "queen-university",
+      "name": "Queen St W & University Ave",
+      "kind": "cross_lon",
+      "lat": 43.6520,
+      "lon": -79.3858,
+      "src": "apple-maps",
+      "proxy": "Osgoode Hall, 130 Queen St W",
+      "status": "verified"
+    },
+    {
+      "id": "queen-bay",
+      "name": "Queen St & Bay St",
+      "kind": "cross_lon",
+      "lat": 43.6525,
+      "lon": -79.3839,
+      "src": "google-maps",
+      "proxy": "Old City Hall, 60 Queen St W",
+      "status": "verified"
+    },
+    {
+      "id": "queen-church",
+      "name": "Queen St E & Church St",
+      "kind": "cross_lon",
+      "lat": 43.6532,
+      "lon": -79.3765,
+      "src": "google-maps",
+      "proxy": "Metropolitan United Church, 56 Queen St E",
+      "status": "verified"
+    },
+    {
+      "id": "queen-jarvis",
+      "name": "Queen St E & Jarvis St",
+      "kind": "cross_lon",
+      "lat": 43.6546,
+      "lon": -79.3729,
+      "src": "latitude.to",
+      "proxy": "Moss Park Armoury, 130 Queen St E",
+      "status": "verified"
+    },
+    {
+      "id": "shore-yonge",
+      "name": "Lake Ontario at Yonge St",
+      "kind": "shore",
+      "lat": 43.6404,
+      "lon": -79.3757,
+      "src": "google-maps",
+      "proxy": "Jack Layton Ferry Terminal, 9 Queens Quay W",
+      "status": "verified"
+    }
+  ]
+}

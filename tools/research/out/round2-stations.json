@@ -1,0 +1,94 @@
+{
+  "anchors": [
+    {
+      "id": "yonge-finch",
+      "name": "Finch station",
+      "kind": "yonge_line",
+      "lat": 43.7814,
+      "lon": -79.4158,
+      "src": "wikidata.org",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-northyorkcentre",
+      "name": "North York Centre station",
+      "kind": "yonge_line",
+      "lat": 43.7686,
+      "lon": -79.4125,
+      "src": "wikidata.org",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-sheppard",
+      "name": "Sheppard–Yonge station",
+      "kind": "yonge_line",
+      "lat": 43.7614,
+      "lon": -79.4108,
+      "src": "wikidata.org",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-eglinton",
+      "name": "Eglinton station",
+      "kind": "yonge_line",
+      "lat": 43.7061,
+      "lon": -79.3983,
+      "src": "wikidata.org",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-stclair",
+      "name": "St Clair station",
+      "kind": "yonge_line",
+      "lat": 43.6878,
+      "lon": -79.3936,
+      "src": "wikidata.org",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-bloor",
+      "name": "Bloor–Yonge station",
+      "kind": "yonge_line",
+      "lat": 43.6708,
+      "lon": -79.3856,
+      "src": "wikidata.org",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-college",
+      "name": "College station",
+      "kind": "yonge_line",
+      "lat": 43.6606,
+      "lon": -79.3828,
+      "src": "wikidata.org",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-dundas",
+      "name": "Dundas station",
+      "kind": "yonge_line",
+      "lat": 43.6564,
+      "lon": -79.3808,
+      "src": "wikidata.org",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-queen",
+      "name": "Queen station",
+      "kind": "yonge_line",
+      "lat": 43.6528,
+      "lon": -79.3794,
+      "src": "wikidata.org",
+      "status": "verified"
+    },
+    {
+      "id": "yonge-king",
+      "name": "King station",
+      "kind": "yonge_line",
+      "lat": 43.6489,
+      "lon": -79.3778,
+      "src": "wikidata.org",
+      "status": "verified"
+    }
+  ]
+}

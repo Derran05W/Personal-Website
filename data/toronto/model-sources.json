@@ -1,0 +1,52 @@
+{
+  "_meta": {
+    "source": "docs/map/TORONTO-MAP-SPEC-v2.md §7 (verified July 2026 in user's research session)",
+    "purpose": "Free geometry sourcing options evaluated for the Toronto filler/hero building pipeline. §7's own decision (also formalized in Addendum A.3/A.4): filler massing comes from Cadmapper/OSM footprints extruded per §2's projection; hero meshes (CN Tower, Rogers Centre) are hand-built from primitives, using CC models only as proportion reference — never shipped as geometry."
+  },
+  "sources": [
+    {
+      "id": "cadmapper",
+      "name": "Cadmapper",
+      "url_hint": null,
+      "formats": ["DXF", "SketchUp", "Rhino", "Illustrator"],
+      "license": "Free tier: ≤1 km² extracts (heights included); also a free whole-Toronto 2D road DXF — no formal license name given in spec",
+      "decision": "Pull 4 free tiles: King & Bay, rail lands/CN, Yonge Dundas→Queen, Yonge & Sheppard — covers every hero zone, $0",
+      "status": "knowledge",
+      "src": "TORONTO-MAP-SPEC-v2.md §7 (verified July 2026 in user's research session)",
+      "notes": "free ≤1 km² extracts (DXF/SketchUp/Rhino/Illustrator, heights incl.), free whole-Toronto 2D road DXF"
+    },
+    {
+      "id": "osm-overpass-osmnx",
+      "name": "OSM via Overpass/osmnx",
+      "url_hint": null,
+      "formats": ["GeoJSON"],
+      "license": "ODbL",
+      "decision": "the programmatic route; the projection eats GeoJSON directly",
+      "status": "knowledge",
+      "src": "TORONTO-MAP-SPEC-v2.md §7 (verified July 2026 in user's research session)",
+      "notes": "live footprints + patchy heights, ODbL"
+    },
+    {
+      "id": "city-of-toronto-3d-massing",
+      "name": "City of Toronto 3D Massing",
+      "url_hint": null,
+      "formats": ["not specified in spec"],
+      "license": "unknown (portal retired; not stated in spec)",
+      "decision": "Grab if convenient, don't block on it — not the primary pipeline",
+      "status": "knowledge",
+      "src": "TORONTO-MAP-SPEC-v2.md §7 (verified July 2026 in user's research session)",
+      "notes": "the ideal source but the portal page is now marked Retired; archived copies live at TMU/York geospatial centres"
+    },
+    {
+      "id": "sketchfab-cn-tower",
+      "name": "Sketchfab CC-BY CN Tower models",
+      "url_hint": null,
+      "formats": ["not specified in spec"],
+      "license": "CC-BY",
+      "decision": "reference-only — credit if shipped",
+      "status": "knowledge",
+      "src": "TORONTO-MAP-SPEC-v2.md §7 (verified July 2026 in user's research session)",
+      "notes": "CC-BY meshes exist (42k-87k tris per §5) but are heavy, unstyled, and one is a Google Earth rip that should not ship; proportion reference only, per §5's hero-model decision"
+    }
+  ]
+}

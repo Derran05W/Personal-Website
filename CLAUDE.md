@@ -3,7 +3,8 @@
 Personal portfolio site whose homepage **is** a playable low-poly 3D driving/destruction
 game (Smashy Road-style, Toronto-flavored). React shell (header/portfolio/resume) paints
 instantly; the game is a lazy-loaded chunk. Full spec: **`portfolio-smashy-road-tdd.md`**
-(the TDD — authoritative for all design intent).
+(the TDD — authoritative for all design intent). The Part 7 map overhaul is governed by
+its own spec: **`docs/map/TORONTO-MAP-SPEC-v2.md`** (see MAP PROJECT section below).
 
 **Stack:** React 19 + TypeScript (strict) + Vite · three.js via @react-three/fiber + drei ·
 Rapier physics via @react-three/rapier · zustand · howler.js · leva (dev) · pnpm · Vercel.
@@ -93,6 +94,20 @@ Status: `[ ]` todo · `[~]` in progress · `[!]` blocked / awaiting user · `[x]
 - [x] **Phase 19 — Toronto landmark layer & lighting polish** (M9) — 2026-07-17: landmark seam (deterministic, hash re-pinned f573aa88) + CN Tower/stadium/flatiron models, Kensington market district (blackout money-clip PROVEN live) + midtown, 4 streetcars looping avenues (verified 6 m/s live, wreckable 3,600 kg payday), raccoons/tipped cans, sky lake-glow + water shimmer + exposure 1.35; found & fixed a Rapier boot panic (StrictMode body churn pre-step); benches green all tiers WITH the layer (low 119.8k/120k); 1,552 tests. HONEST RE-SCOPE: tower-at-distance wayfinding is geometrically impossible under the locked §5.3 camera — documented for the user (see phase-19-notes.md).
 - [!] **Phase 20 — Content, SEO, credits, launch** (M10) — 2026-07-17: ALL non-content work shipped — prerendered SEO routes (game-free, proven), typed meta/OG/sitemap, guarded Vercel Analytics + game events, verified-license credits page, error boundary (site never white-pages, e2e-proven), on-brand 404, vercel.json, typed placeholder content layer (draft-badged, zero-refactor drop-in), full a11y/QA audit w/ all 4 filed issues fixed (skip-link restored, game UI exposed to AT); 1,635 tests, smoke 30/31, shell 94.4 KB gz (see phase-20-notes.md). AWAITING USER: Vercel connect, real content, phone test (P18), wayfinding call (P19), launch approval. Lighthouse numeric x4 owed from a real machine.
 
+### Part 7 — Toronto Map Overhaul (`.planning/part-7-toronto-map.md` · spec `docs/map/TORONTO-MAP-SPEC-v2.md`)
+User re-scope 2026-07-17: rebuild the map as a *recognizable* Toronto — thermometer
+polygon (downtown block + Yonge stem + North York capsule), real street grid, named
+buildings with materials + brand decals, CN Tower/Rogers heroes, places/nostalgia layer.
+Phase numbering continues the master list; each maps to a spec §10 phase. The legacy
+64×64 world stays the playable game until the new map reaches drivable parity (see MAP
+PROJECT workflow rule 4).
+- [x] **Phase 21 — Map v2 ph.0: piecewise projection + polygon world** (spec §1–§3, §10.0) — 2026-07-17: CLAUDE.md merge + file canonicalization; 18/20 anchors researcher-verified (round-1 latitude.to coords failed the monotonic-lon sanity gate — up to 700 m off, re-verified vs Wikidata); projection (Yonge straight at x=1500 by construction, exact inverse), §1 polygon + idempotent 80 wu camera clamp, §3c height curve, 4 data files + schema gate; derived truth snapshot-pinned (downtown N-S 1.81 m/wu, not the table's 1.55 — real Bloor→shore is 3.39 km; Steeles + Casa Loma off-map); fixed 3 fresh-container preconditions + a real error-path e2e race (terminal strict-mode violation vs 2 fallback-state h1s); 1,696 tests, smoke 30+1 skip, zero runtime wiring — game untouched (see phase-21-notes.md).
+- [ ] **Phase 22 — Map v2 ph.1: road graph on the thermometer + Line 1 tunnel transition** (§10.1)
+- [ ] **Phase 23 — Map v2 ph.2: filler massing from OSM/Cadmapper + district stock** (§6–§7, §10.2)
+- [ ] **Phase 24 — Map v2 ph.3: named buildings, materials, CROWN/FASCIA logo decals** (§3c–§4, §10.3)
+- [ ] **Phase 25 — Map v2 ph.4: heroes — CN Tower + Rogers Centre, occlusion fade, night pod ring** (§5, A.3, §10.4)
+- [ ] **Phase 26 — Map v2 ph.5: places layer, vibe props, Sam's discs, queues (nostalgia pass)** (§6, §8, §10.5)
+
 ---
 
 ## Locked decisions — do not relitigate
@@ -107,7 +122,8 @@ the user, not you.
 | BUSTED mechanic | **In** (speed < 1 m/s for 3 s with ≥ 3 pursuers within 8 m) |
 | Unlocks | **Lifetime-score milestones**, generous thresholds, `localStorage` |
 | Mobile v1 | **Playable-basic** (◀ ▶ + brake, auto-throttle, low tier) |
-| Map | **Finite** 64×64 tiles (640 m²), seeded generation, lakefront south edge |
+| Map | **Toronto thermometer polygon** (2400×4100 wu, `docs/map/TORONTO-MAP-SPEC-v2.md` §1) — user re-scope 2026-07-17. Legacy 64×64 tile map ships until the new map reaches drivable parity (MAP PROJECT rule 4) |
+| Brand logos (map layer) | **In** — user override 2026-07-17: real Toronto brands as 32×32 pixel-art homage decals (nearest-neighbour, mipmaps off, no photo logos); police/military stay generic; every brand gets an `assets/credits.json` entry with a trademark note |
 | Pedestrians | **None** (vehicles + props only) |
 | Backend | **None** — static site, `localStorage` only |
 | Buildings | Indestructible fixed colliders in v1 |
@@ -118,6 +134,63 @@ the user, not you.
 "Derran" until told otherwise); resume PDF; portfolio project content; LinkedIn URL;
 custom domain. GitHub is `Derran05W`. Needed at Phase 1 (placeholders OK) and for real
 at Phase 20.
+
+---
+
+## MAP PROJECT — Toronto playable map (Part 7)
+
+Governed by **`docs/map/TORONTO-MAP-SPEC-v2.md`**. Read the relevant spec section before
+touching map code. Do not improvise geometry, scale, or placement decisions the spec
+already makes.
+
+### Source of truth (data > code)
+- `data/toronto/anchors.json` — researcher-verified WGS84 coordinates calibrating the
+  projection. Derived world coords are *regenerated* from these — never hand-tune twice.
+- `data/toronto/building-specs.json` — heights, footprints, materials, computed game
+  dims. **Never hardcode a height, footprint, colour, or address in code.** Code reads
+  the JSON; if a value is wrong, fix the JSON.
+- `data/toronto/places.json` — consumer spots; each entry carries
+  `status: verified | knowledge | needs_agent`. `needs_agent` entries are filled ONLY by
+  the map-researcher subagent or `tools/research/run_researchers.py` — never by
+  guessing, never from the main thread's memory.
+- `data/toronto/model-sources.json` — free geometry sources + licence notes. Any shipped
+  CC-BY asset gets a credits entry.
+- All four files are schema-checked by a vitest suite under `src/game/world/toronto/`
+  (runs in `pnpm test`, hence CI).
+
+### Workflow contract (map phases)
+1. Phase order = spec §10 = checklist Part 7. One spec phase per session; the session
+   protocol above applies unchanged (plan → subagents → verify → handoff → commit+push).
+2. Each spec section lists its tests. **Write those tests first**, watch them fail,
+   implement to green. The tests are the exit condition — if they pass, stop; don't
+   gold-plate.
+3. Scale/width/height values come only from the spec §3 tables via `data/toronto/` +
+   `game/config/`. Grep for magic numbers before committing.
+4. The legacy 64×64 world remains the deployed game until the Toronto map reaches
+   drivable parity (target: end of Phase 23), then a config switch flips and the legacy
+   generator is retired in a cleanup pass. Never leave main with a broken game.
+
+### Cost discipline (research)
+- Real-world lookups (an address, a height, a licence, "is this place still open") go to
+  the **map-researcher** subagent (Haiku, contract in `.claude/agents/map-researcher.md`),
+  not the main thread.
+- Whole-dataset refreshes: `ANTHROPIC_API_KEY=... python3 tools/research/run_researchers.py
+  [places|specs|models]`, then merge `tools/research/out/*.json` into `data/toronto/`
+  (review the diff). The devcontainer has no API key — use the subagent path there.
+
+### Renderer decisions — RESOLVED (spec Addendum A)
+- True 3D, low-poly flat-shaded, Smashy Road-style. Buildings are extruded boxes with
+  flat/vertex colours — no photo textures anywhere. Tri budgets: CN Tower ≤ 600,
+  Rogers ≤ 500, filler box ≤ 12.
+- **Camera bearing: FIXED** — answered 2026-07-17 from `game/config/camera.ts`
+  (yaw 45°, pitch 50°, no player rotation control; sole exception is the death-beat's
+  8° yaw drift). Addendum A.2's fixed-bearing branch applies: exactly two faces of every
+  box are ever visible; author CROWN/FASCIA decals on those two faces only; the decal
+  test is "decal face lies in the camera-visible half-space". Pin the exact face pair
+  when Phase 21's map→world axis mapping lands.
+- Logo decals: quads from the 32×32 pixel atlas, nearest-neighbour, mipmaps OFF.
+- Occlusion: any mesh intersecting the camera→car ray fades to alpha ≤ 0.4 within
+  150 ms (Phase 25 test; mandatory for the financial district and CN Tower).
 
 ---
 
@@ -198,8 +271,11 @@ Score = Σ heat events + 5 × tier per second while ≥ ★1.
   through debug switches + screenshots, not gameplay skill.
 - All numbers live in `game/config/` typed `as const`, live-tunable via leva in dev.
   If you tune a value away from the TDD default, record it in handoff notes.
-- No real-world logos/wordmarks (generic "POLICE", plain red/white streetcar). Stylized
-  landmark shapes fine. Every non-CC0 asset gets an entry in `assets/credits.json`.
+- Real-world brand logos are **in for the map layer only** (user decision 2026-07-17,
+  supersedes the earlier no-logos rule): 32×32 pixel-art homage versions, never photo
+  assets. Police/military liveries stay generic ("POLICE"). Stylized landmark shapes
+  fine. Every non-CC0 asset AND every referenced brand gets an entry in
+  `assets/credits.json`.
 - Commits: short conventional messages (`feat:`, `fix:`, `chore:`). **Never** add
   Claude/AI co-author trailers or attribution.
 
@@ -214,6 +290,10 @@ Score = Σ heat events + 5 × tier per second while ≥ ★1.
 | What | Where |
 |---|---|
 | TDD (authoritative spec) | `portfolio-smashy-road-tdd.md` |
+| Toronto map spec (authoritative for Part 7) | `docs/map/TORONTO-MAP-SPEC-v2.md` |
+| Toronto map data (single source of truth) | `data/toronto/*.json` |
+| Map research runner (needs `ANTHROPIC_API_KEY`) | `tools/research/run_researchers.py` (out: `tools/research/out/`) |
+| map-researcher subagent contract | `.claude/agents/map-researcher.md` |
 | Part files (phase scopes, this roadmap's detail) | `.planning/part-*.md` |
 | Session-authored phase plans | `.planning/phases/phase-NN-plan.md` |
 | Session handoff notes | `.planning/phases/phase-NN-notes.md` |
