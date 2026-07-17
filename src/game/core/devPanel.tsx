@@ -488,6 +488,12 @@ export default function DevPanel() {
         value: getDevToggles().squadViz,
         onChange: (value: boolean) => setDevToggle('squadViz', value),
       },
+      // Phase 11 Task 3: in-scene LOS/aim visualizer for ★4 gun trucks (ai/GunTruckAimViz.tsx)
+      // — one slot→player line per live gun truck, green (LOS clear) / red (blocked).
+      aimViz: {
+        value: getDevToggles().aimViz,
+        onChange: (value: boolean) => setDevToggle('aimViz', value),
+      },
       // Task 5 district-range proof: each button fans over every archetype (or every
       // EMISSIVE archetype) and writes exactly one district's [start,count] slice. Eyeball
       // adjacent districts in the result — only `tintDistrict`'s district should change.

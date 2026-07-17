@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { PROPS } from '../config';
 import type { EntityEntry } from './registry';
@@ -9,8 +9,10 @@ import {
   matrixToTransform,
   resolveSwapTarget,
   selectEvictionIndex,
+  swapFromExternalHit,
   type EvictionCandidate,
 } from './propDynamics';
+import { clearRegistry, registerEntity, unregisterEntity } from './registry';
 
 // --- Fixtures -----------------------------------------------------------------------------
 
@@ -152,5 +154,32 @@ describe('matrixToTransform', () => {
     // Quaternion recovered up to sign; compare via dot magnitude ~ 1.
     const dot = out.quaternion.x * quat.x + out.quaternion.y * quat.y + out.quaternion.z * quat.z + out.quaternion.w * quat.w;
     expect(Math.abs(dot)).toBeCloseTo(1, 5);
+  });
+});
+
+// --- swapFromExternalHit: the non-contact entry point (Phase 11 bullets, Phase 12 explosions) --
+// The imperative swap itself (pool/body/registry) needs a live PropSwapController + Rapier, which
+// belongs to the R3F integration/live check. Here we cover the guard behavior it must have with
+// NO live controller: it never throws and reports it did nothing, so a bullet fired in a run
+// before the city pool exists (or in a headless test) is a clean no-op.
+describe('swapFromExternalHit (no live controller)', () => {
+  const POINT = { x: 1, y: 2, z: 3 };
+
+  afterEach(() => {
+    clearRegistry();
+  });
+
+  it('returns false (no swap) when no PropDynamics mount is live', () => {
+    expect(swapFromExternalHit(1234, POINT, 600)).toBe(false);
+  });
+
+  it('returns false for a handle that is not a static prop', () => {
+    registerEntity(5, { kind: 'player', districtId: -1 });
+    expect(swapFromExternalHit(5, POINT, 600)).toBe(false);
+    unregisterEntity(5);
+  });
+
+  it('returns false for an unknown handle', () => {
+    expect(swapFromExternalHit(9999, POINT, 600)).toBe(false);
   });
 });

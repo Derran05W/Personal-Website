@@ -31,9 +31,20 @@ export interface DevToggles {
    * consumer that must check `getDevToggles().invincible` and no-op player damage when
    * true. Handoff recorded in phase-09-notes.md. Default off. */
   invincible: boolean;
+  /** Phase 11 Task 3 debug tool: in-scene LOS/aim visualizer for ★4 gun trucks
+   * (ai/GunTruckAimViz.tsx) — one slot→player line per live gun truck, green when the
+   * (debug-owned) LOS raycast is clear, red when a building blocks it. Same lazy +
+   * toggle-gated mount pattern as `squadViz`/`graphViz`. Default off. */
+  aimViz: boolean;
 }
 
-const toggles: DevToggles = { minimap: true, graphViz: false, squadViz: false, invincible: false };
+const toggles: DevToggles = {
+  minimap: true,
+  graphViz: false,
+  squadViz: false,
+  invincible: false,
+  aimViz: false,
+};
 const listeners = new Set<() => void>();
 
 /** The one write path — devPanel.tsx's "World" folder controls call this on change. */

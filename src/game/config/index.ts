@@ -22,7 +22,7 @@ import { WORLD, WORLD_GEN, TRAFFIC, TRAFFIC_CIV, POWER_GRID, PROPS, BOUNDARY, PR
 import { PLAYER_CARS, ENEMY_UNITS, SWAT, SQUAD, GUN_TRUCK, VEHICLE_TUNING, AI_STEERING } from './vehicles';
 import { QUALITY_TIERS } from './quality';
 import { DAMAGE, BUSTED } from './damage';
-import { SKID } from './fx';
+import { SKID, TRACER } from './fx';
 import { LIGHTING } from './lighting';
 import { RENDERING } from './rendering';
 import { SIRENS } from './audio';
@@ -58,6 +58,7 @@ export const CONFIG = {
   DAMAGE,
   BUSTED,
   SKID,
+  TRACER,
   LIGHTING,
   RENDERING,
   SIRENS,

@@ -230,6 +230,20 @@ interface PoolSlot {
   colliderHandle: number;
 }
 
+// Module-scope handle to the LIVE controller, so systems that cause a swap WITHOUT a Rapier
+// contact event — combat/hitscan.ts gun-truck bullets (Phase 11), tank shell explosions
+// (Phase 12) — can drive the exact same swap path via swapFromExternalHit() below. Set by the
+// constructor, cleared by dispose() (guarded so a late teardown of an already-replaced controller
+// can't null out the current one). Only one PropDynamics mount is ever live (keyed on the world
+// seed in game/index.tsx), so this is a single, unambiguous instance.
+let activeController: PropSwapController | null = null;
+
+/** Publish/clear the live controller (a function so the constructor/dispose pass `this` as an
+ * argument rather than aliasing it to a variable — keeps the no-this-alias lint happy). */
+function setActiveController(controller: PropSwapController | null): void {
+  activeController = controller;
+}
+
 export class PropSwapController {
   private readonly world: RapierWorld;
   private readonly rapier: RapierNamespace;
@@ -251,6 +265,7 @@ export class PropSwapController {
     this.world = world;
     this.rapier = rapier;
     this.group = group;
+    setActiveController(this); // publish as the external-hit target (see swapFromExternalHit)
   }
 
   /** Current number of live dynamic props (≤ PROPS.dynamicPoolCap). */
@@ -406,6 +421,7 @@ export class PropSwapController {
       dyn.geometry.dispose();
     }
     this.dynamics.clear();
+    if (activeController === this) setActiveController(null);
   }
 
   /** Evict one slot when the global pool is full, so an incoming swap always fits. */
@@ -472,4 +488,39 @@ export class PropSwapController {
     this.dummy.updateMatrix();
     dyn.mesh.setMatrixAt(instanceId, this.dummy.matrix);
   }
+}
+
+// ===========================================================================================
+// External-hit swap entry point (Phase 11 gun-truck bullets; Phase 12 tank explosions reuse it)
+// ===========================================================================================
+
+/**
+ * Launch a fixed prop into the dynamic pool from a NON-contact source — a hitscan bullet
+ * (combat/hitscan.ts) or a tank shell's explosion (Phase 12) — WITHOUT a Rapier contact event.
+ * It synthesizes the same one-sided ImpactRecord the contact spine would produce for this prop
+ * and feeds it through the live controller's handleImpact(), so it walks the identical, fully
+ * exercised swap path: threshold gate (below the archetype's forceThresholds → graceful no-op),
+ * collider disable, registry unregister, pooled dynamic body, launch impulse at `point`, and the
+ * propDestroyed event for hp-less props. `forceProxy` (N) is BOTH the threshold test and the
+ * launch magnitude (min(forceProxy, PROPS.launchForceCap) × launchImpulseScale).
+ *
+ * Returns false when no PropDynamics mount is live (the pool doesn't exist yet — e.g. a unit test
+ * with no city) or the handle isn't a swappable static prop; true when the swap path ran. Safe to
+ * call every physics step.
+ */
+export function swapFromExternalHit(colliderHandle: number, point: Vec3, forceProxy: number): boolean {
+  const controller = activeController;
+  if (controller === null) return false;
+  const entry = getEntity(colliderHandle);
+  if (entry === undefined || entry.kind !== 'propStatic') return false;
+  const record: ImpactRecord = {
+    aHandle: colliderHandle,
+    bHandle: -1,
+    a: entry,
+    b: undefined,
+    forceMag: forceProxy,
+    point,
+  };
+  controller.handleImpact(record);
+  return true;
 }

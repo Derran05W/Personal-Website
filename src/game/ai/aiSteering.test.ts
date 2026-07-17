@@ -1,10 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import {
   pursueSteer,
+  orbitDesiredDir,
+  stepStandoff,
+  createStandoffBrain,
   initialStuckState,
+  initialStandoffState,
   yawToward,
   wrapAngle,
   type PursuitSteerParams,
+  type StandoffBrainParams,
+  type StandoffState,
   type AvoidHits,
   type StuckState,
 } from './aiSteering';
@@ -13,6 +19,7 @@ import { AI_STEERING } from '../config/vehicles';
 // The live tuning is the test baseline (behavior must hold for the shipped numbers), with a
 // clear all-open ray set as the default "no obstacles" case.
 const P: PursuitSteerParams = AI_STEERING;
+const SB: StandoffBrainParams = AI_STEERING; // full const has the ram-switch fields P narrows away
 const CLEAR: AvoidHits = { center: 1, left: 1, right: 1 };
 const DT = 0.1; // 1 / SPAWN.aiTickHz
 
@@ -271,5 +278,198 @@ describe('flank steering mode', () => {
     const r = pursueSteer(atOrigin, 10, { x: 30, z: 0 }, still, CLEAR, initialStuckState, P, DT, 'flank', null);
     expect(r.behavior).toBe('pursue');
     expect(r.command.steer).toBeGreaterThan(0); // seeks the player again
+  });
+});
+
+// --- Phase 11: standoff orbit geometry (orbitDesiredDir) -------------------------------------
+// Pure movement-direction math. Player at the origin; a unit sits on a cardinal axis so the
+// tangent/radial split is easy to read. dot() with the outward radial isolates the radial term.
+describe('orbit geometry (orbitDesiredDir)', () => {
+  const origin = { x: 0, z: 0 };
+
+  it('tangent flips with handedness at the ring (CW vs CCW are opposite)', () => {
+    // Unit due +Z of the player, exactly at orbitRadiusM → pure tangent, no radial term.
+    const onRing = { x: 0, z: P.orbitRadiusM };
+    const cw = orbitDesiredDir(onRing, origin, +1, P);
+    const ccw = orbitDesiredDir(onRing, origin, -1, P);
+    // Outward radial is +Z, so the tangent lies on X — opposite sign for the two handednesses.
+    expect(cw.x).toBeLessThan(0);
+    expect(ccw.x).toBeGreaterThan(0);
+    expect(cw.x).toBeCloseTo(-ccw.x);
+    // No radial component at the ring: the Z (radial) part is ~0 for both.
+    expect(cw.z).toBeCloseTo(0);
+    expect(ccw.z).toBeCloseTo(0);
+  });
+
+  it('tangent is perpendicular to the radial (dot ≈ 0) at the ring, off a different axis', () => {
+    const onRing = { x: P.orbitRadiusM, z: 0 }; // due +X of the player
+    const dir = orbitDesiredDir(onRing, origin, +1, P);
+    // Outward radial is +X → tangent on Z. dot(dir, radial) ≈ 0.
+    expect(dir.x * 1 + dir.z * 0).toBeCloseTo(0);
+    expect(Math.abs(dir.z)).toBeGreaterThan(0.5); // real tangential component
+  });
+
+  it('TOO CLOSE → radial component biases OUTWARD (away from the player)', () => {
+    const tooClose = { x: 0, z: P.orbitRadiusM / 2 }; // half the ring radius
+    const dir = orbitDesiredDir(tooClose, origin, +1, P);
+    // Outward radial is +Z; a positive Z projection means the blend pushes away from the player.
+    expect(dir.z).toBeGreaterThan(0);
+  });
+
+  it('TOO FAR → radial component biases INWARD (toward the player) and clamps', () => {
+    const tooFar = { x: 0, z: P.orbitRadiusM * 3 }; // well outside the ring → saturates the clamp
+    const dir = orbitDesiredDir(tooFar, origin, +1, P);
+    expect(dir.z).toBeLessThan(0); // toward the player
+    // Radial error here is large negative; the correction is clamped at −orbitCorrectionMax.
+    expect(dir.z).toBeCloseTo(-P.orbitCorrectionMax);
+  });
+
+  it('handedness mirrors the tangent but leaves the radial correction unchanged', () => {
+    const tooClose = { x: 0, z: P.orbitRadiusM / 2 };
+    const cw = orbitDesiredDir(tooClose, origin, +1, P);
+    const ccw = orbitDesiredDir(tooClose, origin, -1, P);
+    expect(cw.x).toBeCloseTo(-ccw.x); // tangent flips
+    expect(cw.z).toBeCloseTo(ccw.z); // same outward radial bias
+  });
+});
+
+// --- Phase 11: standoff orbit steering mode (pursueSteer mode 'orbit') -----------------------
+describe('orbit steering mode', () => {
+  const origin = { x: 0, z: 0 };
+  // A unit due +Z of the player, on the ring, facing +Z (yaw 0) unless aligned to the tangent.
+  const onRing = { x: 0, z: P.orbitRadiusM, yaw: 0 };
+
+  it('steers toward the tangent — handedness sets the sign (behavior "orbit")', () => {
+    const cw = pursueSteer(onRing, 10, origin, still, CLEAR, initialStuckState, P, DT, 'orbit', null, +1);
+    const ccw = pursueSteer(onRing, 10, origin, still, CLEAR, initialStuckState, P, DT, 'orbit', null, -1);
+    expect(cw.behavior).toBe('orbit');
+    expect(cw.command.steer).toBeLessThan(0); // tangent to −X → steers left
+    expect(ccw.command.steer).toBeGreaterThan(0); // opposite handedness → steers right
+  });
+
+  it('never rams: a player inside commitDistM stays "orbit", not "ram"', () => {
+    const closePose = { x: 0, z: 5, yaw: 0 }; // dist 5 < commitDistM (10)
+    const r = pursueSteer(closePose, 10, origin, still, CLEAR, initialStuckState, P, DT, 'orbit', null, +1);
+    expect(r.behavior).toBe('orbit');
+  });
+
+  it('holds ~constant orbit speed: throttle high when slow, ~base at target, ~0 overspeed', () => {
+    // Face the tangent so steer≈0 and the corner-ease/wall-cut factors are ~1 → throttle is the
+    // raw speed-controller output.
+    const aligned = { x: 0, z: P.orbitRadiusM, yaw: -Math.PI / 2 };
+    const slow = pursueSteer(aligned, 0, origin, still, CLEAR, initialStuckState, P, DT, 'orbit', null, +1);
+    const atSpeed = pursueSteer(aligned, P.orbitSpeedMps, origin, still, CLEAR, initialStuckState, P, DT, 'orbit', null, +1);
+    const overspeed = pursueSteer(aligned, 25, origin, still, CLEAR, initialStuckState, P, DT, 'orbit', null, +1);
+    expect(Math.abs(slow.command.steer)).toBeLessThan(0.02); // aligned → ~no steer
+    expect(slow.command.throttle).toBeGreaterThan(atSpeed.command.throttle);
+    expect(atSpeed.command.throttle).toBeGreaterThan(overspeed.command.throttle);
+    expect(atSpeed.command.throttle).toBeCloseTo(P.orbitThrottleBase); // P-controller sits at base
+    expect(overspeed.command.throttle).toBeCloseTo(0); // eases off when too fast
+  });
+
+  it('AVOIDANCE WINS over orbit adherence (a blocked side overrides the tangent)', () => {
+    const clear = pursueSteer(onRing, 10, origin, still, CLEAR, initialStuckState, P, DT, 'orbit', null, +1);
+    // Pure orbit wants to steer LEFT here; block the LEFT so avoidance demands RIGHT.
+    const leftWall: AvoidHits = { center: 0.3, left: 0.1, right: 1 };
+    const dodged = pursueSteer(onRing, 10, origin, still, leftWall, initialStuckState, P, DT, 'orbit', null, +1);
+    expect(clear.command.steer).toBeLessThan(0); // orbit alone → left
+    expect(dodged.command.steer).toBeGreaterThan(0); // avoidance flips it to right — wins
+    expect(dodged.behavior).toBe('avoid');
+  });
+});
+
+// --- Phase 11: standoff ram-switch state machine (stepStandoff / createStandoffBrain) ---------
+describe('standoff ram-switch (stepStandoff)', () => {
+  // Scaled dwell/exit times so a few DT ticks cross the thresholds.
+  const cfg: StandoffBrainParams = { ...SB, ramSwitchSec: 0.3, ramExitSec: 0.2 };
+  const FAR = 30; // beyond corneredDistM → never "cornered"
+
+  it('ORBIT → RAM after the player is slow (< ramSwitchSpeedMps) for ramSwitchSec', () => {
+    let s: StandoffState = initialStandoffState;
+    const slow = SB.ramSwitchSpeedMps - 1; // below the switch speed, above corneredSpeedMps
+    s = stepStandoff(s, slow, FAR, DT, cfg);
+    expect(s.mode).toBe('orbit'); // 0.1 s dwell
+    s = stepStandoff(s, slow, FAR, DT, cfg);
+    expect(s.mode).toBe('orbit'); // 0.2 s
+    s = stepStandoff(s, slow, FAR, DT, cfg);
+    expect(s.mode).toBe('ram'); // 0.3 s ≥ ramSwitchSec → switch
+  });
+
+  it('stays in ORBIT while the player keeps running', () => {
+    let s: StandoffState = initialStandoffState;
+    const running = SB.ramSwitchSpeedMps + 5;
+    for (let i = 0; i < 10; i++) s = stepStandoff(s, running, FAR, DT, cfg);
+    expect(s.mode).toBe('orbit');
+    expect(s.slowSec).toBe(0);
+  });
+
+  it('the slow dwell RESETS on a single fast tick (only sustained slow trips it)', () => {
+    let s: StandoffState = initialStandoffState;
+    const slow = SB.ramSwitchSpeedMps - 1;
+    s = stepStandoff(s, slow, FAR, DT, cfg); // 0.1
+    s = stepStandoff(s, slow, FAR, DT, cfg); // 0.2
+    s = stepStandoff(s, SB.ramSwitchSpeedMps + 5, FAR, DT, cfg); // one fast tick → reset
+    expect(s.mode).toBe('orbit');
+    expect(s.slowSec).toBe(0);
+  });
+
+  it('CORNERED (near-stopped AND within corneredDistM) switches to RAM instantly', () => {
+    const pinned = stepStandoff(initialStandoffState, SB.corneredSpeedMps - 1, SB.corneredDistM - 1, DT, cfg);
+    expect(pinned.mode).toBe('ram'); // no dwell — cornered is immediate
+  });
+
+  it('near-stopped but FAR (outside corneredDistM) is NOT cornered — waits out the dwell', () => {
+    const s = stepStandoff(initialStandoffState, SB.corneredSpeedMps - 1, SB.corneredDistM + 20, DT, cfg);
+    expect(s.mode).toBe('orbit'); // first tick: dwell not yet elapsed, and not cornered
+    expect(s.slowSec).toBeCloseTo(DT);
+  });
+
+  it('RAM → ORBIT only after the player runs (> ramExitSpeedMps) for ramExitSec (hysteresis)', () => {
+    let s: StandoffState = { mode: 'ram', slowSec: 0, fastSec: 0 };
+    const running = SB.ramExitSpeedMps + 2;
+    s = stepStandoff(s, running, FAR, DT, cfg);
+    expect(s.mode).toBe('ram'); // 0.1 s
+    s = stepStandoff(s, running, FAR, DT, cfg);
+    expect(s.mode).toBe('orbit'); // 0.2 s ≥ ramExitSec → back to orbit
+  });
+
+  it('in the hysteresis gap (ramSwitch < speed < ramExit) a rammer keeps ramming', () => {
+    let s: StandoffState = { mode: 'ram', slowSec: 0, fastSec: 0 };
+    const between = (SB.ramSwitchSpeedMps + SB.ramExitSpeedMps) / 2; // 5 < 6.5 < 8
+    for (let i = 0; i < 10; i++) s = stepStandoff(s, between, FAR, DT, cfg);
+    expect(s.mode).toBe('ram');
+    expect(s.fastSec).toBe(0); // never accumulated toward exit
+  });
+
+  it('the ram exit dwell RESETS on a single slow tick', () => {
+    let s: StandoffState = { mode: 'ram', slowSec: 0, fastSec: 0 };
+    const running = SB.ramExitSpeedMps + 2;
+    s = stepStandoff(s, running, FAR, DT, cfg); // 0.1
+    s = stepStandoff(s, 1, FAR, DT, cfg); // slow tick → reset
+    expect(s.mode).toBe('ram');
+    expect(s.fastSec).toBe(0);
+  });
+});
+
+describe('standoff ram-switch (createStandoffBrain wrapper)', () => {
+  const cfg: StandoffBrainParams = { ...SB, ramSwitchSec: 0.3, ramExitSec: 0.2 };
+
+  it('starts in orbit, drives orbit↔ram through update() with the same timing', () => {
+    const brain = createStandoffBrain(cfg);
+    expect(brain.mode).toBe('orbit');
+    // Slow player for 3 ticks → ram.
+    expect(brain.update(2, 30, DT)).toBe('orbit');
+    expect(brain.update(2, 30, DT)).toBe('orbit');
+    expect(brain.update(2, 30, DT)).toBe('ram');
+    expect(brain.mode).toBe('ram');
+    // Player runs again for 2 ticks → orbit.
+    expect(brain.update(12, 30, DT)).toBe('ram');
+    expect(brain.update(12, 30, DT)).toBe('orbit');
+    expect(brain.mode).toBe('orbit');
+  });
+
+  it('a cornered player flips update() to ram immediately', () => {
+    const brain = createStandoffBrain(cfg);
+    expect(brain.update(1, SB.corneredDistM - 2, DT)).toBe('ram');
   });
 });

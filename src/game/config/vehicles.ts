@@ -220,8 +220,8 @@ export const ENEMY_UNITS = {
   // Phase 10: ramDamageMultiplier 1.5 — SWAT rams hurt noticeably more than police/armored,
   // on top of its own 1.8× mass factor.
   swat: { hp: 120, massFactor: 1.8, topSpeedPct: 100, behavior: 'flank', ramDamageMultiplier: 1.5 },
-  gunTruck: { hp: 100, massFactor: 1.5, topSpeedPct: 95, behavior: 'standoff' },
-  tank: { hp: 400, massFactor: 6.0, topSpeedPct: 55, behavior: 'siege' },
+  gunTruck: { hp: 100, massFactor: 1.5, topSpeedPct: 95, behavior: 'standoff', ramDamageMultiplier: 1.2 },
+  tank: { hp: 400, massFactor: 6.0, topSpeedPct: 55, behavior: 'siege', ramDamageMultiplier: 2 },
 } as const satisfies Record<string, EnemyUnitDef>;
 
 export type EnemyUnitId = keyof typeof ENEMY_UNITS;
@@ -234,14 +234,45 @@ export const SWAT = {
 
 // Gun truck standoff + turret burst params. TDD §5.6: orbits at ~20 m, closes to ram
 // only if the player is slow/cornered; turret gunner fires 3-round hitscan bursts,
-// 3 dmg + 600 N impulse per hit, 2.5 s cooldown. Tank gun params live in tank.ts.
+// 3 dmg + 600 N impulse per hit, 2.5 s cooldown. Tank gun params (Phase 12) live in
+// tank.ts and REUSE combat/turret.ts + combat/hitscan.ts — the toolkit this block feeds.
 export const GUN_TRUCK = {
+  // Orbit radius the standoff steering holds the truck at (m). TDD §5.6 "orbits at ~20 m".
   standoffRadius: 20,
+  // Hysteresis band (m) around standoffRadius: outside +band the truck closes in, inside
+  // −band it backs off, in between it orbits tangentially. Keeps it from oscillating.
+  standoffBandM: 4,
+  // Turret aim + fire-gate params (combat/turret.ts).
+  turret: {
+    // World-space aim slew rate (deg/s). The aim is DAMPED toward the player at this rate,
+    // so a player crossing fast enough out-runs the turret — the intended counterplay.
+    yawRateDegPerSec: 120,
+    // Fire only within this range of the player (m). Also the hitscan max travel (burst.rangeM).
+    engagementRangeM: 35,
+    // No firing while the chassis' lateral (sideways) speed exceeds this (m/s) — a truck
+    // sliding sideways can't hold a bead, so it holds fire until it settles.
+    slipGateMps: 4,
+    // Seeded cone spread: each round's direction is perturbed by up to ±this (deg) in yaw
+    // and pitch (createRng fork per unit+burst). Small — aim-at-position does most of the work.
+    spreadDegMax: 3,
+    // Muzzle geometry: turret pivot sits this high above the chassis center (m); the barrel
+    // tip (bullet + LOS ray origin) is this far ahead of the pivot along the aim (m).
+    heightM: 1.35,
+    muzzleForwardM: 1.6,
+  },
+  // 3-round hitscan burst (combat/hitscan.ts). Sim-time scheduled (not setTimeout): rounds
+  // fire spacingMs apart, then the truck waits cooldownSec before it can start another burst.
   burst: {
     rounds: 3,
+    spacingMs: 100,
     dmgPerHit: 3,
     impulsePerHit: 600,
+    // Force proxy (N) fed to world/propDynamics.ts's swapFromExternalHit when a round strikes
+    // a static prop — reaches the streetlight/hydrant/mailbox swap thresholds so bullets knock
+    // props loose. Below a tree/parked-car threshold, so those shrug bullets off (by design).
+    propForceProxyN: 600,
     cooldownSec: 2.5,
+    rangeM: 35,
   },
 } as const;
 
@@ -336,6 +367,48 @@ export const AI_STEERING = {
   // station, it isn't relentlessly closing for a hit (that's what the rammers are for).
   flankArriveM: 8,
   flankArriveThrottle: 0.2,
+  // --- standoff ORBIT (Phase 11; used by the 'orbit' steering mode / gun trucks) -------------
+  // A gun truck holds a RING at orbitRadiusM around the player (TDD §5.6 "orbits at ~20 m"): the
+  // 'orbit' mode blends a TANGENTIAL heading (circle the player — handedness is seeded per unit at
+  // spawn and passed to pursueSteer as the orbitDir arg) with a RADIAL correction that pulls the
+  // truck back onto the ring (bias OUTWARD when too close, INWARD when too far; a fresh 60–90 m
+  // spawn just spirals in). Obstacle avoidance layers on top and WINS over ring adherence — the
+  // part-4 gotcha: orbits clip building corners constantly, so a clean circle is NOT the goal; a
+  // "drunken" orbit that never grinds a wall is. Placeholder baseline; all leva-live.
+  // NOTE: orbitRadiusM mirrors GUN_TRUCK.standoffRadius (both = the TDD ~20 m); the STEERING math
+  // reads this one (pursueSteer takes AI_STEERING as its params). Keep the two in sync if retuned.
+  orbitRadiusM: 20,
+  // Target tangential cruise speed (m/s) the orbit throttle P-controller holds (~14 keeps trucks
+  // circling briskly but under their 95% top speed so they stay composed, not launch-prone).
+  orbitSpeedMps: 14,
+  // Radial pull-back onto the ring: normalized radius error ((orbitRadiusM − dist) / orbitRadiusM)
+  // × orbitCorrectionGain, clamped to ±orbitCorrectionMax. Small near the ring (clean circle),
+  // saturating far out (spiral straight in). Gain 1.5 / max 2.0: at the ring → pure tangent; a
+  // truck half a radius out biases ~0.75 outward; well beyond the ring biases the full 2.0 inward.
+  orbitCorrectionGain: 1.5,
+  orbitCorrectionMax: 2.0,
+  // Throttle P-controller around orbitSpeedMps: clamp01(orbitThrottleBase + (orbitSpeedMps −
+  // speed) × orbitSpeedGain), then scaled by the shared wall-cut/corner-ease so avoidance still
+  // wins. Base is only a seed — the feedback loop self-corrects the real sustaining throttle
+  // against chassis drag (below target → throttle rises; overspeed → eases toward coast).
+  orbitThrottleBase: 0.5,
+  orbitSpeedGain: 0.08,
+  // --- standoff RAM-SWITCH state machine (Phase 11; createStandoffBrain / stepStandoff) -------
+  // A gun truck's brain flips it from its standoff 'orbit' to a 'ram' charge (aiSteering 'pursue')
+  // when the player STOPS running, and back once they're clearly running again. TDD §5.6: "closes
+  // to ram only if player is slow/cornered; returns to orbit after." Asymmetric hysteresis (slow
+  // dwell in, fast dwell out) so a marginal player doesn't flicker the mode. All leva-live.
+  // ORBIT → RAM: player below ramSwitchSpeedMps continuously for ramSwitchSec, OR "cornered".
+  ramSwitchSpeedMps: 5,
+  ramSwitchSec: 2,
+  // "Cornered": a near-stopped player (< corneredSpeedMps) pinned within corneredDistM switches to
+  // ram INSTANTLY (no dwell) — they're not escaping, so close the distance now. Simple by design.
+  corneredSpeedMps: 2,
+  corneredDistM: 12,
+  // RAM → ORBIT: player back above ramExitSpeedMps continuously for ramExitSec. The exit speed
+  // sits above ramSwitchSpeedMps (8 > 5) so re-orbiting needs a clear getaway, not a brief twitch.
+  ramExitSpeedMps: 8,
+  ramExitSec: 1,
 } as const;
 
 // SWAT squad flank-coordinator params (Phase 10 Task 1; TDD §5.6 SWAT row: "two units steer to

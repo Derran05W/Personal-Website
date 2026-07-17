@@ -58,6 +58,16 @@ export interface MinPreferredEntry {
   readonly count: number;
 }
 
+/** A per-tier "never more than N of this kind concurrently" cap (SPAWN_COMPOSITION.maxOfKind).
+ * The generic form of the ★5 maxTanks rule (SPAWN.maxTanks), so any escalation unit can be
+ * rarity-limited without a dedicated director field. See maxOfKind's doc comment below. */
+export interface MaxOfKindEntry {
+  readonly kind: UnitKind;
+  /** Max concurrently-pursuing (non-wrecked) units of `kind` the director will keep alive at
+   * this tier — it stops rolling/preferring the kind once this many exist, regardless of weight. */
+  readonly max: number;
+}
+
 /** Shape of the per-tier spawn-composition table. */
 export interface SpawnComposition {
   /** Indexed by wanted tier ★0..★5; each a weighted list of kinds to draw from. */
@@ -69,6 +79,15 @@ export interface SpawnComposition {
    * weighted roll, same as before this field existed.
    */
   readonly minPreferred?: readonly (readonly MinPreferredEntry[])[];
+  /**
+   * Indexed by wanted tier ★0..★5 (same indexing as `tiers`); each tier's (possibly empty)
+   * list of per-kind concurrency caps. Optional — a tier/kind with no entry is uncapped
+   * (bounded only by the tier's total cap SPAWN.caps[tier]). The director excludes a kind from
+   * BOTH the minPreferred fill and the weighted roll once its live count reaches the cap, so a
+   * capped kind (e.g. ≤ 2 gun trucks at ★4) never exceeds it however the rolls fall. The generic
+   * form of SPAWN.maxTanks (Phase 12 tanks can move onto this instead of a bespoke field).
+   */
+  readonly maxOfKind?: readonly (readonly MaxOfKindEntry[])[];
 }
 
 /**
@@ -103,7 +122,12 @@ export const SPAWN_COMPOSITION = {
       { kind: 'armored', weight: 2 },
       { kind: 'swat', weight: 3 },
     ], // ★3 — SWAT joins; minPreferred below guarantees flankers actually show up
-    [{ kind: 'police', weight: 1 }], // ★4 — Part 4: + { kind: 'gunTruck', … }
+    [
+      { kind: 'police', weight: 3 },
+      { kind: 'armored', weight: 2 },
+      { kind: 'swat', weight: 2 },
+      { kind: 'gunTruck', weight: 3 },
+    ], // ★4 — gun trucks join (Phase 11); cap stays SPAWN.caps[4] (9), gun trucks maxOfKind-capped
     [{ kind: 'police', weight: 1 }], // ★5 — Part 4: + { kind: 'tank', … } (maxTanks capped)
   ],
   minPreferred: [
@@ -112,8 +136,16 @@ export const SPAWN_COMPOSITION = {
     [], // ★2 — no minimum; armored is a weighted extra, not a guaranteed presence
     [{ kind: 'swat', count: 2 }], // ★3 — squad.ts's flank slots need bodies to claim them;
     // without a floor, an unlucky weighted roll could leave ★3 with zero SWAT for a while.
-    [], // ★4
+    [{ kind: 'gunTruck', count: 1 }], // ★4 — guarantee at least one truck standing off (capped at 2)
     [], // ★5
+  ],
+  maxOfKind: [
+    [], // ★0
+    [], // ★1
+    [], // ★2
+    [], // ★3
+    [{ kind: 'gunTruck', max: 2 }], // ★4 — at most two gun trucks at once (TDD §5.6 / plan: ≤2)
+    [], // ★5 — tanks stay on the dedicated SPAWN.maxTanks path for now
   ],
 } as const satisfies SpawnComposition;
 

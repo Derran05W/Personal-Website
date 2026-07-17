@@ -154,8 +154,12 @@ function handleTransformerDeath(entry: EntityEntry): void {
  * Applies `damage` to a registry entry's mutable hp (world/registry.ts contract), clamped at
  * 0, and fires the death side effect exactly once when it crosses from alive to dead. No-op
  * for entries without hp (indestructible props/buildings) or already-dead entries.
+ *
+ * Exported so combat/hitscan.ts (Phase 11 gun-truck bullets) can deal fixed per-round damage to
+ * hp-bearing entities through THIS resolver rather than duplicating the hp-clamp + death-event
+ * emission — keeping the propDestroyed/transformerDestroyed contract this file owns single-source.
  */
-function applyEntityDamage(entry: EntityEntry, damage: number): void {
+export function applyEntityDamage(entry: EntityEntry, damage: number): void {
   const hp = entry.hp;
   if (hp === undefined || hp <= 0) return;
   const newHp = Math.max(0, hp - damage);
@@ -177,9 +181,14 @@ function applyEntityDamage(entry: EntityEntry, damage: number): void {
 /**
  * Applies `damage` to the player's store-held HP, clamped at 0, and emits playerDamaged. A
  * no-op once playerHp is already 0 (WRECKED transition + game-over flow is Phase 9 scope —
- * this resolver only ever drains HP down to, and holds it at, 0).
+ * this resolver only ever drains HP down to, and holds it at, 0). Honors the DEV invincible
+ * toggle.
+ *
+ * Exported so combat/hitscan.ts (Phase 11 gun-truck bullets) drains player HP through the SAME
+ * guard (invincible + clamp + playerDamaged emission) that ram damage uses — one player-damage
+ * path, so bullets and rams can never diverge on invincibility or the HUD damage event.
  */
-function applyPlayerDamage(damage: number): void {
+export function applyPlayerDamage(damage: number): void {
   // Dev invincibility (leva Debug toggle; core/devToggles.ts) — Phase 9 debug tooling.
   if (import.meta.env.DEV && getDevToggles().invincible) return;
   const state = getGameState();

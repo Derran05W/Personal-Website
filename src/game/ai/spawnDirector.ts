@@ -28,7 +28,13 @@
 // director spawns a replacement while the wreck lingers. The fixed pool (SlotBook) is what
 // bounds total bodies, so a wreck can never let the pool overflow.
 
-import { SPAWN, SPAWN_COMPOSITION, type CompositionEntry, type MinPreferredEntry } from '../config';
+import {
+  SPAWN,
+  SPAWN_COMPOSITION,
+  type CompositionEntry,
+  type MaxOfKindEntry,
+  type MinPreferredEntry,
+} from '../config';
 import { createRng, type Rng } from '../world/rng';
 import { tileCenter, type Tile } from '../world/types';
 import { playerVehicle } from '../vehicles/playerRef';
@@ -192,6 +198,19 @@ export function countPursuingKind(slots: readonly UnitSlot[], kind: UnitKind): n
     if (s.kind === kind && s.state !== 'wrecked') n++;
   }
   return n;
+}
+
+/** True once `kind`'s live (pursuing, non-wrecked) count has reached its per-tier concurrency
+ * cap in `maxOfKind` (SPAWN_COMPOSITION.maxOfKind[tier]) — the generic form of the ★5 maxTanks
+ * rule. A kind with no entry in `maxOfKind` is never at max (uncapped). Pure; the director builds
+ * a predicate over this and uses it to exclude the kind from both fill passes. */
+export function kindAtMax(
+  slots: readonly UnitSlot[],
+  kind: UnitKind,
+  maxOfKind: readonly MaxOfKindEntry[],
+): boolean {
+  const entry = maxOfKind.find((e) => e.kind === kind);
+  return entry !== undefined && countPursuingKind(slots, kind) >= entry.max;
 }
 
 /** Filters a tier's weighted composition entries down to kinds with a REGISTERED factory,
@@ -379,6 +398,10 @@ export class SpawnDirectorController {
     const cap = capForTier(tier, SPAWN.caps);
     const entries = SPAWN_COMPOSITION.tiers[tier] ?? [];
     const minPreferred: readonly MinPreferredEntry[] = SPAWN_COMPOSITION.minPreferred?.[tier] ?? [];
+    const maxOfKind: readonly MaxOfKindEntry[] = SPAWN_COMPOSITION.maxOfKind?.[tier] ?? [];
+    // Per-kind concurrency cap predicate (Phase 11): a kind at its maxOfKind limit is excluded
+    // from BOTH fill passes below, so e.g. ≤ 2 gun trucks holds however the weighted rolls fall.
+    const atMax = (kind: UnitKind): boolean => kindAtMax(this.slots, kind, maxOfKind);
     // Shared across BOTH passes below: a single hard bound so a run of unlucky rolls (an
     // unregistered kind, an exhausted ring) can never spin forever regardless of which pass
     // is consuming it — see trySpawn/trySpawnKind's "return false, never throw" contract.
@@ -386,20 +409,22 @@ export class SpawnDirectorController {
 
     // Pass 1 — minPreferred: guarantee each preferred kind's floor BEFORE the weighted roll
     // gets a turn (TDD/Phase 10 rationale: squad.ts's flank slots need bodies to claim them,
-    // so ★3 wants >=2 SWAT on the ground before spending the rest of the cap on the mix).
+    // so ★3 wants >=2 SWAT on the ground before spending the rest of the cap on the mix). A
+    // preferred kind that is also maxOfKind-capped stops at whichever bound is hit first.
     for (const pref of minPreferred) {
       while (
         this.pursuingCount() < cap &&
         countPursuingKind(this.slots, pref.kind) < pref.count &&
+        !atMax(pref.kind) &&
         guard-- > 0
       ) {
         if (!this.trySpawnKind(player, pref.kind)) break; // no ring point / no factory — next pref
       }
     }
 
-    // Pass 2 — weighted fill for whatever's left of the cap.
+    // Pass 2 — weighted fill for whatever's left of the cap (capped kinds excluded from the roll).
     while (this.pursuingCount() < cap && guard-- > 0) {
-      if (!this.trySpawn(player, entries)) break; // no ring point / no registered kind this pass
+      if (!this.trySpawn(player, entries, atMax)) break; // no ring point / no eligible kind this pass
     }
   }
 
@@ -420,7 +445,11 @@ export class SpawnDirectorController {
    * ever reaching spawnAt's factory-undefined branch, so the other kinds in the mix keep
    * filling the cap at their relative weights. Returns false (no side effect) if the ring is
    * empty, no entry has a registered factory, or the pool is full. */
-  private trySpawn(player: Vec2, entries: readonly CompositionEntry[]): boolean {
+  private trySpawn(
+    player: Vec2,
+    entries: readonly CompositionEntry[],
+    atMax: (kind: UnitKind) => boolean,
+  ): boolean {
     const idx = selectSpawnPoint(
       this.roadPoints,
       player.x,
@@ -431,9 +460,10 @@ export class SpawnDirectorController {
       this.pickIndex,
     );
     if (idx < 0) return false;
-    const registered = filterRegisteredEntries(entries, (k) => factories.has(k));
-    const kind = pickCompositionKind(registered, this.rng.next);
-    if (kind === null) return false; // nothing in this tier's mix has a factory yet
+    // Eligible = has a registered factory AND is under its per-kind concurrency cap.
+    const eligible = filterRegisteredEntries(entries, (k) => factories.has(k) && !atMax(k));
+    const kind = pickCompositionKind(eligible, this.rng.next);
+    if (kind === null) return false; // nothing in this tier's mix is eligible this round
     return this.spawnAt(idx, kind);
   }
 

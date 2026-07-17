@@ -43,6 +43,10 @@ const CONTROL_HINTS_MS = 8000;
 const HEADER_CLEARANCE = 76;
 const STARS_TOP = 112;
 
+// Damage hit-feedback (Phase 11 Task 3 / phase-11-plan.md): must match Hud.css's
+// hud-damage-flash / hud-hp-flash animation-durations.
+const DAMAGE_FLASH_MS = 260;
+
 // hud/Minimap.tsx is fixed at left:12, bottom:12, 192x192 (dev-only, default-on toggle).
 // The HP silhouette also wants bottom-left (TDD §9); rather than overlap the minimap in
 // dev builds, it sits just above it instead. Production never renders the minimap, so
@@ -68,6 +72,54 @@ const chipStyle: CSSProperties = {
   padding: '0.35rem 0.7rem',
   pointerEvents: 'none',
 };
+
+/**
+ * Shared hit-feedback pulse (Phase 11 Task 3): subscribes `playerDamaged` DIRECTLY —
+ * local component state, NOT the 10 Hz useHudSnapshot poll — so a hit shows on the exact
+ * frame the resolver (combat/damage.ts) emits it, same "event-driven, not derived from the
+ * polled snapshot" reasoning WantedStars already uses for its tier-flare. `nonce` bumps on
+ * every event (even a hit arriving mid-pulse), so a DamageVignette consumer can key off it
+ * to force its CSS animation to restart rather than silently no-op while already active.
+ */
+function useDamageFlash(durationMs: number): { active: boolean; nonce: number } {
+  const [active, setActive] = useState(false);
+  const [nonce, setNonce] = useState(0);
+  const timeoutRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    const off = gameEvents.on('playerDamaged', () => {
+      window.clearTimeout(timeoutRef.current);
+      setActive(true);
+      setNonce((n) => n + 1);
+      timeoutRef.current = window.setTimeout(() => setActive(false), durationMs);
+    });
+    return () => {
+      off();
+      window.clearTimeout(timeoutRef.current);
+    };
+  }, [durationMs]);
+
+  return { active, nonce };
+}
+
+// Full-viewport red edge vignette (task brief: "brief red edge vignette ... Must read
+// WITHOUT looking at the HP bar"). This is the PRIMARY hit-feedback signal — everything
+// else (the HpSilhouette flash below) is reinforcement for a player who happens to already
+// be looking at the gauge. `key={nonce}` forces a full remount on every hit so the CSS
+// animation restarts cleanly even if a new hit lands mid-pulse (same "unmistakably resets"
+// requirement as re-triggering a CSS keyframe on an unchanged class name would otherwise
+// silently fail to do).
+function DamageVignette() {
+  const { active, nonce } = useDamageFlash(DAMAGE_FLASH_MS);
+  return (
+    <div
+      key={nonce}
+      className={active ? 'hud-damage-vignette hud-damage-vignette--flash' : 'hud-damage-vignette'}
+      data-testid="hud-damage-vignette"
+      aria-hidden="true"
+    />
+  );
+}
 
 function WantedStars({ tier }: { tier: number }) {
   const [flareTier, setFlareTier] = useState<number | null>(null);
@@ -184,9 +236,18 @@ function HpSilhouette({ hp }: { hp: number }) {
   const pct = hpFillPercent(hp);
   const fillHeight = (pct / 100) * 48;
   const color = hpColor(hp);
+  // Secondary hit reinforcement (task brief point: "HP silhouette flash (existing color
+  // logic + a flash class)") — own event subscription, independent of WantedStars'/
+  // DamageVignette's (each hit-feedback consumer owns its own tiny subscription, same
+  // "cheap, decoupled" precedent as WantedStars' tierChanged listener).
+  const { active: flashing } = useDamageFlash(DAMAGE_FLASH_MS);
 
   return (
-    <div style={{ position: 'fixed', left: 16, bottom: HP_BOTTOM, ...chipStyle }} data-testid="hud-hp">
+    <div
+      style={{ position: 'fixed', left: 16, bottom: HP_BOTTOM, ...chipStyle }}
+      className={flashing ? 'hud-hp--flash' : undefined}
+      data-testid="hud-hp"
+    >
       <svg width={120} height={48} viewBox="0 0 120 48" aria-hidden="true" focusable="false">
         {/* Always-visible faint ghost of the full car, so the silhouette reads as "a car"
             even at 0 hp (an empty gauge with nothing to compare it against would just
@@ -278,6 +339,9 @@ export default function Hud() {
       <HpSilhouette hp={playerHp} />
       <ControlHints />
       {import.meta.env.DEV ? <SeedReadout seed={seed} /> : null}
+      {/* Last child: paints above every other HUD element (DOM order, no z-index needed —
+          see Hud.css's .hud-damage-vignette comment). */}
+      <DamageVignette />
     </div>
   );
 }

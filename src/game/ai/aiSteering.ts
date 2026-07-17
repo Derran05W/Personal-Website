@@ -44,6 +44,19 @@ export interface PursuitSteerParams {
   readonly flankArriveM: number;
   /** Throttle floor a flanker tapers to at its slot (below the pursue throttleFloor). */
   readonly flankArriveThrottle: number;
+  // --- standoff orbit (orbit mode only; Phase 11 gun trucks) --------------------------------
+  /** Ring radius (m) the orbit steering holds the unit at around the player. */
+  readonly orbitRadiusM: number;
+  /** Target tangential cruise speed (m/s) the orbit throttle controller holds. */
+  readonly orbitSpeedMps: number;
+  /** Radial pull-back gain: normalized radius error × this → correction toward the ring. */
+  readonly orbitCorrectionGain: number;
+  /** Clamp (±) on the radial correction term so a far-out unit spirals in without over-steering. */
+  readonly orbitCorrectionMax: number;
+  /** Base cruise throttle (the P-controller's seed at orbitSpeedMps). */
+  readonly orbitThrottleBase: number;
+  /** Throttle P-controller gain: +(orbitSpeedMps − speed) × this, clamped 0..1. */
+  readonly orbitSpeedGain: number;
 }
 
 /** Per-unit steering memory carried between 10 Hz decisions. */
@@ -79,14 +92,19 @@ export interface SteerCommand {
   readonly brake: number;
 }
 
-export type SteerBehavior = 'pursue' | 'ram' | 'avoid' | 'stuck' | 'press' | 'flank';
+export type SteerBehavior = 'pursue' | 'ram' | 'avoid' | 'stuck' | 'press' | 'flank' | 'orbit';
 
-/** Steering mode (Phase 10). 'pursue' seeks the player with velocity-lead + ram-commit +
+/** Steering mode (Phase 10–11). 'pursue' seeks the player with velocity-lead + ram-commit +
  * slow-target press-in (the existing police behavior, unchanged for a moving player). 'flank'
  * seeks an arbitrary world target (a squad slot, ai/squad.ts) with the same avoidance but NO ram
  * and a throttle that eases on close approach, so the unit HOLDS formation ~parallel to the player
- * instead of ramming through. SWAT units (Phase 10 Task 2) drive 'flank' when they hold a claim. */
-export type SteerMode = 'pursue' | 'flank';
+ * instead of ramming through. SWAT units (Phase 10 Task 2) drive 'flank' when they hold a claim.
+ * 'orbit' (Phase 11) circles the player at a standoff RING (orbitRadiusM): a tangential heading
+ * (handedness from the `orbitDir` param, seeded per unit at spawn) blended with a radial pull back
+ * onto the ring, at a throttle that holds ~constant orbit speed. Gun trucks (Phase 11 Task 2) drive
+ * 'orbit' while standing off, switching to 'pursue' (its ram-commit) when the standoff brain says
+ * ram — see createStandoffBrain below. Avoidance layers on top and WINS in every mode. */
+export type SteerMode = 'pursue' | 'flank' | 'orbit';
 
 export interface PursueResult {
   readonly command: SteerCommand;
@@ -106,6 +124,13 @@ function clampUnit(v: number): number {
   return v;
 }
 
+/** Clamp to the symmetric range [−m, m] (m ≥ 0). */
+function clampAbs(v: number, m: number): number {
+  if (v > m) return m;
+  if (v < -m) return -m;
+  return v;
+}
+
 /** Yaw (rad) facing a +Z-forward model down (dx,dz); 0 for a zero delta. */
 export function yawToward(dx: number, dz: number): number {
   if (dx === 0 && dz === 0) return 0;
@@ -119,6 +144,45 @@ export function wrapAngle(a: number): number {
   if (r > Math.PI) r -= twoPi;
   else if (r <= -Math.PI) r += twoPi;
   return r;
+}
+
+/**
+ * The unnormalized desired MOVEMENT direction (XZ) for a unit orbiting the player at a standoff
+ * ring (Phase 11 gun trucks, aiSteering 'orbit' mode). Pure geometry, no avoidance — the caller
+ * (pursueSteer) turns this into a heading and then lets the avoidance rays win over it.
+ *
+ * Two blended parts:
+ *   • TANGENTIAL — circle the player. The tangent is the outward radial (player→unit) rotated 90°;
+ *     `orbitDir` picks which way (≥ 0 → one circulation sense, < 0 → the opposite). Handedness is
+ *     seeded once per unit at spawn, so two trucks can orbit opposite ways (great crossfire).
+ *   • RADIAL correction — hold the ring. `orbitRadiusM − dist` is +ve when the unit is TOO CLOSE
+ *     (bias OUTWARD, away from the player) and −ve when TOO FAR (bias INWARD), normalized by the
+ *     radius and clamped to ±orbitCorrectionMax. Small near the ring (a clean circle), saturating
+ *     far out so a fresh spawn at 60–90 m just spirals straight in.
+ *
+ * Degenerate case (unit on top of the player, dist ≈ 0) falls back to an arbitrary +X radial so the
+ * tangent is still defined and finite.
+ */
+export function orbitDesiredDir(
+  pose: { readonly x: number; readonly z: number },
+  player: { readonly x: number; readonly z: number },
+  orbitDir: number,
+  params: Pick<PursuitSteerParams, 'orbitRadiusM' | 'orbitCorrectionGain' | 'orbitCorrectionMax'>,
+): { readonly x: number; readonly z: number } {
+  const rx = pose.x - player.x;
+  const rz = pose.z - player.z;
+  const dist = Math.hypot(rx, rz);
+  // Outward radial unit vector (player → unit); arbitrary +X when the unit sits on the player.
+  const ux = dist > 1e-6 ? rx / dist : 1;
+  const uz = dist > 1e-6 ? rz / dist : 0;
+  // Tangent = radial rotated 90°, handedness from orbitDir. +1 and −1 give opposite circulation.
+  const h = orbitDir >= 0 ? 1 : -1;
+  const tx = -uz * h;
+  const tz = ux * h;
+  // Radial correction toward the ring: + pushes OUTWARD (too close), − pulls INWARD (too far).
+  const radialNorm = (params.orbitRadiusM - dist) / params.orbitRadiusM;
+  const radialTerm = clampAbs(radialNorm * params.orbitCorrectionGain, params.orbitCorrectionMax);
+  return { x: tx + radialTerm * ux, z: tz + radialTerm * uz };
 }
 
 /**
@@ -136,6 +200,10 @@ export function wrapAngle(a: number): number {
  *                easing the throttle inside flankArriveM so the unit holds formation ~parallel to
  *                the player rather than ramming through. Falls back to 'pursue' if flankTarget is
  *                null (defensive — a flanker with no live claim just pursues).
+ *   • 'orbit'  — circle the player at the standoff ring (orbitDesiredDir + a hold-speed throttle
+ *                controller), `orbitDir` (±1, seeded per unit) picking the handedness. NO ram/lead/
+ *                press; `flankTarget` ignored. The Phase 11 gun-truck standoff — the unit's brain
+ *                (createStandoffBrain) flips it to 'pursue' to actually ram. Avoidance still wins.
  */
 export function pursueSteer(
   pose: { readonly x: number; readonly z: number; readonly yaw: number },
@@ -148,6 +216,7 @@ export function pursueSteer(
   dt: number,
   mode: SteerMode = 'pursue',
   flankTarget: { readonly x: number; readonly z: number } | null = null,
+  orbitDir = 1,
 ): PursueResult {
   // (1) A reversal already in flight: hold reverse + full lock until it elapses. This runs
   // before everything else so a mid-reversal re-evaluation can't abort the escape early.
@@ -163,34 +232,35 @@ export function pursueSteer(
     };
   }
 
+  const orbiting = mode === 'orbit';
   const flanking = mode === 'flank' && flankTarget !== null;
 
-  // (2) Desired heading + throttle target. FLANK: seek the squad slot directly (no lead/ram/press).
-  // PURSUE: velocity-led target, dropping the lead to the player's CURRENT position inside the ram
-  // band (dist ≤ commitDistM) OR when pressing in on a slow, close player (dist < pressDistM &&
-  // player barely moving) — so a juke makes the unit overshoot, and a stopped player gets crowded.
+  // (2) Desired heading + throttle target.
+  // ORBIT: circle the player at the standoff ring (tangential + radial-correction blend; ram/lead/
+  //   press don't apply). FLANK: seek the squad slot directly (no lead/ram/press). PURSUE: velocity-
+  //   led target, dropping the lead to the player's CURRENT position inside the ram band (dist ≤
+  //   commitDistM) OR when pressing in on a slow, close player (dist < pressDistM && player barely
+  //   moving) — so a juke makes the unit overshoot, and a stopped player gets crowded.
   const dxp = player.x - pose.x;
   const dzp = player.z - pose.z;
   const dist = Math.hypot(dxp, dzp);
-  const ram = !flanking && dist <= params.commitDistM;
+  const ram = !flanking && !orbiting && dist <= params.commitDistM;
   const playerSpeed = Math.hypot(playerVel.x, playerVel.z);
   const pressIn =
-    !flanking && playerSpeed < params.pressSpeedMps && dist < params.pressDistM;
+    !flanking && !orbiting && playerSpeed < params.pressSpeedMps && dist < params.pressDistM;
   const commit = ram || pressIn; // aim at the player's current position, no lead
 
-  let targetX: number;
-  let targetZ: number;
-  if (flanking) {
-    targetX = flankTarget.x;
-    targetZ = flankTarget.z;
+  let desiredYaw: number;
+  if (orbiting) {
+    const dir = orbitDesiredDir(pose, player, orbitDir, params);
+    desiredYaw = yawToward(dir.x, dir.z);
+  } else if (flanking) {
+    desiredYaw = yawToward(flankTarget.x - pose.x, flankTarget.z - pose.z);
   } else if (commit) {
-    targetX = player.x;
-    targetZ = player.z;
+    desiredYaw = yawToward(dxp, dzp);
   } else {
-    targetX = player.x + playerVel.x * params.leadTimeSec;
-    targetZ = player.z + playerVel.z * params.leadTimeSec;
+    desiredYaw = yawToward(dxp + playerVel.x * params.leadTimeSec, dzp + playerVel.z * params.leadTimeSec);
   }
-  const desiredYaw = yawToward(targetX - pose.x, targetZ - pose.z);
   const headingErr = wrapAngle(desiredYaw - pose.yaw);
   let steer = clampUnit(headingErr * params.steerGain);
 
@@ -216,7 +286,16 @@ export function pursueSteer(
   // human, would otherwise hold FULL throttle through full lock at speed and launch/flip the
   // raycast chassis.
   let throttle = (1 - centerBlock * params.avoidThrottleCut) * (1 - Math.abs(steer) * params.cornerThrottleEase);
-  if (flanking) {
+  if (orbiting) {
+    // Hold a roughly constant orbit speed: a P-controller around orbitSpeedMps (throttle up when
+    // slow, ease off when overspeed), scaled by the base wall-cut/corner-ease above so a wall dead
+    // ahead or a hard avoidance turn still bleeds throttle (avoidance wins over orbit adherence).
+    // NO floor — an orbiting truck may coast to let the dodge bite; it isn't relentlessly closing.
+    const orbitCruise = clamp01(
+      params.orbitThrottleBase + (params.orbitSpeedMps - speed) * params.orbitSpeedGain,
+    );
+    throttle *= orbitCruise;
+  } else if (flanking) {
     // Arrival easing: taper from full throttle (far) to flankArriveThrottle (at the slot) so the
     // flanker settles into formation instead of ramming through. No relentless floor in flank mode.
     const dxt = flankTarget.x - pose.x;
@@ -254,18 +333,124 @@ export function pursueSteer(
     };
   }
 
-  const behavior: SteerBehavior = flanking
-    ? 'flank'
-    : ram
-      ? 'ram'
-      : pressIn
-        ? 'press'
-        : centerBlock > params.avoidCenterDeadzone
-          ? 'avoid'
-          : 'pursue';
+  const dodging = centerBlock > params.avoidCenterDeadzone;
+  const behavior: SteerBehavior = orbiting
+    ? dodging
+      ? 'avoid'
+      : 'orbit'
+    : flanking
+      ? 'flank'
+      : ram
+        ? 'ram'
+        : pressIn
+          ? 'press'
+          : dodging
+            ? 'avoid'
+            : 'pursue';
   return {
     command: { steer, throttle, brake: 0 },
     stuck: { slowSec, reverseRemainSec: 0, reverseDir: prev.reverseDir },
     behavior,
+  };
+}
+
+// ============================================================================================
+// Standoff ram-switch state machine (Phase 11 gun trucks). Decides ORBIT vs RAM — a separate,
+// higher-level decision than the per-tick steering above: it flips a truck out of its standoff
+// orbit to charge a player who has stopped running, and back to orbit once they're running again.
+// The unit (ai/units/gunTruck.ts, Task 2) drives createStandoffBrain and maps its output to the
+// steering mode it passes to pursueSteer: 'orbit' → mode 'orbit' (with the unit's seeded orbitDir),
+// 'ram' → mode 'pursue' (which ram-commits inside commitDistM). Kept here (not in the unit) so the
+// timing/hysteresis is pure and unit-testable without a Rapier body. See TDD §5.6 gun-truck row:
+// "orbits at ~20 m; closes to ram only if player is slow/cornered".
+// ============================================================================================
+
+/** The tuning the standoff brain reads (a structural subset of AI_STEERING). */
+export interface StandoffBrainParams {
+  /** In ORBIT, a player slower than this for ramSwitchSec triggers a switch to RAM. m/s. */
+  readonly ramSwitchSpeedMps: number;
+  /** How long (s) the player must stay below ramSwitchSpeedMps before ORBIT → RAM. */
+  readonly ramSwitchSec: number;
+  /** "Cornered" heuristic: a player slower than this AND within corneredDistM switches instantly. */
+  readonly corneredSpeedMps: number;
+  /** "Cornered" range (m): a near-stopped player this close is pinned → immediate RAM. */
+  readonly corneredDistM: number;
+  /** In RAM, the player must exceed this speed for ramExitSec to switch back to ORBIT. m/s. */
+  readonly ramExitSpeedMps: number;
+  /** How long (s) the player must stay above ramExitSpeedMps before RAM → ORBIT (hysteresis). */
+  readonly ramExitSec: number;
+}
+
+/** Standoff decision: hold the ring, or charge in to ram. */
+export type StandoffMode = 'orbit' | 'ram';
+
+/** Pure state carried between standoff decisions (createStandoffBrain owns one internally). */
+export interface StandoffState {
+  readonly mode: StandoffMode;
+  /** Time (s) the player has been below ramSwitchSpeedMps while ORBITING (→ RAM at ramSwitchSec). */
+  readonly slowSec: number;
+  /** Time (s) the player has been above ramExitSpeedMps while RAMMING (→ ORBIT at ramExitSec). */
+  readonly fastSec: number;
+}
+
+/** Trucks spawn holding the standoff orbit. */
+export const initialStandoffState: StandoffState = { mode: 'orbit', slowSec: 0, fastSec: 0 };
+
+/**
+ * One standoff decision, pure: given the previous state, the player's planar speed, the unit→player
+ * distance, and the elapsed time, return the next state. Asymmetric hysteresis keeps a marginal
+ * player from flickering the truck between orbit and ram:
+ *   • ORBIT → RAM when the player is CORNERED (near-stopped AND within corneredDistM — pinned, so
+ *     charge immediately) OR has been slow (< ramSwitchSpeedMps) continuously for ramSwitchSec.
+ *   • RAM → ORBIT only once the player is clearly running again (> ramExitSpeedMps for ramExitSec).
+ * The slow/fast timers reset the instant the condition breaks (a single fast tick zeroes slowSec),
+ * so only SUSTAINED behavior flips the mode.
+ */
+export function stepStandoff(
+  prev: StandoffState,
+  playerSpeed: number,
+  dist: number,
+  dt: number,
+  cfg: StandoffBrainParams,
+): StandoffState {
+  if (prev.mode === 'orbit') {
+    const cornered = playerSpeed < cfg.corneredSpeedMps && dist < cfg.corneredDistM;
+    const slowSec = playerSpeed < cfg.ramSwitchSpeedMps ? prev.slowSec + dt : 0;
+    if (cornered || slowSec >= cfg.ramSwitchSec) {
+      return { mode: 'ram', slowSec: 0, fastSec: 0 };
+    }
+    return { mode: 'orbit', slowSec, fastSec: 0 };
+  }
+  // mode === 'ram'
+  const fastSec = playerSpeed > cfg.ramExitSpeedMps ? prev.fastSec + dt : 0;
+  if (fastSec >= cfg.ramExitSec) {
+    return { mode: 'orbit', slowSec: 0, fastSec: 0 };
+  }
+  return { mode: 'ram', slowSec: 0, fastSec };
+}
+
+/** The stateful standoff brain the gun-truck unit drives (Task 2 consumes this). */
+export interface StandoffBrain {
+  /** Advance the state machine one decision and return the resulting mode. */
+  update(playerSpeed: number, dist: number, dt: number): StandoffMode;
+  /** The current mode without advancing (read-only). */
+  readonly mode: StandoffMode;
+}
+
+/**
+ * Create a standoff brain seeded in ORBIT. Each gun truck owns one; every 10 Hz think it calls
+ * `update(playerSpeed, dist, dt)` and steers by the returned mode ('orbit' or 'ram'). A thin
+ * stateful wrapper over the pure `stepStandoff` reducer — the reducer is what the tests exercise.
+ */
+export function createStandoffBrain(cfg: StandoffBrainParams): StandoffBrain {
+  let state: StandoffState = initialStandoffState;
+  return {
+    get mode(): StandoffMode {
+      return state.mode;
+    },
+    update(playerSpeed: number, dist: number, dt: number): StandoffMode {
+      state = stepStandoff(state, playerSpeed, dist, dt, cfg);
+      return state.mode;
+    },
   };
 }

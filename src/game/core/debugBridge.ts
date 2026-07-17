@@ -66,7 +66,7 @@ const TINT_COLOR = new Color('#ff2222');
 // window (Playwright's page.evaluate can't pass a typed literal) needs a real value to
 // validate against rather than an unsafe cast. Kept in lockstep with UnitKind by hand — the
 // same discipline Part 4's own unit modules already follow when they extend that union.
-const KNOWN_UNIT_KINDS: readonly UnitKind[] = ['police', 'armored', 'swat'];
+const KNOWN_UNIT_KINDS: readonly UnitKind[] = ['police', 'armored', 'swat', 'gunTruck'];
 
 function isUnitKind(kind: string): kind is UnitKind {
   return (KNOWN_UNIT_KINDS as readonly string[]).includes(kind);
@@ -183,7 +183,7 @@ declare global {
       forceSpawnPolice: () => boolean;
       /** Phase 10 Task 3 debug: force-spawn one unit of `kind` near the player, ignoring
        * spawn caps — generalizes forceSpawnPolice to every registered UnitKind ('police' |
-       * 'armored' | 'swat'). False if `kind` isn't a known UnitKind, the director hasn't
+       * 'armored' | 'swat' | 'gunTruck'). False if `kind` isn't a known UnitKind, the director hasn't
        * mounted yet, `kind` has no registered factory yet (Part 4 units register on their
        * own schedule — see ai/spawnDirector.ts's unknown-factory fallback), or the director
        * otherwise declined to spawn. Never throws. */

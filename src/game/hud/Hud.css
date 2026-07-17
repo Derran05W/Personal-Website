@@ -40,6 +40,55 @@
   visibility: hidden;
 }
 
+/* Damage vignette (hud/Hud.tsx's DamageVignette): a full-viewport edge-darkening overlay
+   that pulses red on `playerDamaged`. Kept as its own element (not folded into rootStyle)
+   so it can sit last in DOM order and paint above every other HUD chip without needing a
+   z-index of its own. */
+.hud-damage-vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(220, 38, 38, 0) 58%, rgba(220, 38, 38, 0.6) 100%);
+  opacity: 0;
+}
+
+/* Duration must match Hud.tsx's DAMAGE_FLASH_MS constant. */
+.hud-damage-vignette--flash {
+  animation: hud-damage-flash 260ms ease-out;
+}
+
+@keyframes hud-damage-flash {
+  0% {
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* HP silhouette hit-flash (hud/Hud.tsx's HpSilhouette): a brief glow pulse layered on top
+   of the existing hp-colour fill, so a hit reads even for a player already looking at the
+   gauge. The vignette above is the PRIMARY signal (legible without looking at the HP bar
+   at all, per phase-11-plan.md's task brief); this is a secondary reinforcement. */
+.hud-hp--flash {
+  animation: hud-hp-flash 260ms ease-out;
+}
+
+@keyframes hud-hp-flash {
+  0% {
+    filter: none;
+  }
+  20% {
+    filter: drop-shadow(0 0 10px rgba(239, 68, 68, 0.9)) brightness(1.6);
+  }
+  100% {
+    filter: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .hud-star--flare {
     animation: none;
@@ -47,5 +96,18 @@
 
   .hud-control-hints {
     transition: none;
+  }
+
+  /* Keep the flash legible (it's the required no-HP-bar-needed signal) but drop the eased
+     keyframe motion: JS still adds/removes the class after DAMAGE_FLASH_MS regardless of
+     any animation firing, so this renders as a plain instant on/off pulse instead of a
+     rapid strobe/scale — no vestibular-motion trigger, still unmissable. */
+  .hud-damage-vignette--flash {
+    animation: none;
+    opacity: 0.55;
+  }
+
+  .hud-hp--flash {
+    animation: none;
   }
 }

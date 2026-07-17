@@ -6,6 +6,7 @@ import {
   collectRoadPoints,
   countPursuingKind,
   filterRegisteredEntries,
+  kindAtMax,
   lingerExpired,
   nearestPointIndex,
   pickCompositionKind,
@@ -199,9 +200,10 @@ describe('thinkPhase / shouldThink (10 Hz stagger)', () => {
 });
 
 describe('pickCompositionKind', () => {
-  it('★0 spawns nothing; the still-single-kind tiers (★1/★4/★5) always pick police', () => {
+  it('★0 spawns nothing; the still-single-kind tiers (★1/★5) always pick police', () => {
     expect(pickCompositionKind(SPAWN_COMPOSITION.tiers[0], () => 0.5)).toBeNull();
-    for (const t of [1, 4, 5]) {
+    // ★4 gained gun trucks (Phase 11), so only ★1/★5 remain single-kind police rows.
+    for (const t of [1, 5]) {
       expect(pickCompositionKind(SPAWN_COMPOSITION.tiers[t], () => 0)).toBe('police');
       expect(pickCompositionKind(SPAWN_COMPOSITION.tiers[t], () => 0.999)).toBe('police');
     }
@@ -684,5 +686,137 @@ describe('SpawnDirectorController — unknown-factory fallback', () => {
     }).not.toThrow();
     expect(controller.api.activeCount()).toBe(SPAWN.caps[3]);
     expect(recs.every((r) => r.slot.kind === 'police' || r.slot.kind === 'armored')).toBe(true);
+  });
+});
+
+// ============================================================================================
+// maxOfKind concurrency cap (Phase 11) — the generic ≤N-of-a-kind rule (SPAWN_COMPOSITION.
+// maxOfKind), used at ★4 to hold gun trucks at ≤ 2 however the weighted rolls fall.
+// ============================================================================================
+
+describe('kindAtMax (pure per-kind concurrency predicate)', () => {
+  const slotOf = (kind: UnitKind, state: UnitSlot['state'] = 'pursuing'): UnitSlot => ({
+    id: 0,
+    kind,
+    state,
+    x: 0,
+    y: 0,
+    z: 0,
+    qx: 0,
+    qy: 0,
+    qz: 0,
+    qw: 1,
+    hp: 100,
+    behaviorLabel: '',
+  });
+
+  it('is false for a kind with no cap entry (uncapped)', () => {
+    expect(kindAtMax([slotOf('gunTruck'), slotOf('gunTruck')], 'gunTruck', [])).toBe(false);
+  });
+
+  it('is true once the live (pursuing) count reaches the cap', () => {
+    const cap = [{ kind: 'gunTruck' as const, max: 2 }];
+    expect(kindAtMax([slotOf('gunTruck')], 'gunTruck', cap)).toBe(false);
+    expect(kindAtMax([slotOf('gunTruck'), slotOf('gunTruck')], 'gunTruck', cap)).toBe(true);
+  });
+
+  it('ignores wrecked (lingering) units — only pursuers count toward the cap', () => {
+    const cap = [{ kind: 'gunTruck' as const, max: 2 }];
+    const slots = [slotOf('gunTruck'), slotOf('gunTruck', 'wrecked')];
+    expect(kindAtMax(slots, 'gunTruck', cap)).toBe(false); // one wreck → only 1 pursuer
+  });
+});
+
+describe('SpawnDirectorController — ★4 gun-truck maxOfKind cap', () => {
+  const PLAYER = { x: 0, z: 0 };
+  const RING_POINTS: RoadPoint[] = [
+    { x: 53, z: 53, tileIndex: 0 },
+    { x: 55, z: 50, tileIndex: 1 },
+    { x: 50, z: 55, tileIndex: 2 },
+    { x: 60, z: 45, tileIndex: 3 },
+    { x: 45, z: 60, tileIndex: 4 },
+    { x: 58, z: 48, tileIndex: 5 },
+    { x: 40, z: 62, tileIndex: 6 },
+    { x: 62, z: 40, tileIndex: 7 },
+    { x: 38, z: 64, tileIndex: 8 },
+    { x: 64, z: 38, tileIndex: 9 },
+  ];
+
+  let recs: StubRec[];
+  let tier: number;
+  let player: { x: number; z: number } | null;
+  let controller: SpawnDirectorController;
+
+  beforeEach(() => {
+    recs = [];
+    tier = 0;
+    player = { ...PLAYER };
+    registerUnitFactory('police', stubFactory(recs, 'police'));
+    registerUnitFactory('armored', stubFactory(recs, 'armored'));
+    registerUnitFactory('swat', stubFactory(recs, 'swat'));
+    registerUnitFactory('gunTruck', stubFactory(recs, 'gunTruck'));
+    controller = new SpawnDirectorController({
+      roadPoints: RING_POINTS,
+      rng: createRng(2024).fork('maxofkind-test'),
+      getTier: () => tier,
+      getPlayerPos: () => player,
+      camForward: cameraForwardXZ(),
+    });
+  });
+
+  afterEach(() => {
+    controller.dispose();
+    unregisterUnitFactory('police');
+    unregisterUnitFactory('armored');
+    unregisterUnitFactory('swat');
+    unregisterUnitFactory('gunTruck');
+  });
+
+  it('fills caps[4] but never exceeds 2 gun trucks, across many maintain passes', () => {
+    tier = 4;
+    const maxGun = SPAWN_COMPOSITION.maxOfKind?.[4]?.find((m) => m.kind === 'gunTruck')?.max ?? 0;
+    expect(maxGun).toBe(2); // sanity: the config row this test exercises
+    for (let pass = 0; pass < 40; pass++) {
+      controller.requestFill();
+      controller.stepAfter();
+      const liveGun = controller.api.slots.filter(
+        (s) => s.kind === 'gunTruck' && s.state !== 'wrecked',
+      ).length;
+      expect(liveGun).toBeLessThanOrEqual(maxGun);
+    }
+    expect(controller.api.activeCount()).toBe(SPAWN.caps[4]);
+  });
+
+  it('guarantees the minPreferred gun truck AND respects the cap simultaneously', () => {
+    tier = 4;
+    controller.requestFill();
+    controller.stepAfter();
+    const liveGun = controller.api.slots.filter(
+      (s) => s.kind === 'gunTruck' && s.state !== 'wrecked',
+    ).length;
+    expect(liveGun).toBeGreaterThanOrEqual(1); // minPreferred floor
+    expect(liveGun).toBeLessThanOrEqual(2); // maxOfKind cap
+  });
+
+  it('a wrecked gun truck frees a cap slot so a replacement can spawn', () => {
+    tier = 4;
+    controller.requestFill();
+    controller.stepAfter();
+    // Wreck every live gun truck; the cap counts pursuers only, so replacements are allowed.
+    let wreckedAny = false;
+    for (const s of controller.api.slots) {
+      if (s.kind === 'gunTruck' && s.state !== 'wrecked') {
+        s.state = 'wrecked';
+        wreckedAny = true;
+      }
+    }
+    expect(wreckedAny).toBe(true);
+    controller.requestFill();
+    controller.stepAfter();
+    const pursuingGun = controller.api.slots.filter(
+      (s) => s.kind === 'gunTruck' && s.state !== 'wrecked',
+    ).length;
+    expect(pursuingGun).toBeGreaterThanOrEqual(1);
+    expect(pursuingGun).toBeLessThanOrEqual(2);
   });
 });

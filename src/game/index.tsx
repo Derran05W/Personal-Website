@@ -35,6 +35,8 @@ import { SquadMount } from './ai/SquadMount';
 import { PoliceMesh } from './ai/units/PoliceMesh';
 import { ArmoredMesh } from './ai/units/ArmoredMesh';
 import { SwatMesh } from './ai/units/SwatMesh';
+import { GunTruckMesh } from './ai/units/GunTruckMesh';
+import { Tracers } from './fx/Tracers';
 import GameOver from './hud/GameOver';
 import { SirensSystem } from './audio/SirensSystem';
 import { HeatScoreSystem } from './state/heatScoreSystem';
@@ -62,6 +64,7 @@ const PerfOverlay = import.meta.env.DEV ? lazy(() => import('./core/PerfOverlay'
 // (core/devToggles.ts) on top of this DEV guard.
 const Minimap = import.meta.env.DEV ? lazy(() => import('./hud/Minimap')) : null;
 const GraphViz = import.meta.env.DEV ? lazy(() => import('./world/GraphViz')) : null;
+const GunTruckAimViz = import.meta.env.DEV ? lazy(() => import('./ai/GunTruckAimViz')) : null;
 // In-scene SWAT-squad flank visualizer (Phase 10), same DEV-guard + leva-toggle pattern as
 // GraphViz — the coordinator itself (SquadMount) always ships; only this overlay is dev-only.
 const SquadViz = import.meta.env.DEV ? lazy(() => import('./ai/SquadViz')) : null;
@@ -123,6 +126,7 @@ export default function Game() {
   // Reactive read of the leva "graphViz" toggle (core/devToggles.ts) — always false/no-op
   // in prod (nothing ever calls setDevToggle there), cheap enough to call unconditionally.
   const graphVizOn = useDevToggle('graphViz');
+  const aimVizOn = useDevToggle('aimViz');
   const squadVizOn = useDevToggle('squadViz');
 
   // The generated city (TDD §5.4): pure data, ~1–2 ms, memoized per seed. Changing the
@@ -222,6 +226,8 @@ export default function Game() {
             <PoliceMesh key={`police-${worldKey}`} />
             <ArmoredMesh key={`armored-${worldKey}`} />
             <SwatMesh key={`swat-${worldKey}`} />
+            <GunTruckMesh key={`guntruck-${worldKey}`} />
+            <Tracers key={`tracers-${worldKey}`} />
             <SpawnDirector key={`director-${worldKey}`} world={world} seed={seed} />
             {/* SWAT-squad flank coordinator (Phase 10): publishes flank-slot claims SWAT units
                 read to box in the player. Gameplay infra (ships), keyed like the director. */}
@@ -246,6 +252,11 @@ export default function Game() {
               </Suspense>
             ) : null}
 
+            {GunTruckAimViz && aimVizOn ? (
+              <Suspense fallback={null}>
+                <GunTruckAimViz />
+              </Suspense>
+            ) : null}
             {GraphViz && graphVizOn ? (
               <Suspense fallback={null}>
                 <GraphViz world={world} />

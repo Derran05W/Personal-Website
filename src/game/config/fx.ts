@@ -48,3 +48,30 @@ export const SKID = {
     ground: '#454b54',
   },
 } as const;
+
+// Gun-truck hitscan tracer/muzzle/hit-spark FX (Phase 11 Task 3; TDD §5.6 row 4).
+// combat/hitscan.ts (Task 2) pushes one TracerShot per fired round into
+// combat/tracerFeed.ts's ring buffer; fx/Tracers.tsx polls it and renders three additive
+// elements per live shot: a muzzle→hit beam, a muzzle-flash quad, and (only on a hit) a
+// hit-spark quad. All three fade independently by AGE, not a shared lifetime — the flash
+// is a short strobe, the beam a touch longer, the spark lingers a little past the beam so
+// an impact still reads after the tracer itself has faded. Every quad/line is additive +
+// depth-write-off (fx/Tracers.tsx's header explains the "fade toward black" trick this
+// implies), so these are colour VALUES multiplied by an intensity in [0,1], not alpha.
+export const TRACER = {
+  // Lifetimes (ms) — independent per element, see file-header ordering above.
+  beamMaxAgeMs: 120,
+  muzzleFlashMaxAgeMs: 60,
+  hitSparkMaxAgeMs: 150,
+  // Camera-facing quad sizes (m) for the muzzle flash / hit spark billboards.
+  muzzleFlashSize: 0.45,
+  hitSparkSize: 0.5,
+  // Warm yellow-white tracer language (TDD §5.6's "telegraphed hitscan"); the hit spark
+  // skews a touch more orange (impact heat) than the beam/flash. Hex strings, so the leva
+  // auto-schema builder (core/devPanel.tsx's buildBlockSchema) skips them — tune in code.
+  colors: {
+    beam: '#fff4c8',
+    muzzleFlash: '#fffbe6',
+    hitSpark: '#ffb454',
+  },
+} as const;
