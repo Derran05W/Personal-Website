@@ -30,9 +30,14 @@ test('a failed game-chunk fetch shows the boot fallback, never a white page', as
   await expect(page.locator('#root')).not.toBeEmpty();
 
   // The header remains navigable after the crash — the fallback is not a dead end.
+  // The heading locator is name-scoped: toHaveURL resolves on pushState, which can land
+  // BEFORE React commits the outlet swap — and in the boot-fallback state Home carries
+  // TWO h1s (hero + fallback hero), so a bare level-1 query sampled mid-transition dies
+  // on a terminal strict-mode violation instead of retrying. Scoping by name keeps the
+  // assertion unique and lets it poll until the swap commits.
   await page.getByRole('link', { name: 'Portfolio' }).click();
   await expect(page).toHaveURL(/\/portfolio$/);
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Portfolio');
+  await expect(page.getByRole('heading', { level: 1, name: 'Portfolio' })).toBeVisible();
 
   // Note: this spec intentionally does NOT assert zero console errors — the aborted chunk
   // surfaces a network error, and GameErrorBoundary.componentDidCatch logs one deliberate
