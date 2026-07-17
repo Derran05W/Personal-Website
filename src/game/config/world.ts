@@ -365,3 +365,59 @@ export const PROP_PLACEMENT = {
   parkingLotJitterM: 0.4,
   parkingLotRotationJitterRad: 0.15,
 } as const;
+
+// Civilian traffic tunables (Phase 7, ai/traffic.ts). TDD §5.4 traffic network + §7
+// civilian cars: kinematic followers on the lane graph, converted to dynamic on a hard
+// player hit. All feel/density knobs — leva-live.
+export const TRAFFIC_CIV = {
+  // Active-car target on the default (high) quality tier; Phase 18's tiers scale it.
+  activeTarget: 24,
+  // Spawn ring around the player (m): outside the gameplay camera's view, inside the
+  // despawn radius, mirroring the pursuit SPAWN ring shape (TDD §5.6).
+  spawnRingMinM: 60,
+  spawnRingMaxM: 90,
+  despawnDistM: 140,
+  // Per-car cruise speed range (m/s) — staggered speeds double as the anti-convoy rule.
+  speedMinMps: 6,
+  speedMaxMps: 11,
+  // Stop-if-blocked forward ray (m) + the anti-deadlock cap: after holdCapSec blocked,
+  // creep at creepSpeedMps regardless (part-file rule: jam believably, never forever).
+  blockRayLengthM: 7,
+  holdCapSec: 4,
+  creepSpeedMps: 1.5,
+  // Kinematic→dynamic conversion threshold (N) — same contact-force units as
+  // PROPS.forceThresholds; a real ram, not a nudge.
+  convertForceThreshold: 900,
+  hp: 30,
+  // Wreck detection: up-vector dot below this, sustained flipSustainSec ⇒ civWrecked.
+  wreckUpDot: 0.3,
+  wreckFlipSustainSec: 1.5,
+  // Wrecks linger visibly (trophies) before sleep+despawn back to the pool. A converted
+  // car that never actually flips (lands upright, hp still > 0) is recycled on this same
+  // window measured from its conversion, so hit-but-not-wrecked debris can never starve the
+  // pool of driving-car slots over a long soak (Phase 7 decision — the TDD ties linger only
+  // to the wreck, but the pool is finite so converted-forever bodies must be reclaimed too).
+  wreckLingerSec: 12,
+  // Physical mass of a civilian car (kg) — matches PROPS.masses.parkedCar.
+  massKg: 1200,
+  // Settling damping applied to a freshly-converted dynamic car so it tumbles then comes to
+  // rest (and auto-sleeps) within a few seconds instead of skating forever — same intent as
+  // PROPS.settleLinearDamping/settleAngularDamping, tuned a touch lower so wrecks keep
+  // spinning long enough for the flip check (wreckFlipSustainSec) to read a sustained roll.
+  dynamicLinDamping: 0.4,
+  dynamicAngDamping: 0.5,
+  // On conversion the new dynamic body inherits its waypoint velocity (travel dir × the speed
+  // it was moving) PLUS this fraction of the PLAYER's velocity as the impact kick — the
+  // part-file gotcha: without an explicit shove the hit feels like the car was bolted down.
+  convertKickScale: 0.6,
+  // Kinematic yaw slews toward the travel-direction heading at most this fast (rad/s) so cars
+  // arc through turns instead of snapping — a ~90° corner takes roughly 90°/(this) seconds.
+  turnRateRadPerSec: 3.5,
+  // Warm-up throttle: at most this many cars spawn per physics step, so filling an empty ring
+  // to activeTarget costs a handful of quiet steps rather than one body-creation spike.
+  maxSpawnPerStep: 4,
+  // Per-spawn body tint palette (hex). traffic.ts rolls a stable CivSlot.tintIndex into this
+  // array; TrafficMesh (the sibling visuals mesh) reads these colours to recolor instances.
+  // Muted low-poly sedan colours — a red, a blue, silver, charcoal, taxi-yellow, and a green.
+  tints: ['#c0392b', '#2c6fbb', '#dfe3e6', '#4a4f57', '#e2b23a', '#3c8d5a'],
+} as const;

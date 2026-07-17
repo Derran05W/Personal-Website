@@ -17,7 +17,7 @@ import { HEAT } from './heat';
 import { SPAWN, HELI } from './spawn';
 import { TANK } from './tank';
 import { CAMERA } from './camera';
-import { WORLD, WORLD_GEN, TRAFFIC, POWER_GRID, PROPS, BOUNDARY, PROP_DIMS, PROP_PLACEMENT } from './world';
+import { WORLD, WORLD_GEN, TRAFFIC, TRAFFIC_CIV, POWER_GRID, PROPS, BOUNDARY, PROP_DIMS, PROP_PLACEMENT } from './world';
 import { PLAYER_CARS, ENEMY_UNITS, SWAT, GUN_TRUCK, VEHICLE_TUNING } from './vehicles';
 import { QUALITY_TIERS } from './quality';
 import { DAMAGE, BUSTED } from './damage';
@@ -41,6 +41,7 @@ export const CONFIG = {
   TRAFFIC,
   POWER_GRID,
   PROPS,
+  TRAFFIC_CIV,
   BOUNDARY,
   PROP_DIMS,
   PROP_PLACEMENT,

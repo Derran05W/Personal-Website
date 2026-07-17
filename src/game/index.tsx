@@ -27,6 +27,8 @@ import { CityScape } from './world/CityScape';
 import { PropDynamics } from './world/PropDynamicsMount';
 import { DamageSystem } from './combat/damage';
 import { onImpact } from './combat/contacts';
+import { Traffic } from './ai/TrafficMount';
+import { TrafficMesh } from './ai/TrafficMesh';
 import { SkidMarks } from './fx/SkidMarks';
 import { PlayerVehicle } from './vehicles/PlayerVehicle';
 import { RustySedanMesh } from './vehicles/RustySedanMesh';
@@ -187,6 +189,10 @@ export default function Game() {
                 with the world it belongs to. */}
             <DamageSystem key={`damage-${seed}`} />
             <PropDynamics key={`props-${seed}`} source={onImpact} />
+            {/* Civilian traffic (Phase 7): kinematic graph-followers + hit conversion.
+                Same seed-keyed remount contract as the city/pool systems. */}
+            <Traffic key={`traffic-${seed}`} graph={world.graph} seed={seed} source={onImpact} />
+            <TrafficMesh key={`traffic-mesh-${seed}`} />
             <SkidMarks />
             {/* key: spawn position is read once at body create (PlayerVehicle contract) —
                 remount on regenerate rather than mutate. */}

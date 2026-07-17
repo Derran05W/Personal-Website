@@ -16,6 +16,7 @@ import { playerVehicle } from '../vehicles/playerRef';
 import { spawnPoseRef } from '../world/spawn';
 import type { VehiclePose } from '../vehicles/IVehicleModel';
 import { getDevToggles, setDevToggle } from './devToggles';
+import { trafficRef } from '../ai/trafficTypes';
 import { ARCHETYPES, EMISSIVE_ARCHETYPES } from '../world/archetypes';
 import { DISTRICT_COUNT, setDistrictColor, setDistrictEmissive } from '../world/instancing';
 import { derivePlacements } from '../world/propPlacements';
@@ -196,6 +197,26 @@ export default function DevPanel() {
       // TODO(Phase 6 Task 2 integration): placeholder 0 until world/propDynamics.ts exposes
       // getPoolStats() (concurrent sibling task, not built yet this wave).
       schema['prop pool occupancy'] = monitor(() => 0, { interval: 250 });
+
+      // Phase 7 Task 2 debug tooling --------------------------------------------------
+      // "traffic density": TRAFFIC_CIV.activeTarget is a plain number leaf on a CONFIG
+      // registry block (config/index.ts), so the auto-built 'Config' folder below
+      // (buildConfigSchema, driven off CONFIG) already exposes it live as
+      // Config → TRAFFIC_CIV → activeTarget — a dedicated slider here would just be a
+      // second control writing the exact same leaf, so it's deliberately skipped.
+      //
+      // trafficRef (ai/trafficTypes.ts) is null until ai/traffic.ts's mount runs (a
+      // concurrent sibling task this wave) — both hooks below are null-safe no-ops until
+      // then, same shape as the prop-pool placeholders just above.
+      schema['spawn civilian here'] = button(() => {
+        const vehicle = playerVehicle.current;
+        if (!vehicle) return;
+        const { position } = vehicle.readState().pose;
+        trafficRef.current?.spawnAt(position.x, position.z);
+      });
+      schema['civilians'] = monitor(() => trafficRef.current?.activeCount() ?? 0, {
+        interval: 250,
+      });
 
       return schema as unknown as LevaSchema;
     },

@@ -13,6 +13,20 @@ import type { VehiclePose, VehicleState } from '../vehicles/IVehicleModel';
 import { ARCHETYPES, EMISSIVE_ARCHETYPES } from '../world/archetypes';
 import { setDistrictColor, setDistrictEmissive as setDistrictEmissiveRange } from '../world/instancing';
 import { getImpactCount, onImpact } from '../combat/contacts';
+import { trafficRef } from '../ai/trafficTypes';
+import { gameEvents } from '../state/events';
+
+// Phase 7 traffic verification: exactly-once event proof. The civHit/civWrecked emitter
+// payloads are empty, so scripted checks can't scrape them from the DOM — count them here
+// (DEV-only, like recentImpacts) and read the totals through window.__smashy.
+let civHitTotal = 0;
+let civWreckTotal = 0;
+gameEvents.on('civHit', () => {
+  civHitTotal++;
+});
+gameEvents.on('civWrecked', () => {
+  civWreckTotal++;
+});
 
 // Phase 6 contact-spine verification: a small ring buffer of the most recent dispatched
 // ImpactRecords, resolved to the registry identities the spine attached. The contact-force
@@ -84,6 +98,28 @@ declare global {
       /** Phase 6 contact-spine proof: the last few dispatched impacts, resolved to registry
        * identities (kind/archetype of each side + force magnitude). */
       recentImpacts: () => readonly ImpactSample[];
+      /** Phase 7 traffic proof: live civilian count (non-free slots); 0 when unmounted. */
+      trafficCount: () => number;
+      /** Phase 7 traffic proof: state histogram { driving, converted, wrecked, free }. */
+      trafficStates: () => Record<string, number>;
+      /** Phase 7 traffic proof: plain per-slot pose snapshot (no functions/bodies — safe to
+       * serialize across page.evaluate for position-advance / conversion / flip checks). */
+      trafficSlots: () => {
+        id: number;
+        state: string | null;
+        x: number;
+        y: number;
+        z: number;
+        yaw: number;
+        dynamic: boolean;
+        qw: number;
+        hp: number;
+      }[];
+      /** Phase 7 traffic proof: force-spawn a civilian near a world position (nearest node). */
+      trafficSpawnAt: (x: number, z: number) => boolean;
+      /** Phase 7 traffic proof: total civHit / civWrecked events emitted since load. */
+      civHitCount: () => number;
+      civWreckCount: () => number;
     };
   }
 }
@@ -112,4 +148,25 @@ window.__smashy = {
   },
   impactCount: () => getImpactCount(),
   recentImpacts: () => recentImpacts.slice(),
+  trafficCount: () => trafficRef.current?.activeCount() ?? 0,
+  trafficStates: () => {
+    const h: Record<string, number> = { driving: 0, converted: 0, wrecked: 0, free: 0 };
+    for (const s of trafficRef.current?.slots ?? []) h[s.state ?? 'free']++;
+    return h;
+  },
+  trafficSlots: () =>
+    (trafficRef.current?.slots ?? []).map((s) => ({
+      id: s.id,
+      state: s.state,
+      x: s.x,
+      y: s.y,
+      z: s.z,
+      yaw: s.yaw,
+      dynamic: s.dynamic,
+      qw: s.qw,
+      hp: s.hp,
+    })),
+  trafficSpawnAt: (x, z) => trafficRef.current?.spawnAt(x, z) ?? false,
+  civHitCount: () => civHitTotal,
+  civWreckCount: () => civWreckTotal,
 };

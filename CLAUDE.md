@@ -72,7 +72,7 @@ Status: `[ ]` todo · `[~]` in progress · `[!]` blocked / awaiting user · `[x]
 - [x] **Phase 6 — Destruction physics: props go flying** (M2c) — 2026-07-16: contact spine (onImpact over typed records), fixed→dynamic swap + 60-slot pool (never-fail eviction, 20 s despawn), TDD damage resolver (transformer death + events + shake), 634 parked cars, fall-through root-caused (double-failure; defense-in-depth added, feel untouched); M2 battery: 17.8k impacts, flat heap, 0 errors; 424 tests (see phase-06-notes.md).
 
 ### Part 3 — Core Loop (`.planning/part-3-core-loop.md`)
-- [ ] **Phase 7 — Civilian traffic** (M3a)
+- [x] **Phase 7 — Civilian traffic** (M3a) — 2026-07-16: 24-car kinematic graph-followers w/ block-ray hold + anti-deadlock creep, ram conversion (explicit velocity inheritance, civHit once), wreck detection (flip/hp → civWrecked once, linger, recycle); 5-min combined soak: pool pinned 24/24, 22.3k impacts, flat heap, 0 errors; 450 tests (see phase-07-notes.md).
 - [ ] **Phase 8 — Heat, score, HUD** (M3b)
 - [ ] **Phase 9 — Police ★1, WRECKED/BUSTED, full run loop** (M4)
 
