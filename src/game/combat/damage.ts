@@ -29,21 +29,31 @@
 // is: HP drains, the transformer dies, the event fires, the instance visibly darkens.
 
 import { useEffect } from 'react';
-import { Color } from 'three';
+import { Color, Matrix4, Vector3 } from 'three';
 import { DAMAGE } from '../config/damage';
 import { ENEMY_UNITS } from '../config/vehicles';
 import { gameEvents } from '../state/events';
 import { getGameState } from '../state/store';
 import { getDevToggles } from '../core/devToggles';
 import { addShake } from '../fx/cameraRig';
+import { pushFxBurst } from '../fx/particleFeed';
+import { playerVehicle } from '../vehicles/playerRef';
 import { getArchetypeHandles } from '../world/instancing';
 import type { EntityEntry } from '../world/registry';
 import type { ImpactHandler, ImpactRecord } from './types';
+import type { Vec3 } from './turret';
 import { onImpact } from './contacts';
 
 // Module-scope: one Color instance, reused for every transformer death (mirrors
 // fx/SkidMarks.tsx's RUBBER/GROUND convention — never allocate a fresh Color per call).
 const TRANSFORMER_DEAD_COLOR = new Color(DAMAGE.deadTransformerColor);
+// Scratch for reading a dead transformer's world position off its InstancedMesh instance
+// (Phase 16: fires transformerDestroyed's x/y/z for fx/eventFx.ts's spark burst). One
+// Matrix4/Vector3 pair, reused every death — this path runs on impact events, not every
+// frame, but the module-scope-scratch convention (this file's TRANSFORMER_DEAD_COLOR,
+// fx/SkidMarks.tsx, combat/explosion.ts) is followed anyway for consistency.
+const _transformerMatrix = new Matrix4();
+const _transformerPos = new Vector3();
 
 // --- pure core -------------------------------------------------------------------------------
 
@@ -129,6 +139,17 @@ export function ramDamageMultiplier(attacker: EntityEntry | undefined): number {
  * instancing registry) — the event still fires either way.
  */
 function handleTransformerDeath(entry: EntityEntry): void {
+  // World position for fx/eventFx.ts's transformerSparks burst — read straight off the live
+  // instance matrix (transformers are always FIXED archetype instances, never swapped into
+  // the dynamic pool, so this is always accurate when the mesh exists) rather than threading
+  // a contact point through from the impact — that's derivable, but the mesh already IS the
+  // ground truth for "where this transformer actually sits". undefined (event omits x/y/z —
+  // see state/events.ts's doc comment) only when the archetype has no live InstancedMesh
+  // this run (e.g. a bare unit test).
+  let x: number | undefined;
+  let y: number | undefined;
+  let z: number | undefined;
+
   if (entry.archetype !== undefined && entry.instanceId !== undefined) {
     const primary = getArchetypeHandles(entry.archetype)[0];
     if (primary) {
@@ -138,10 +159,15 @@ function handleTransformerDeath(entry: EntityEntry): void {
         instanceColor.addUpdateRange(entry.instanceId * 3, 3);
         instanceColor.needsUpdate = true;
       }
+      primary.mesh.getMatrixAt(entry.instanceId, _transformerMatrix);
+      _transformerPos.setFromMatrixPosition(_transformerMatrix);
+      x = _transformerPos.x;
+      y = _transformerPos.y;
+      z = _transformerPos.z;
     }
   }
 
-  gameEvents.emit('transformerDestroyed', { districtId: entry.districtId });
+  gameEvents.emit('transformerDestroyed', { districtId: entry.districtId, x, y, z });
 
   if (import.meta.env.DEV) {
     // Placeholder spark (see file header): real FX is Phase 16, blackout consumption is
@@ -158,8 +184,16 @@ function handleTransformerDeath(entry: EntityEntry): void {
  * Exported so combat/hitscan.ts (Phase 11 gun-truck bullets) can deal fixed per-round damage to
  * hp-bearing entities through THIS resolver rather than duplicating the hp-clamp + death-event
  * emission — keeping the propDestroyed/transformerDestroyed contract this file owns single-source.
+ *
+ * `point` (Phase 16): the killing blow's world-space contact point, when the caller has one —
+ * combat/hitscan.ts's bullet hit point, combat/explosion.ts's blast-affected body center, or
+ * (via applySideDamage below) an ImpactRecord's own optional `point`. Forwarded verbatim into
+ * propDestroyed's x/y/z for fx/eventFx.ts's debrisChips burst; undefined is a legitimate value
+ * (Rapier doesn't always report a contact point — see state/events.ts's doc comment), NOT
+ * defaulted to a fake origin. Unused for a transformer death — handleTransformerDeath derives
+ * its own, more accurate position straight off the instance mesh.
  */
-export function applyEntityDamage(entry: EntityEntry, damage: number): void {
+export function applyEntityDamage(entry: EntityEntry, damage: number, point?: Vec3): void {
   const hp = entry.hp;
   if (hp === undefined || hp <= 0) return;
   const newHp = Math.max(0, hp - damage);
@@ -172,7 +206,7 @@ export function applyEntityDamage(entry: EntityEntry, damage: number): void {
     // hp-bearing non-transformer death (parkedCar today) — see file header for the
     // propDestroyed emission split with world/propDynamics.ts. Wrecked-visual/pool handling
     // for the dead instance is propDynamics.ts's ownership, not this resolver's.
-    gameEvents.emit('propDestroyed', { archetype: entry.archetype });
+    gameEvents.emit('propDestroyed', { archetype: entry.archetype, x: point?.x, y: point?.y, z: point?.z });
   }
 }
 
@@ -198,13 +232,61 @@ export function applyPlayerDamage(damage: number): void {
   gameEvents.emit('playerDamaged', { hp: newHp, amount: damage });
 }
 
-// --- camera shake --------------------------------------------------------------------------
+// --- camera shake + impact sparks ------------------------------------------------------------
 
 /** Adds impact trauma (fx/cameraRig.addShake) for impacts above DAMAGE.shakeForceThreshold,
- * scaled by DAMAGE.shakeForceScale. addShake already caps at CAMERA.shake.maxAmplitude. */
-function maybeShake(forceMag: number): void {
+ * scaled by DAMAGE.shakeForceScale (addShake already caps at CAMERA.shake.maxAmplitude), and
+ * pushes a cosmetic 'impactSparks' burst (Phase 16 Task 3) at the same threshold — a hard
+ * contact big enough to shake the camera is exactly the "worth a spark hit" bar, so this
+ * shares the gate rather than adding a second tunable.
+ *
+ * The SPARK (not the shake) is additionally gated two ways, both learned live in the Phase
+ * 16 FX battery, where the pool pinned at 500/500 during a plain slide and during combat:
+ *   1. BOTH impact sides must be registered — the same rule applySideDamage uses. A bare
+ *      ground scrape (hard lateral slide, suspension-settle spike) shakes at most a capped
+ *      amount and deals no damage; it must not shower sparks either.
+ *   2. A wall-clock throttle (DAMAGE.sparkMinIntervalMs): contact-force events re-fire every
+ *      physics step while a pair stays wedged, and unlike shake (trauma-capped) a burst per
+ *      step saturates the particle pool and starves every smoke/fire emitter.
+ * The shake keeps its original, sign-off-era behavior — threshold only.
+ *
+ * Position: the contact's own `point` when Rapier reports one (in practice this is almost
+ * always undefined today — combat/contacts.ts's dispatchContactForce doc comment: "Rapier's
+ * ContactForceEvent exposes no contact point"), else the player chassis translation — every
+ * impact this resolver ever sees has the player on one side or the other (applySideDamage's
+ * header), so its position is always a reasonable stand-in for "roughly where this hit
+ * happened" even without the exact contact point.
+ */
+let lastSparkAtMs = Number.NEGATIVE_INFINITY;
+
+/** Test hygiene: forget the spark throttle's last-burst timestamp (damage.test.ts calls this
+ * from beforeEach so earlier tests' impacts can't swallow a later test's expected burst). */
+export function resetSparkThrottle(): void {
+  lastSparkAtMs = Number.NEGATIVE_INFINITY;
+}
+
+function maybeShakeAndSpark(
+  forceMag: number,
+  point: Vec3 | undefined,
+  a: EntityEntry | undefined,
+  b: EntityEntry | undefined,
+): void {
   if (forceMag < DAMAGE.shakeForceThreshold) return;
   addShake(forceMag * DAMAGE.shakeForceScale);
+
+  if (!a || !b) return; // bare-ground scrape: capped shake, no spark shower (doc above)
+  const nowMs = performance.now();
+  if (nowMs - lastSparkAtMs < DAMAGE.sparkMinIntervalMs) return;
+  lastSparkAtMs = nowMs;
+
+  const pos = point ?? playerVehicle.current?.readState().pose.position;
+  if (!pos) return;
+  // Scale the burst a little with force so a glancing threshold-crosser reads smaller than a
+  // full-on plow, clamped to a sane band — this is cosmetic proportionality, not a physical
+  // quantity, so the exact curve doesn't need to be more than "bigger hits look bigger".
+  const rawIntensity = forceMag / DAMAGE.shakeForceThreshold;
+  const intensity = rawIntensity < 0.5 ? 0.5 : rawIntensity > 3 ? 3 : rawIntensity;
+  pushFxBurst('impactSparks', pos.x, pos.y, pos.z, { intensity });
 }
 
 // --- top-level impact handler --------------------------------------------------------------
@@ -221,6 +303,7 @@ function applySideDamage(
   target: EntityEntry | undefined,
   other: EntityEntry | undefined,
   forceMag: number,
+  point: Vec3 | undefined,
 ): void {
   if (!target || !other) return;
   // Dynamic-vs-dynamic vehicle pairs use the dedicated ram proxy (see config comment):
@@ -240,10 +323,15 @@ function applySideDamage(
     damage *= ramDamageMultiplier(other);
   }
   if (damage <= 0) return;
+  // Single-hit cap (Phase 16 Task 3; config/damage.ts's DAMAGE.maxSingleHit doc comment): the
+  // LAST thing before damage is actually applied, so it catches the fully-multiplied value
+  // (ram multiplier included) regardless of which formula/proxy produced it — one contact
+  // event can never drain more than this, however large forceMag reads.
+  if (damage > DAMAGE.maxSingleHit) damage = DAMAGE.maxSingleHit;
   if (target.kind === 'player') {
     applyPlayerDamage(damage);
   } else {
-    applyEntityDamage(target, damage);
+    applyEntityDamage(target, damage, point);
   }
 }
 
@@ -255,9 +343,9 @@ function applySideDamage(
  * is a single shake event).
  */
 export const applyImpact: ImpactHandler = (impact: ImpactRecord): void => {
-  applySideDamage(impact.a, impact.b, impact.forceMag);
-  applySideDamage(impact.b, impact.a, impact.forceMag);
-  maybeShake(impact.forceMag);
+  applySideDamage(impact.a, impact.b, impact.forceMag, impact.point);
+  applySideDamage(impact.b, impact.a, impact.forceMag, impact.point);
+  maybeShakeAndSpark(impact.forceMag, impact.point, impact.a, impact.b);
 };
 
 // --- mount / integration ---------------------------------------------------------------------

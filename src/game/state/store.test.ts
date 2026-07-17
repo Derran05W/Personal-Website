@@ -29,7 +29,7 @@ describe('initial state', () => {
     expect(state.score).toBe(0);
     expect(state.playerHp).toBe(100);
     expect(state.seed).toBe(WORLD_GEN.defaultSeed);
-    expect(state.settings).toEqual({ quality: 'high', muted: false });
+    expect(state.settings).toEqual({ quality: 'high', muted: false, reducedShake: false });
   });
 });
 
@@ -160,10 +160,11 @@ describe('addScore / setPlayerHp / setSeed', () => {
 describe('settings — setQuality / toggleMuted', () => {
   it('setQuality updates state and persists to localStorage', () => {
     useGameStore.getState().setQuality('med');
-    expect(useGameStore.getState().settings).toEqual({ quality: 'med', muted: false });
+    expect(useGameStore.getState().settings).toEqual({ quality: 'med', muted: false, reducedShake: false });
     expect(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null')).toEqual({
       quality: 'med',
       muted: false,
+      reducedShake: false,
     });
   });
 
@@ -173,10 +174,35 @@ describe('settings — setQuality / toggleMuted', () => {
     expect(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null')).toEqual({
       quality: 'high',
       muted: true,
+      reducedShake: false,
     });
 
     useGameStore.getState().toggleMuted();
     expect(useGameStore.getState().settings.muted).toBe(false);
+  });
+});
+
+describe('settings — setReducedShake (Phase 16 a11y)', () => {
+  it('defaults to false', () => {
+    expect(useGameStore.getState().settings.reducedShake).toBe(false);
+  });
+
+  it('setReducedShake updates state and persists to localStorage', () => {
+    useGameStore.getState().setReducedShake(true);
+    expect(useGameStore.getState().settings.reducedShake).toBe(true);
+    expect(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null')).toEqual({
+      quality: 'high',
+      muted: false,
+      reducedShake: true,
+    });
+  });
+
+  it('leaves quality/muted untouched when toggled', () => {
+    const store = useGameStore.getState();
+    store.setQuality('low');
+    store.toggleMuted();
+    store.setReducedShake(true);
+    expect(useGameStore.getState().settings).toEqual({ quality: 'low', muted: true, reducedShake: true });
   });
 });
 
@@ -201,7 +227,7 @@ describe('hardReset', () => {
     expect(state.score).toBe(0);
     expect(state.playerHp).toBe(100);
     expect(state.seed).toBe(999);
-    expect(state.settings).toEqual({ quality: 'low', muted: false });
+    expect(state.settings).toEqual({ quality: 'low', muted: false, reducedShake: false });
   });
 });
 
@@ -234,7 +260,7 @@ describe('runReset', () => {
 
     const state = useGameStore.getState();
     expect(state.seed).toBe(999);
-    expect(state.settings).toEqual({ quality: 'low', muted: false });
+    expect(state.settings).toEqual({ quality: 'low', muted: false, reducedShake: false });
   });
 
   it('does not emit tierChanged/heatChanged (a silent reset, not a monotonic addHeat call)', () => {
@@ -266,26 +292,49 @@ describe('settings hydration at store creation', () => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({ quality: 'low', muted: true }));
     vi.resetModules();
     const fresh = await import('./store');
-    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'low', muted: true });
+    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'low', muted: true, reducedShake: false });
   });
 
   it('falls back to defaults on unparseable JSON', async () => {
     localStorage.setItem(SETTINGS_KEY, '{not valid json');
     vi.resetModules();
     const fresh = await import('./store');
-    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'high', muted: false });
+    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'high', muted: false, reducedShake: false });
   });
 
   it('falls back to defaults on well-formed but wrong-shaped JSON', async () => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({ quality: 'ultra', muted: 'nope' }));
     vi.resetModules();
     const fresh = await import('./store');
-    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'high', muted: false });
+    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'high', muted: false, reducedShake: false });
   });
 
   it('falls back to defaults when nothing is stored', async () => {
     vi.resetModules();
     const fresh = await import('./store');
-    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'high', muted: false });
+    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'high', muted: false, reducedShake: false });
+  });
+
+  it('hydrates a stored reducedShake:true', async () => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ quality: 'high', muted: false, reducedShake: true }));
+    vi.resetModules();
+    const fresh = await import('./store');
+    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'high', muted: false, reducedShake: true });
+  });
+
+  it('normalises a pre-Phase-16 envelope (no reducedShake key) to the false default, keeping quality/muted', async () => {
+    // Additive/version-safe extension: an older stored settings object is missing the key
+    // entirely — it must still hydrate (not get rejected to defaults) with reducedShake:false.
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ quality: 'low', muted: true }));
+    vi.resetModules();
+    const fresh = await import('./store');
+    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'low', muted: true, reducedShake: false });
+  });
+
+  it('rejects a present-but-wrong-typed reducedShake to defaults', async () => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ quality: 'low', muted: true, reducedShake: 'yes' }));
+    vi.resetModules();
+    const fresh = await import('./store');
+    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'high', muted: false, reducedShake: false });
   });
 });

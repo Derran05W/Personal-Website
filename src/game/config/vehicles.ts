@@ -436,6 +436,32 @@ export const AI_STEERING = {
   // sits above ramSwitchSpeedMps (8 > 5) so re-orbiting needs a clear getaway, not a brief twitch.
   ramExitSpeedMps: 8,
   ramExitSec: 1,
+  // --- road-following approach + unstick-toward-road (Phase 16 Task 5; no-navmesh nav debt) ---
+  // The consolidated phase-09..12 fix: pursuit units WEDGE against buildings when beelining at a
+  // distant or occluded player, so an organic BUSTED (≥3 pursuers within BUSTED.pursuerRadius of a
+  // stopped player) almost never forms. In PURSUE mode only, a unit that is far — or whose straight
+  // line to the player is blocked by buildings — steers toward a road-graph waypoint (ai/roadNav +
+  // ai/roadPath) instead of the player's face, then reverts to the (unchanged) direct pursue/press/
+  // ram once it is inside pressDistM with a clear line. Close-range feel is deliberately untouched:
+  // within pressDistM a unit NEVER road-follows, so ram + slow-target press-in stay byte-for-byte
+  // as signed off. All leva-live; behaviour, not TDD-given numbers.
+  //
+  // Beyond this range a pursue-mode unit always road-follows (the dominant distant-target wedge).
+  roadApproachDistM: 35,
+  // Cheap tile-sampled line-of-sight (ai/roadPath.lineLosClear), evaluated ONLY in the
+  // pressDistM..roadApproachDistM band: this many INTERIOR points along unit→player are tested
+  // against the drivable tile grid; the line is CLEAR when at least roadApproachLosClearFrac of
+  // them are drivable. A handful of array lookups at 10 Hz — no raycasts.
+  roadApproachLosSamples: 6,
+  roadApproachLosClearFrac: 0.5,
+  // Unstick-toward-road: when a stuck reversal (above) completes, the unit steers to the nearest
+  // road node for roadSeekBaseSec before resuming pursuit, so it doesn't immediately re-beeline
+  // into the same wall. CONSECUTIVE stuck episodes escalate the window by roadSeekEscalationSec
+  // each (a unit fighting one nasty corner commits harder to the road each time), capped at
+  // roadSeekMaxSec; a road-seek window that elapses WITHOUT the unit re-sticking resets the count.
+  roadSeekBaseSec: 1.5,
+  roadSeekEscalationSec: 1.0,
+  roadSeekMaxSec: 6,
 } as const;
 
 // SWAT squad flank-coordinator params (Phase 10 Task 1; TDD §5.6 SWAT row: "two units steer to

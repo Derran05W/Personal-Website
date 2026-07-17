@@ -39,6 +39,7 @@ import {
   type InstancedMesh,
 } from 'three';
 import { TRAFFIC_CIV } from '../config';
+import { hpLostFraction, tintDamageColor } from '../fx/damageStates';
 import { buildParkedCar } from '../world/geometry/parkedCar';
 import { getCityMaterial } from '../world/palette';
 import { trafficRef } from './trafficTypes';
@@ -54,10 +55,6 @@ const TRAFFIC_TINTS: readonly Color[] = [
   new Color('#3f4854'), // dark slate
   new Color('#a08a5c'), // tan
 ];
-
-// 'wrecked' slots multiply their base tint toward this charred-dark tone (damage read) —
-// cheap "soot" without a second material or a dedicated damage-decal pass.
-const WRECK_CHAR_TINT = new Color('#2a2622');
 
 const WHITE = new Color(1, 1, 1);
 const Y_AXIS = new Vector3(0, 1, 0);
@@ -144,7 +141,9 @@ export function TrafficMesh() {
       mesh.setMatrixAt(i, _dummy.matrix);
 
       _color.copy(TRAFFIC_TINTS[slot.tintIndex % TRAFFIC_TINTS.length] ?? WHITE);
-      if (slot.state === 'wrecked') _color.multiply(WRECK_CHAR_TINT);
+      // Phase 16: graduated damage tint (25/50/75% HP lost) on top of the base tint, full
+      // charred at 'wrecked' — see fx/damageStates.ts's tintDamageColor header.
+      tintDamageColor(_color, hpLostFraction(slot.hp, TRAFFIC_CIV.hp), slot.state === 'wrecked');
       mesh.setColorAt(i, _color);
     }
 

@@ -8,6 +8,12 @@ export interface QualityTierDef {
   // Shadow map resolution; 0 = shadows off (mobile/low tier).
   readonly shadowMapSize: number;
   readonly dprCap: number;
+  // Phase 16: effective particle-pool budget (fx/particles.ts). The system always
+  // allocates PARTICLES.poolSize (500) instance slots, but the sink never keeps more than
+  // this many alive at once — lower tiers run a smaller effective pool so the FX layer
+  // scales down with the frame budget (fewer overdraw fragments on the additive/alpha
+  // passes). Capped at or below PARTICLES.poolSize; high tier uses the full pool.
+  readonly particleCap: number;
 }
 
 export const QUALITY_TIERS = {
@@ -19,6 +25,7 @@ export const QUALITY_TIERS = {
     pursuitCapModifier: 1,
     shadowMapSize: 2048,
     dprCap: 2,
+    particleCap: 500,
   },
   med: {
     targetFps: 60,
@@ -28,6 +35,7 @@ export const QUALITY_TIERS = {
     pursuitCapModifier: 1,
     shadowMapSize: 1024,
     dprCap: 1.5,
+    particleCap: 350,
   },
   low: {
     targetFps: 30,
@@ -37,6 +45,7 @@ export const QUALITY_TIERS = {
     pursuitCapModifier: 0.7,
     shadowMapSize: 0,
     dprCap: 1.5,
+    particleCap: 160,
   },
 } as const satisfies Record<string, QualityTierDef>;
 

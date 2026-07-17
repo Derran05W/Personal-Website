@@ -9,11 +9,24 @@
 export interface GameEventMap {
   heatChanged: { heat: number; delta: number };
   tierChanged: { tier: number; prevTier: number };
-  transformerDestroyed: { districtId: number };
+  /** Phase 16: `x`/`y`/`z` are the dead transformer's world position, when derivable — the
+   * real damage-resolver kill (combat/damage.ts's handleTransformerDeath) always sets them,
+   * read straight off the archetype's live InstancedMesh instance. The dev "blackout
+   * district" debug shortcut (core/debugBridge.ts) has no single transformer instance to
+   * point at and omits them. fx/eventFx.ts skips its spark burst when absent — see that
+   * file for why this mirrors combat/types.ts's ImpactRecord.point optionality instead of a
+   * fake (0,0,0) fallback. */
+  transformerDestroyed: { districtId: number; x?: number; y?: number; z?: number };
   unitWrecked: { unitKind: string };
   civHit: Record<string, never>;
   civWrecked: Record<string, never>;
-  propDestroyed: { archetype: string };
+  /** Phase 16: `x`/`y`/`z` are the world position of the killing blow (contact point / bullet
+   * hit / blast center — whichever resolver emitted this), when one was available. Optional
+   * for the same reason as `transformerDestroyed` above: combat/types.ts's ImpactRecord.point
+   * is itself optional (Rapier doesn't always report a contact point), and that's the source
+   * for the ram-death path (combat/damage.ts). world/propDynamics.ts's swap-on-launch path
+   * always has a position (the prop's own captured transform) and always sets it. */
+  propDestroyed: { archetype: string; x?: number; y?: number; z?: number };
   playerDamaged: { hp: number; amount: number };
   playerWrecked: Record<string, never>;
   busted: Record<string, never>;

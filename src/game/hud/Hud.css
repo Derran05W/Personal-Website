@@ -2,16 +2,27 @@
    (keyframe animation + a delayed-visibility fade) lives here — layout/color/typography
    stay inline, same "game/ uses inline styles" split as GarageOverlay.tsx/.css. */
 
+/* Tier-up star flare (Phase 16 Task 5): the newly-lit star punches up with an overshoot +
+   glow, then settles — fired per `tierChanged` (up) by Hud.tsx's WantedStars, in lockstep
+   with the audio tier-up stinger (both keyed off the same event). Two-stage scale (big
+   overshoot -> small settle) with a slight rock reads as a satisfying "ka-chunk", not a
+   plain grow. */
 @keyframes hud-star-flare {
   0% {
-    transform: scale(1);
+    transform: scale(1) rotate(0deg);
+    filter: none;
   }
-  35% {
-    transform: scale(1.6);
-    filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.9));
+  30% {
+    transform: scale(1.85) rotate(-8deg);
+    filter: drop-shadow(0 0 14px rgba(245, 158, 11, 1)) brightness(1.5);
+  }
+  55% {
+    transform: scale(1.2) rotate(5deg);
+    filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.85)) brightness(1.2);
   }
   100% {
-    transform: scale(1);
+    transform: scale(1) rotate(0deg);
+    filter: none;
   }
 }
 
@@ -123,23 +134,95 @@
   opacity: 1;
   visibility: visible;
   transition: opacity 0.5s ease;
-  animation: hud-darkcity-in 900ms cubic-bezier(0.16, 1, 0.3, 1);
+  /* Two layered animations: the letter-spaced slide/scale entrance, plus a slow blue
+     "city-glow" dim pulse that breathes for the banner's whole visible window — reads as the
+     skyline flickering out behind the words. */
+  animation:
+    hud-darkcity-in 1000ms cubic-bezier(0.16, 1, 0.3, 1),
+    hud-darkcity-glow 2600ms ease-in-out 900ms 2;
 }
 
+/* Letter-spaced fade + upward slide + a small scale overshoot (Phase 16 Task 6). */
 @keyframes hud-darkcity-in {
   0% {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(0.85);
-    letter-spacing: 0.55em;
+    transform: translate(-50%, calc(-50% + 26px)) scale(0.88);
+    letter-spacing: 0.6em;
   }
   60% {
     opacity: 1;
     transform: translate(-50%, -50%) scale(1.05);
+    letter-spacing: 0.36em;
   }
   100% {
     opacity: 1;
     transform: translate(-50%, -50%) scale(1);
     letter-spacing: 0.3em;
+  }
+}
+
+/* Brief cold-blue glow that swells and fades — the "city-glow dim pulse". Layered on top of
+   the banner's base dark text-shadow (set inline in Hud.tsx) so it reads as an ambient
+   blackout shimmer, not a hard flash. */
+@keyframes hud-darkcity-glow {
+  0%,
+  100% {
+    text-shadow:
+      0 0 24px rgba(0, 0, 0, 0.85),
+      0 0 48px rgba(0, 0, 0, 0.6);
+  }
+  50% {
+    text-shadow:
+      0 0 30px rgba(120, 170, 255, 0.55),
+      0 0 60px rgba(80, 130, 220, 0.4),
+      0 0 48px rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* BUSTED arrest wash (Phase 16 Task 4; Hud.tsx's BustedWash). A full-viewport, edge-weighted
+   red/blue "police light" wash driven by the `busted` event — echoes the pursuit sirens
+   still ringing under it (audio/sirens.ts) and the matching GameOver.tsx busted backdrop it
+   hands off to once the run flips to GAMEOVER. The centre stays clear (radial mask) so the
+   score/stars and the incoming GameOver panel remain readable. The colour is animated via
+   `color` (drawn by the gradient's currentColor stop) in hard steps — a light cutting, not
+   crossfading. Always in the DOM; `--active` toggles it, same restart-clean idiom as the
+   DARK CITY banner. */
+.hud-busted-wash {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  color: rgba(130, 14, 22, 0.6);
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 34%, currentColor 100%);
+}
+
+.hud-busted-wash--active {
+  opacity: 1;
+  animation:
+    hud-busted-wash-in 300ms ease-out,
+    hud-busted-wash-strobe 1s steps(1, end) infinite;
+}
+
+@keyframes hud-busted-wash-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes hud-busted-wash-strobe {
+  0%,
+  45% {
+    color: rgba(150, 16, 26, 0.62);
+  }
+  50%,
+  95% {
+    color: rgba(16, 52, 150, 0.62);
+  }
+  100% {
+    color: rgba(150, 16, 26, 0.62);
   }
 }
 
@@ -154,6 +237,14 @@
 
   .hud-darkcity-banner--visible {
     animation: none;
+  }
+
+  /* Keep the arrest wash present and legible, but drop the strobe (vestibular trigger):
+     a static red/blue blend, no flashing — same fallback shape as GameOver.css's busted
+     backdrop. */
+  .hud-busted-wash--active {
+    animation: none;
+    color: rgba(74, 26, 82, 0.6);
   }
 
   /* Keep the flash legible (it's the required no-HP-bar-needed signal) but drop the eased

@@ -46,6 +46,29 @@ export const SPAWN = {
   // so a jittered point stays on its road tile. Forks the deterministic 'spawnDirector' rng
   // (SpawnDirectorMount seed prop).
   spawnJitterM: 2,
+  // --- spawn-ring approach bias (Phase 16 Task 5; no-navmesh nav debt) -------------------------
+  // The director still picks an off-screen road tile in the [ringMin, ringMax] ring behind the
+  // camera, but among those candidates it now WEIGHTS the pick toward tiles a unit can actually
+  // drive to the player from (phase-09..12 "organic BUSTED unreachable" debt). Per-candidate
+  // weight = biasWeightFloor + roadProximity^roadProximityWeight × approachClearness^approach-
+  // ClearnessWeight (ai/spawnDirector.scoreSpawnCandidate), then a WEIGHTED-RANDOM pick keeps
+  // variety (spawns never become deterministic). Set both weights to 0 to fall back to the old
+  // uniform behind-camera pick (each factor^0 = 1). Only pure city data (graph nodes + tiles) is
+  // read, at spawn time (2 Hz maintenance / on tierChanged) — never per frame.
+  //
+  // roadProximity = 1 / (1 + nearestGraphNodeDist / roadProximityRefM): favours tiles ON the lane
+  // network over disconnected road stubs. Ref ~ one tile, so a tile with a lane node on it ≈ 1.
+  roadProximityRefM: 10,
+  roadProximityWeight: 1,
+  // approachClearness = fraction of approachClearnessSamples points sampled along candidate→player
+  // that sit on drivable (road/park/parkingLot) tiles — a straight-shot "is there an open lane to
+  // the player" proxy (no raycasts). Weighted higher than road proximity: clustering spawns where
+  // the player is reachable is what lets the ★1+ swarm actually converge for a BUSTED.
+  approachClearnessSamples: 8,
+  approachClearnessWeight: 2,
+  // Floor added to every candidate's weight so an all-zero-score ring still spawns *somewhere*
+  // (degrades to uniform) and never divides by zero — the ring's off-screen guarantee is preserved.
+  biasWeightFloor: 0.05,
 } as const;
 
 /** One weighted unit-kind option in a tier's spawn mix (SPAWN_COMPOSITION). */

@@ -10,9 +10,10 @@
 // continuous slate-grey (wallF) armored hull baked ~1.15× the base chassis half-extents (no
 // separate white-body/dark-cabin split like the sedan — a single bulkier mass instead), a
 // forward push-bar/grille-guard prow in metalDark projecting past the front bumper, a thin
-// dark tinted window band instead of a full greenhouse, and a SMALL red lightbar (same
-// emissive-strobe mechanism as police, kept low-profile — still visibly a police vehicle,
-// just armored). Chunkier dark wheels to match the bulkier hull.
+// dark tinted window band instead of a full greenhouse, and a SMALL red/blue lightbar (same
+// two-pod alternating-strobe mechanism as police — see PoliceMesh.tsx's header — kept
+// low-profile — still visibly a police vehicle, just armored). Chunkier dark wheels to match
+// the bulkier hull.
 
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
@@ -30,7 +31,9 @@ import {
   Object3D,
   type InstancedMesh,
 } from 'three';
-import { SPAWN, VEHICLE_TUNING } from '../../config';
+import { ENEMY_UNITS, SPAWN, VEHICLE_TUNING } from '../../config';
+import { hpLostFraction, tintDamageColor } from '../../fx/damageStates';
+import { lightbarPhase } from '../../fx/lightbarStrobe';
 import { PaletteCell } from '../../world/archetypes';
 import { addBox, createBuilder, toBufferGeometry } from '../../world/geometry/kit';
 import { getCityMaterial } from '../../world/palette';
@@ -46,7 +49,6 @@ import {
 const PHYSICS_DT = 1 / 60;
 // Mirrors PoliceMesh: capacity = the largest pursuit cap across tiers, cheap at this count.
 const CAPACITY = Math.max(...SPAWN.caps);
-const STROBE_HZ = 3;
 
 // Visual-only bulk-up factor over the shared chassis half-extents (physics collider itself
 // stays the base VEHICLE_TUNING.chassis box — see armoredPolice.ts's file header for why the
@@ -55,7 +57,6 @@ const STROBE_HZ = 3;
 const BULK = 1.15;
 
 const WHITE = new Color(1, 1, 1);
-const WRECK_CHAR = new Color('#2a2622');
 const ZERO_MATRIX = new Matrix4().makeScale(0, 0, 0);
 
 const _dummy = new Object3D();
@@ -170,22 +171,64 @@ function buildArmoredCar(): BufferGeometry {
   return toBufferGeometry(b);
 }
 
+/**
+ * The BLUE strobe accent pod (Phase 16 Task 3; mirrors PoliceMesh.tsx's
+ * buildPoliceLightbarBlue — see that function + this file's PoliceMesh cross-reference in
+ * ArmoredMesh's own strobe wiring below): a small box stacked directly on top of
+ * buildArmoredCar's red lightbar, same chassis-local (bulked) frame, non-overlapping Y range.
+ */
+function buildArmoredLightbarBlue(): BufferGeometry {
+  const { chassis } = VEHICLE_TUNING;
+  const hh = chassis.halfHeight * BULK;
+  const hl = chassis.halfLength * BULK;
+  const blue = PaletteCell.policeBlue;
+
+  const barHW = chassis.halfWidth * BULK * 0.4;
+  const barHL = 0.14;
+  const barY1 = hh + 0.1; // top of the red bar — this pod's floor
+  const barZ = hl * -0.1;
+
+  const podHW = barHW * 0.7;
+  const podHL = barHL * 0.8;
+  const podY0 = barY1;
+  const podY1 = barY1 + 0.08;
+
+  const b = createBuilder();
+  addBox(
+    b,
+    { minX: -podHW, maxX: podHW, minY: podY0, maxY: podY1, minZ: barZ - podHL, maxZ: barZ + podHL },
+    {
+      px: { albedo: blue, emissive: blue },
+      nx: { albedo: blue, emissive: blue },
+      py: { albedo: blue, emissive: blue },
+      pz: { albedo: blue, emissive: blue },
+      nz: { albedo: blue, emissive: blue },
+    },
+  );
+  return toBufferGeometry(b);
+}
+
+function makeGeometry(build: () => BufferGeometry, capacity: number): BufferGeometry {
+  const g = build();
+  const attr = new InstancedBufferAttribute(new Float32Array(capacity), 1);
+  attr.setUsage(DynamicDrawUsage);
+  g.setAttribute('aEmissiveOn', attr);
+  return g;
+}
+
 export function ArmoredMesh() {
   const meshRef = useRef<InstancedMesh>(null);
+  const blueBarRef = useRef<InstancedMesh>(null);
   const { world, rapier } = useRapier();
   const capacity = CAPACITY;
 
-  const geometry = useMemo(() => {
-    const g = buildArmoredCar();
-    const attr = new InstancedBufferAttribute(new Float32Array(capacity), 1);
-    attr.setUsage(DynamicDrawUsage);
-    g.setAttribute('aEmissiveOn', attr);
-    return g;
-  }, [capacity]);
+  const geometry = useMemo(() => makeGeometry(buildArmoredCar, capacity), [capacity]);
+  const blueBarGeometry = useMemo(() => makeGeometry(buildArmoredLightbarBlue, capacity), [capacity]);
 
   const material = useMemo(() => getCityMaterial(), []);
 
   useEffect(() => () => geometry.dispose(), [geometry]);
+  useEffect(() => () => blueBarGeometry.dispose(), [blueBarGeometry]);
 
   // Register the armored factory + the shove system now that the Rapier context is live.
   // Both are unmounted together — the shove system has nothing to do once no armored unit
@@ -204,26 +247,29 @@ export function ArmoredMesh() {
   useAfterPhysicsStep(() => stepArmoredAfter());
 
   useEffect(() => {
-    const mesh = meshRef.current;
-    if (mesh === null) return;
-    mesh.instanceMatrix.setUsage(DynamicDrawUsage);
-    for (let i = 0; i < capacity; i++) {
-      mesh.setMatrixAt(i, ZERO_MATRIX);
-      mesh.setColorAt(i, WHITE);
-    }
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor !== null) {
-      mesh.instanceColor.setUsage(DynamicDrawUsage);
-      mesh.instanceColor.needsUpdate = true;
+    for (const mesh of [meshRef.current, blueBarRef.current]) {
+      if (mesh === null) continue;
+      mesh.instanceMatrix.setUsage(DynamicDrawUsage);
+      for (let i = 0; i < capacity; i++) {
+        mesh.setMatrixAt(i, ZERO_MATRIX);
+        mesh.setColorAt(i, WHITE);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor !== null) {
+        mesh.instanceColor.setUsage(DynamicDrawUsage);
+        mesh.instanceColor.needsUpdate = true;
+      }
     }
   }, [capacity]);
 
   useFrame(() => {
     const mesh = meshRef.current;
-    if (mesh === null) return;
+    const blueBar = blueBarRef.current;
+    if (mesh === null || blueBar === null) return;
     const slots = unitsRef.current?.slots;
     const t = performance.now() / 1000;
     const emissiveAttr = mesh.geometry.getAttribute('aEmissiveOn') as InstancedBufferAttribute;
+    const blueEmissiveAttr = blueBar.geometry.getAttribute('aEmissiveOn') as InstancedBufferAttribute;
 
     for (let i = 0; i < capacity; i++) {
       const slot = slots?.[i];
@@ -231,7 +277,9 @@ export function ArmoredMesh() {
       // PoliceMesh only rendering 'police').
       if (slot === undefined || slot.kind !== 'armored') {
         mesh.setMatrixAt(i, ZERO_MATRIX);
+        blueBar.setMatrixAt(i, ZERO_MATRIX);
         emissiveAttr.setX(i, 0);
+        blueEmissiveAttr.setX(i, 0);
         continue;
       }
 
@@ -240,21 +288,38 @@ export function ArmoredMesh() {
       _dummy.scale.set(1, 1, 1);
       _dummy.updateMatrix();
       mesh.setMatrixAt(i, _dummy.matrix);
+      blueBar.setMatrixAt(i, _dummy.matrix);
 
       _color.copy(WHITE);
-      if (slot.state === 'wrecked') _color.multiply(WRECK_CHAR);
+      // Phase 16: graduated damage tint (25/50/75% HP lost), full charred at 'wrecked' — see
+      // fx/damageStates.ts's tintDamageColor header. Shared by both meshes.
+      tintDamageColor(_color, hpLostFraction(slot.hp, ENEMY_UNITS.armored.hp), slot.state === 'wrecked');
       mesh.setColorAt(i, _color);
+      blueBar.setColorAt(i, _color);
 
-      const phase = (t * STROBE_HZ + i * 0.13) % 1;
-      emissiveAttr.setX(i, slot.state === 'wrecked' ? 0 : phase < 0.5 ? 1 : 0);
+      // Alternating red/blue strobe (Phase 16 Task 3) — see fx/lightbarStrobe.ts.
+      const phase = slot.state === 'wrecked' ? null : lightbarPhase(t, i);
+      emissiveAttr.setX(i, phase?.red ?? 0);
+      blueEmissiveAttr.setX(i, phase?.blue ?? 0);
     }
 
     mesh.instanceMatrix.needsUpdate = true;
+    blueBar.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor !== null) mesh.instanceColor.needsUpdate = true;
+    if (blueBar.instanceColor !== null) blueBar.instanceColor.needsUpdate = true;
     emissiveAttr.needsUpdate = true;
+    blueEmissiveAttr.needsUpdate = true;
   });
 
   return (
-    <instancedMesh ref={meshRef} args={[geometry, material, capacity]} frustumCulled={false} castShadow />
+    <>
+      <instancedMesh ref={meshRef} args={[geometry, material, capacity]} frustumCulled={false} castShadow />
+      <instancedMesh
+        ref={blueBarRef}
+        args={[blueBarGeometry, material, capacity]}
+        frustumCulled={false}
+        castShadow
+      />
+    </>
   );
 }

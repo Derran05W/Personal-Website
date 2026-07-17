@@ -82,6 +82,13 @@ export const DAMAGE = {
   // Trauma (m of peak jitter) added per Newton above the threshold: addShake(forceMag ×
   // shakeForceScale). STARTING POINT, live-tunable.
   shakeForceScale: 0.0006,
+  // Minimum gap (ms) between impactSparks bursts from the damage resolver. Contact-force
+  // events re-fire EVERY physics step while a pair stays pressed together (the Phase 8
+  // wedge case), and shake absorbs that spam via its trauma cap — a particle burst per
+  // step (60/s × up to 30 particles) does not: it saturates the 500-slot pool and starves
+  // every emitter (measured live in the Phase 16 FX battery: pool pinned at 500 during a
+  // slide/combat). ~8 bursts/s still reads as a continuous grind shower.
+  sparkMinIntervalMs: 120,
   // Dark tint applied to a transformer's InstancedMesh instance on death
   // (world/instancing.ts setColorAt) — the "wrecked" visual signal ahead of the real Phase
   // 16 spark/scorch FX. Hex string (leva's auto-schema builder skips non-numeric leaves,
@@ -89,9 +96,34 @@ export const DAMAGE = {
   deadTransformerColor: '#141414',
   // Hitscan bullet damage (gun truck bursts). TDD §5.10 / §5.6.
   bulletDamage: 3,
-  // Visual HP thresholds: smoke below 50% HP, fire below 25% HP. TDD §5.10.
-  smokeBelowHpFrac: 0.5,
-  fireBelowHpFrac: 0.25,
+  // Single-hit damage cap (Phase 16 Task 3 fix; P13 notes' "consider a single-hit damage cap
+  // in Phase 16 polish"): combat/damage.ts's applySideDamage clamps EVERY resolved per-
+  // contact-event damage value to this ceiling — AFTER the ram-damage multiplier, so it
+  // bounds the fully-resolved number — before it ever reaches applyPlayerDamage/
+  // applyEntityDamage. Closes the P13-found bug: a LARGE debug teleport (250+ m) landing a
+  // body inside a building produces a building-penetration contact-force spike that can drain
+  // hp in a single physics step ("gameplay unaffected — no big teleports in real play", but
+  // an honest cap belongs here anyway).
+  //
+  // Tuned from a REAL measured ceiling, not the naive "~30 hp building hit -> ~45" guess:
+  // combat/damage.test.ts's existing (pre-Phase-16) ram-multiplier test exercises a SWAT ram
+  // (massFactor 1.8 x ramDamageMultiplier 1.5 = 2.7x) at a realistic-but-firm closing-speed
+  // proxy and lands 48.6 hp in ONE hit — already above a naive 45 cap, which would have
+  // silently clipped a normal, already-signed-off gameplay scenario (found by re-running the
+  // full suite after adding this cap — the ratio test failed until the value moved up). 60
+  // clears that with real headroom (a tank ram, at massFactor 6 x multiplier 2 = 12x, is the
+  // one kind that CAN still exceed this even at moderate force — deliberately so: tanks
+  // sitting on top of the escalation ladder dealing devastating melee damage on top of their
+  // shells is in-theme, not a bug, and no test locks a tank-ram ceiling in). STARTING POINT,
+  // live-tunable; if a future retune of collisionK/vehicleRamForceProxy/any ramDamageMultiplier
+  // pushes ordinary hits closer to this ceiling, raise it rather than let it start clipping.
+  maxSingleHit: 60,
+  // (Removed Phase 16 Task 3: this block used to carry its own smokeBelowHpFrac/
+  // fireBelowHpFrac pair, added in an earlier phase ahead of any real consumer. They stayed
+  // unused — fx/damageStates.ts, the system that finally needed them, owns the equivalent
+  // thresholds instead: config/damageVisuals.ts's DAMAGE_VISUALS.smokeAtLost/fireAtLost,
+  // expressed as HP-LOST fraction rather than HP-remaining. One source of truth per
+  // CLAUDE.md, so the dead duplicate here is deleted rather than left to drift.)
   // Water = instant wreck (TDD §5.10) — no magnitude needed, handled as a special case
   // by the damage resolver, not a numeric tunable.
   //

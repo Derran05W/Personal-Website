@@ -38,6 +38,7 @@ import { playerVehicle } from '../../vehicles/playerRef';
 import type { VehicleInputs } from '../../vehicles/IVehicleModel';
 import { PursuitVehicle } from '../pursuitVehicle';
 import { initialStuckState, pursueSteer, type StuckState } from '../aiSteering';
+import { approachTargetFor } from '../roadNav';
 import type { UnitFactory, UnitHandle, UnitSlot } from '../pursuitTypes';
 import { nextPursuitSlotId } from './slotIds';
 import { Turret, maxYawStep, turretMuzzle, type Vec3 } from '../../combat/turret';
@@ -333,15 +334,23 @@ class TankUnit implements UnitHandle, PursuitStepUnit {
     const pose = this.vehicle.readPlanarPose();
     const speed = this.vehicle.planarSpeed();
     const hits = this.vehicle.castAvoidHits(pose);
+    const playerPos = { x: player.rawPose.position.x, z: player.rawPose.position.z };
+    // Road-follow toward the player when far / building-blocked (Phase 16 Task 5): the 6× siege
+    // chassis is the worst wedger, so the road-graph hint matters most here.
+    const approach = approachTargetFor(pose.x, pose.z, playerPos.x, playerPos.z, this.stuck);
     const result = pursueSteer(
       pose,
       speed,
-      { x: player.rawPose.position.x, z: player.rawPose.position.z },
+      playerPos,
       { x: player.velocity.x, z: player.velocity.z },
       hits,
       this.stuck,
       AI_STEERING,
       AI_TICK_DT,
+      'pursue',
+      null,
+      1,
+      approach,
     );
     this.stuck = result.stuck;
     this.inputs = {

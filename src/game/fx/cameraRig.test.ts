@@ -1,23 +1,89 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { PerspectiveCamera } from 'three';
 import {
   addShake,
+  armFovKick,
   cameraDistance,
   computeCameraFrame,
   computeIdealCamPos,
   computeLookTarget,
   dampingAlpha,
+  deathBeatFraming,
   easeSpeedZoom,
+  getDeathCause,
   getDeathPullback,
+  getFovKick,
   getShakeTrauma,
+  getSourceTrauma,
   resetCameraRig,
   resetShake,
+  setDeathCause,
   setDeathPullback,
   sphericalOffset,
+  stepFovKick,
   stepShake,
+  updateCameraRig,
   type Vec3,
 } from './cameraRig';
 import { CAMERA } from '../config/camera';
 import { STARTER_TOP_SPEED } from '../config/vehicles';
+import { gameEvents } from '../state/events';
+import { useGameStore } from '../state/store';
+import { playerVehicle } from '../vehicles/playerRef';
+import type { IVehicleModel, VehicleState } from '../vehicles/IVehicleModel';
+
+// --- fakes for the impure updateCameraRig() path -----------------------------------------
+// A minimal PerspectiveCamera stand-in: only the surface updateCameraRig touches (position
+// .set, lookAt, fov + updateProjectionMatrix). Records the FOV projection-update count so a
+// test can assert it fires ONLY while a kick is active.
+function makeFakeCamera(fov = 60) {
+  const position = {
+    x: 0,
+    y: 0,
+    z: 0,
+    set(x: number, y: number, z: number) {
+      this.x = x;
+      this.y = y;
+      this.z = z;
+    },
+  };
+  return {
+    fov,
+    position,
+    projectionUpdates: 0,
+    lookAt() {},
+    updateProjectionMatrix() {
+      this.projectionUpdates += 1;
+    },
+  };
+}
+
+// A stationary stub vehicle at the origin — enough for the camera rig to read a stable pose,
+// so the smoothed follow position is constant frame-to-frame and any camera-position change
+// across a frame is purely the applied shake offset.
+function makeStubModel(): IVehicleModel {
+  const zero = { x: 0, y: 0, z: 0 };
+  const state: VehicleState = {
+    pose: { position: zero, rotation: { x: 0, y: 0, z: 0, w: 1 } },
+    rawPose: { position: zero, rotation: { x: 0, y: 0, z: 0, w: 1 } },
+    velocity: { x: 0, y: 0, z: 0 },
+    speed: 0,
+    forwardSpeed: 0,
+    upright: true,
+    wheels: [],
+  };
+  return {
+    create() {},
+    destroy() {},
+    applyInputs() {},
+    reset() {},
+    readState: () => state,
+  };
+}
+
+function setReducedShake(value: boolean): void {
+  useGameStore.setState((s) => ({ settings: { ...s.settings, reducedShake: value } }));
+}
 
 const v3 = (): Vec3 => ({ x: 0, y: 0, z: 0 });
 
@@ -280,13 +346,16 @@ describe('shake (trauma accumulation, cap, decay)', () => {
     expect(o).toEqual({ x: 0, y: 0, z: 0 });
   });
 
-  it('accumulates trauma but caps at maxAmplitude', () => {
-    addShake(0.2);
+  it('accumulates trauma but caps at the (default impact) source cap', () => {
+    // Phase 16: a sourceless addShake defaults to the 'impact' bucket, which caps at
+    // sourceCaps.impact (< maxAmplitude), NOT at the overall maxAmplitude.
+    const cap = CAMERA.shake.sourceCaps.impact;
+    addShake(0.1);
+    expect(getShakeTrauma()).toBeCloseTo(0.1, 12);
+    addShake(0.1);
     expect(getShakeTrauma()).toBeCloseTo(0.2, 12);
-    addShake(0.2);
-    expect(getShakeTrauma()).toBeCloseTo(0.4, 12);
     addShake(10);
-    expect(getShakeTrauma()).toBe(CAMERA.shake.maxAmplitude);
+    expect(getShakeTrauma()).toBe(cap);
   });
 
   it('ignores non-positive strength', () => {
@@ -297,9 +366,10 @@ describe('shake (trauma accumulation, cap, decay)', () => {
   });
 
   it('decays trauma linearly at decayPerSec', () => {
-    addShake(CAMERA.shake.maxAmplitude);
-    stepShake(0.1);
-    expect(getShakeTrauma()).toBeCloseTo(CAMERA.shake.maxAmplitude - CAMERA.shake.decayPerSec * 0.1, 9);
+    const cap = CAMERA.shake.sourceCaps.impact;
+    addShake(10); // fill the impact bucket to its cap
+    stepShake(0.05);
+    expect(getShakeTrauma()).toBeCloseTo(cap - CAMERA.shake.decayPerSec * 0.05, 9);
   });
 
   it('decays to a hard zero and produces no offset at rest', () => {
@@ -332,5 +402,249 @@ describe('shake (trauma accumulation, cap, decay)', () => {
     addShake(CAMERA.shake.maxAmplitude);
     resetShake();
     expect(getShakeTrauma()).toBe(0);
+  });
+});
+
+describe('per-source shake budgets (Phase 16)', () => {
+  beforeEach(() => resetShake());
+
+  it('a sourceless addShake defaults to the impact bucket', () => {
+    addShake(0.2);
+    expect(getSourceTrauma('impact')).toBeCloseTo(0.2, 12);
+    expect(getSourceTrauma('explosion')).toBe(0);
+    expect(getSourceTrauma('ram')).toBe(0);
+    expect(getSourceTrauma('generic')).toBe(0);
+  });
+
+  it('each source accumulates into its own bucket, capped independently', () => {
+    addShake(10, 'impact');
+    addShake(10, 'ram');
+    expect(getSourceTrauma('impact')).toBe(CAMERA.shake.sourceCaps.impact);
+    expect(getSourceTrauma('ram')).toBe(CAMERA.shake.sourceCaps.ram);
+    // Filling impact/ram left explosion/generic untouched — buckets are independent.
+    expect(getSourceTrauma('explosion')).toBe(0);
+    expect(getSourceTrauma('generic')).toBe(0);
+  });
+
+  it('a gentle source (ram) is capped below the whole budget, so it layers rather than dominates', () => {
+    addShake(10, 'ram');
+    expect(getShakeTrauma()).toBeLessThan(CAMERA.shake.maxAmplitude);
+    expect(getShakeTrauma()).toBe(CAMERA.shake.sourceCaps.ram);
+  });
+
+  it('applied trauma is the sum of the buckets, clamped to maxAmplitude', () => {
+    const sum = CAMERA.shake.sourceCaps.impact + CAMERA.shake.sourceCaps.explosion + CAMERA.shake.sourceCaps.ram;
+    // Precondition: the buckets deliberately over-subscribe the overall cap, so the sum
+    // clamps — that clamp is what keeps the total within maxAmplitude.
+    expect(sum).toBeGreaterThan(CAMERA.shake.maxAmplitude);
+    addShake(10, 'impact');
+    addShake(10, 'explosion');
+    addShake(10, 'ram');
+    expect(getShakeTrauma()).toBe(CAMERA.shake.maxAmplitude);
+  });
+
+  it('every bucket decays together in stepShake', () => {
+    addShake(10, 'impact');
+    addShake(10, 'ram');
+    stepShake(0.05);
+    const d = CAMERA.shake.decayPerSec * 0.05;
+    expect(getSourceTrauma('impact')).toBeCloseTo(CAMERA.shake.sourceCaps.impact - d, 9);
+    expect(getSourceTrauma('ram')).toBeCloseTo(CAMERA.shake.sourceCaps.ram - d, 9);
+  });
+});
+
+describe('FOV micro-kick (hard-impact punch)', () => {
+  beforeEach(() => resetShake());
+
+  it('an impact at/above minStrength arms the kick', () => {
+    addShake(CAMERA.shake.fovKick.minStrength, 'impact');
+    expect(getFovKick()).toBeGreaterThan(0);
+  });
+
+  it('an impact below minStrength does not kick the lens', () => {
+    addShake(CAMERA.shake.fovKick.minStrength * 0.5, 'impact');
+    expect(getFovKick()).toBe(0);
+  });
+
+  it('only the impact source arms the kick (explosion/ram/generic do not)', () => {
+    addShake(10, 'explosion');
+    addShake(10, 'ram');
+    addShake(10, 'generic');
+    expect(getFovKick()).toBe(0);
+  });
+
+  it('scales with strength (deg = strength × strengthToDeg) and caps at maxDeg', () => {
+    addShake(0.4, 'impact');
+    expect(getFovKick()).toBeCloseTo(0.4 * CAMERA.shake.fovKick.strengthToDeg, 9);
+    resetShake();
+    addShake(100, 'impact');
+    expect(getFovKick()).toBe(CAMERA.shake.fovKick.maxDeg);
+  });
+
+  it('decays to a hard zero at fovKick.decayPerSec (~150 ms from a full kick)', () => {
+    armFovKick(100); // saturate to maxDeg
+    expect(getFovKick()).toBe(CAMERA.shake.fovKick.maxDeg);
+    stepFovKick(0.05);
+    expect(getFovKick()).toBeCloseTo(CAMERA.shake.fovKick.maxDeg - CAMERA.shake.fovKick.decayPerSec * 0.05, 9);
+    stepFovKick(10); // way past full decay
+    expect(getFovKick()).toBe(0);
+    // Time to fully decay from maxDeg should land near ~150 ms (config sanity).
+    expect(CAMERA.shake.fovKick.maxDeg / CAMERA.shake.fovKick.decayPerSec).toBeLessThan(0.2);
+  });
+});
+
+describe('deathBeatFraming (WRECKED pull-back vs BUSTED converge)', () => {
+  const FULL = CAMERA.cinematic.easeInSec;
+
+  it('is all-zero when inactive', () => {
+    expect(deathBeatFraming(false, null, 5)).toEqual({ pullback: 0, yawOffsetDeg: 0, pitchOffsetDeg: 0 });
+  });
+
+  it('WRECKED pulls BACK (positive pullback) and lifts (positive pitch) at full ease', () => {
+    const f = deathBeatFraming(true, 'wrecked', FULL);
+    expect(f.pullback).toBe(CAMERA.deathPullback);
+    expect(f.pullback).toBeGreaterThan(0);
+    expect(f.pitchOffsetDeg).toBeCloseTo(CAMERA.cinematic.wreckedPitchOffsetDeg, 9);
+    expect(f.yawOffsetDeg).toBeCloseTo(CAMERA.cinematic.orbitYawDeg, 9);
+  });
+
+  it('BUSTED converges IN (negative pullback) and LOWER (negative pitch) — tighter framing', () => {
+    const f = deathBeatFraming(true, 'busted', FULL);
+    expect(f.pullback).toBe(CAMERA.cinematic.bustedPullback);
+    expect(f.pullback).toBeLessThan(0);
+    expect(f.pitchOffsetDeg).toBeLessThan(0);
+    // Distinct from the WRECKED beat: pulls the opposite direction on distance.
+    expect(f.pullback).toBeLessThan(deathBeatFraming(true, 'wrecked', FULL).pullback);
+  });
+
+  it('a null cause (event not yet seen) falls back to WRECKED framing', () => {
+    expect(deathBeatFraming(true, null, FULL).pullback).toBe(CAMERA.deathPullback);
+  });
+
+  it('eases the orbit/pitch in via smoothstep — exactly half the drift at the ease midpoint', () => {
+    const mid = deathBeatFraming(true, 'wrecked', FULL * 0.5);
+    // smoothstep(0.5) = 0.5 → half the yaw drift.
+    expect(mid.yawOffsetDeg).toBeCloseTo(CAMERA.cinematic.orbitYawDeg * 0.5, 9);
+    // The pull-back distance itself does NOT ease here (the position lerp smooths it).
+    expect(mid.pullback).toBe(CAMERA.deathPullback);
+  });
+
+  it('starts the orbit/pitch at 0 at the very start of the beat (no lurch)', () => {
+    const start = deathBeatFraming(true, 'wrecked', 0);
+    expect(start.yawOffsetDeg).toBe(0);
+    expect(start.pitchOffsetDeg).toBe(0);
+  });
+});
+
+describe('death-cause capture (WRECKED/BUSTED events → beat framing)', () => {
+  beforeEach(() => {
+    resetCameraRig();
+    setDeathCause(null);
+  });
+
+  it('a busted event sets the cause to busted', () => {
+    gameEvents.emit('busted', {});
+    expect(getDeathCause()).toBe('busted');
+  });
+
+  it('a playerWrecked event sets the cause to wrecked', () => {
+    gameEvents.emit('playerWrecked', {});
+    expect(getDeathCause()).toBe('wrecked');
+  });
+
+  it('busted wins over a wrecked that arrives in the same lock', () => {
+    gameEvents.emit('playerWrecked', {});
+    gameEvents.emit('busted', {});
+    expect(getDeathCause()).toBe('busted');
+  });
+
+  it('setDeathPullback(false) / resetCameraRig clears the captured cause', () => {
+    gameEvents.emit('busted', {});
+    setDeathPullback(false);
+    expect(getDeathCause()).toBeNull();
+    expect(getDeathPullback()).toBe(false);
+  });
+});
+
+describe('updateCameraRig — reducedShake zeroing + FOV kick application', () => {
+  beforeEach(() => {
+    resetCameraRig();
+    playerVehicle.current = makeStubModel();
+    setReducedShake(false);
+  });
+
+  afterEach(() => {
+    playerVehicle.current = null;
+    resetCameraRig();
+    setReducedShake(false);
+  });
+
+  it('applies the positional shake to the camera when reducedShake is OFF', () => {
+    const cam = makeFakeCamera();
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60); // frame 1: snap, no trauma
+    const rest = { x: cam.position.x, y: cam.position.y, z: cam.position.z };
+
+    addShake(10, 'ram'); // 'ram' so we exercise ONLY positional shake, not the FOV kick
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 120); // frame 2: jitter live
+
+    const moved =
+      Math.abs(cam.position.x - rest.x) + Math.abs(cam.position.y - rest.y) + Math.abs(cam.position.z - rest.z);
+    expect(moved).toBeGreaterThan(0);
+  });
+
+  it('zeroes the positional shake when reducedShake is ON, but trauma STILL decays', () => {
+    const cam = makeFakeCamera();
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60); // frame 1: snap to rest
+    const rest = { x: cam.position.x, y: cam.position.y, z: cam.position.z };
+
+    setReducedShake(true);
+    addShake(10, 'ram'); // ram bucket = its cap
+    const before = getSourceTrauma('ram');
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60);
+
+    // Position is unchanged (no jitter applied)...
+    expect(cam.position.x).toBeCloseTo(rest.x, 12);
+    expect(cam.position.y).toBeCloseTo(rest.y, 12);
+    expect(cam.position.z).toBeCloseTo(rest.z, 12);
+    // ...but the trauma itself still decayed this frame (accumulate/decay, just don't apply).
+    expect(getSourceTrauma('ram')).toBeLessThan(before);
+    expect(getSourceTrauma('ram')).toBeCloseTo(before - CAMERA.shake.decayPerSec * (1 / 60), 9);
+  });
+
+  it('applies the FOV kick (widen + updateProjectionMatrix) when reducedShake is OFF', () => {
+    const cam = makeFakeCamera(60);
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60); // captures baseFov=60, no kick
+    const updatesBefore = cam.projectionUpdates;
+
+    armFovKick(100); // saturate the kick
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 240);
+
+    expect(cam.fov).toBeGreaterThan(60);
+    expect(cam.projectionUpdates).toBeGreaterThan(updatesBefore);
+  });
+
+  it('zeroes the FOV kick when reducedShake is ON (lens stays at base)', () => {
+    const cam = makeFakeCamera(60);
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60); // baseFov=60
+
+    setReducedShake(true);
+    armFovKick(100);
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 240);
+
+    expect(cam.fov).toBe(60);
+  });
+
+  it('suppresses the FOV kick during the death beat (clean cinematic, no jitter)', () => {
+    const cam = makeFakeCamera(60);
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60); // frame 1: captures baseFov=60
+
+    armFovKick(100); // a hard hit's kick is live going into the beat...
+    setDeathPullback(true); // ...but the WRECKED/BUSTED lock window suppresses it.
+    // (The pull-back itself moves the camera toward a new follow distance — that's the
+    // intended cinematic — so we assert only that the JITTER-family effects are gone, via the
+    // FOV, which the pull-back never touches, holding at base.)
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 240);
+    expect(cam.fov).toBe(60);
+    expect(getDeathPullback()).toBe(true);
   });
 });

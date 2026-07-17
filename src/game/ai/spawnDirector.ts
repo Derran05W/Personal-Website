@@ -37,6 +37,7 @@ import {
 } from '../config';
 import { createRng, type Rng } from '../world/rng';
 import { tileCenter, type Tile } from '../world/types';
+import { nearestNodeDist, sampleLineDrivable, type NavPoint } from './roadPath';
 import { playerVehicle } from '../vehicles/playerRef';
 import { getGameState } from '../state/store';
 // Reused verbatim from the Phase 7 civilian system (sanctioned by the task): the fixed-yaw
@@ -127,6 +128,90 @@ export function selectSpawnPoint(
   }
   const pool = behind.length > 0 ? behind : anyRing;
   return pool.length > 0 ? pick(pool) : -1;
+}
+
+// ===========================================================================================
+// Approach-biased ring selection (Phase 16 Task 5; no-navmesh nav debt) ----------------------
+// Same ring + behind-camera gate as selectSpawnPoint, but the pick among candidates is WEIGHTED
+// toward road tiles a unit can actually drive to the player from, so the ★1+ swarm converges (an
+// organic BUSTED becomes reachable) instead of spawning across a building maze. All pure.
+// ===========================================================================================
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+/** The subset of SPAWN the candidate scorer reads (so the pure fn is testable with a literal). */
+export interface CandidateScoreWeights {
+  readonly roadProximityWeight: number;
+  readonly approachClearnessWeight: number;
+  readonly biasWeightFloor: number;
+}
+
+/** Road-proximity factor in (0,1]: 1 for a candidate sitting on a lane node, tapering toward 0 as
+ * the nearest graph node recedes (a disconnected road stub). `refM` sets the half-scale distance. */
+export function roadProximityScore(nearestNodeDistM: number, refM: number): number {
+  return 1 / (1 + Math.max(0, nearestNodeDistM) / Math.max(1e-6, refM));
+}
+
+/** Weighted candidate score: biasWeightFloor + roadProximity^wRoad × approachClearness^wClear
+ * (each factor clamped to [0,1]). A weight of 0 makes its factor ^0 = 1 (that term ignored); the
+ * floor keeps every candidate selectable so the ring is never starved. Pure. */
+export function scoreSpawnCandidate(
+  roadProximity: number,
+  approachClearness: number,
+  w: CandidateScoreWeights,
+): number {
+  const rp = Math.pow(clamp01(roadProximity), w.roadProximityWeight);
+  const ac = Math.pow(clamp01(approachClearness), w.approachClearnessWeight);
+  return w.biasWeightFloor + rp * ac;
+}
+
+/**
+ * Approach-biased spawn-point selection: same ring + behind-camera gate as selectSpawnPoint, but
+ * the pick among the surviving candidates is WEIGHTED by `score(i)` (higher = a cleaner approach)
+ * via a single rng draw (`roll`), instead of uniform. A random tiebreak is inherent — a high roll
+ * can still land on a lower-scored candidate — so spawns keep variety and never become
+ * deterministic. Consumes exactly one `roll()` (matching selectSpawnPoint's single-`pick` cost, so
+ * the shared kind-roll rng stream stays aligned). Returns an INDEX into `points`, or −1 when the
+ * ring is empty. Falls back to a uniform draw if every candidate scores ≤ 0 (defensive). Pure:
+ * `score`/`roll` injected.
+ */
+export function selectBiasedSpawnPoint(
+  points: readonly { readonly x: number; readonly z: number }[],
+  px: number,
+  pz: number,
+  camFwdX: number,
+  camFwdZ: number,
+  cfg: RingConfig,
+  score: (i: number) => number,
+  roll: () => number,
+): number {
+  const minSq = cfg.ringMin * cfg.ringMin;
+  const maxSq = cfg.ringMax * cfg.ringMax;
+  const behind: number[] = [];
+  const anyRing: number[] = [];
+  for (let i = 0; i < points.length; i++) {
+    const dx = points[i].x - px;
+    const dz = points[i].z - pz;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < minSq || d2 > maxSq) continue;
+    anyRing.push(i);
+    if (dx * camFwdX + dz * camFwdZ < 0) behind.push(i);
+  }
+  const pool = behind.length > 0 ? behind : anyRing;
+  if (pool.length === 0) return -1;
+
+  let total = 0;
+  for (const i of pool) total += Math.max(0, score(i));
+  const r0 = roll();
+  if (total <= 0) return pool[Math.min(pool.length - 1, Math.floor(r0 * pool.length))]; // uniform
+  let r = r0 * total;
+  for (const i of pool) {
+    r -= Math.max(0, score(i));
+    if (r < 0) return i;
+  }
+  return pool[pool.length - 1]; // fp guard (roll()≈1)
 }
 
 /** Nearest point to (px,pz), or −1 if none. Debug forceSpawn fallback when the ring is empty
@@ -282,6 +367,16 @@ function freeSlot(id: number): UnitSlot {
   };
 }
 
+/** Pure city data the director reads to bias spawn-ring selection toward a clean approach to the
+ * player (Phase 16 Task 5). Optional — without it the director uses the uniform behind-camera
+ * pick (unchanged pre-Phase-16 behaviour, and what most director unit tests exercise). */
+export interface SpawnNavContext {
+  /** Traffic-graph node positions — nearest-node distance backs the road-proximity bias. */
+  readonly nodes: readonly NavPoint[];
+  /** Tile grid — sampled along candidate→player for the approach-clearness bias. */
+  readonly tiles: readonly Tile[];
+}
+
 export interface SpawnDirectorOptions {
   /** Road-tile spawn candidates (mount passes collectRoadPoints(world.tiles)). */
   readonly roadPoints: readonly RoadPoint[];
@@ -293,6 +388,8 @@ export interface SpawnDirectorOptions {
   readonly getPlayerPos?: () => Vec2 | null;
   /** Fixed-camera forward (behind-frame heuristic). Defaults to the §5.3 rig yaw. */
   readonly camForward?: Vec2;
+  /** Pure city data enabling the approach-biased spawn pick (Phase 16 Task 5). */
+  readonly nav?: SpawnNavContext;
 }
 
 export class SpawnDirectorController {
@@ -301,6 +398,11 @@ export class SpawnDirectorController {
   private readonly getTier: () => number;
   private readonly getPlayerPos: () => Vec2 | null;
   private readonly camFwd: Vec2;
+  // Approach-bias context (Phase 16 Task 5): the nav data + a per-road-point nearest-node distance
+  // precomputed ONCE (static per world), so only the player-dependent approach-clearness sampling
+  // runs per spawn. Both null → uniform behind-camera pick (unchanged legacy path).
+  private readonly nav: SpawnNavContext | null;
+  private readonly roadProximity: readonly number[] | null;
 
   // Fixed pool. `slots[i]` is a live unit's own slot or a free placeholder; `handles[i]` the
   // live UnitHandle or null; both indexed by pool id (= stagger phase). `wreckObservedAt[i]`
@@ -327,6 +429,14 @@ export class SpawnDirectorController {
         return p ? { x: p.x, z: p.z } : null;
       });
     this.camFwd = opts.camForward ?? cameraForwardXZ();
+
+    const nav = opts.nav ?? null;
+    this.nav = nav;
+    // Precompute each road-tile candidate's nearest lane-node distance up front (static per world);
+    // approach-clearness (player-dependent) is the only thing sampled per spawn.
+    this.roadProximity = nav
+      ? this.roadPoints.map((p) => nearestNodeDist(nav.nodes, p.x, p.z))
+      : null;
 
     this.slots = Array.from({ length: MAX_CAP }, (_, i) => freeSlot(i));
     this.handles = Array.from({ length: MAX_CAP }, () => null);
@@ -437,6 +547,48 @@ export class SpawnDirectorController {
     return n;
   }
 
+  /** Pick a ring road-point index for a spawn near `player` — approach-biased when nav data is
+   * present (Phase 16 Task 5), else the legacy uniform behind-camera pick. −1 when the ring is
+   * empty. Shared by every spawn path so the bias applies uniformly. */
+  private selectPointIndex(player: Vec2): number {
+    const nav = this.nav;
+    const prox = this.roadProximity;
+    if (nav !== null && prox !== null) {
+      const score = (i: number): number =>
+        scoreSpawnCandidate(
+          roadProximityScore(prox[i], SPAWN.roadProximityRefM),
+          sampleLineDrivable(
+            this.roadPoints[i].x,
+            this.roadPoints[i].z,
+            player.x,
+            player.z,
+            nav.tiles,
+            SPAWN.approachClearnessSamples,
+          ),
+          SPAWN,
+        );
+      return selectBiasedSpawnPoint(
+        this.roadPoints,
+        player.x,
+        player.z,
+        this.camFwd.x,
+        this.camFwd.z,
+        SPAWN,
+        score,
+        this.rng.next,
+      );
+    }
+    return selectSpawnPoint(
+      this.roadPoints,
+      player.x,
+      player.z,
+      this.camFwd.x,
+      this.camFwd.z,
+      SPAWN,
+      this.pickIndex,
+    );
+  }
+
   // --- spawn / despawn ----------------------------------------------------------------------
 
   /** Spawn one unit for the current tier's `entries` at a ring road tile. Rolls only among
@@ -450,15 +602,7 @@ export class SpawnDirectorController {
     entries: readonly CompositionEntry[],
     atMax: (kind: UnitKind) => boolean,
   ): boolean {
-    const idx = selectSpawnPoint(
-      this.roadPoints,
-      player.x,
-      player.z,
-      this.camFwd.x,
-      this.camFwd.z,
-      SPAWN,
-      this.pickIndex,
-    );
+    const idx = this.selectPointIndex(player);
     if (idx < 0) return false;
     // Eligible = has a registered factory AND is under its per-kind concurrency cap.
     const eligible = filterRegisteredEntries(entries, (k) => factories.has(k) && !atMax(k));
@@ -473,15 +617,7 @@ export class SpawnDirectorController {
    * registered a factory yet, so an unmet minimum for a not-yet-built kind just quietly
    * carries over to the next maintenance pass instead of blocking anything. */
   private trySpawnKind(player: Vec2, kind: UnitKind): boolean {
-    const idx = selectSpawnPoint(
-      this.roadPoints,
-      player.x,
-      player.z,
-      this.camFwd.x,
-      this.camFwd.z,
-      SPAWN,
-      this.pickIndex,
-    );
+    const idx = this.selectPointIndex(player);
     if (idx < 0) return false;
     return this.spawnAt(idx, kind);
   }
@@ -492,15 +628,7 @@ export class SpawnDirectorController {
   private forceSpawn(kind: UnitKind): boolean {
     const player = this.getPlayerPos();
     if (player === null) return false;
-    let idx = selectSpawnPoint(
-      this.roadPoints,
-      player.x,
-      player.z,
-      this.camFwd.x,
-      this.camFwd.z,
-      SPAWN,
-      this.pickIndex,
-    );
+    let idx = this.selectPointIndex(player);
     if (idx < 0) idx = nearestPointIndex(this.roadPoints, player.x, player.z);
     if (idx < 0) return false;
     return this.spawnAt(idx, kind);

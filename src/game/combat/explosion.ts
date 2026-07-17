@@ -23,9 +23,10 @@
 // unit-tested with no Rapier; detonate() is the one imperative shell (sphere query + impulses).
 
 import type { RapierContext, RapierRigidBody } from '@react-three/rapier';
-import { CollisionGroup, TANK } from '../config';
+import { CollisionGroup, EXPLOSION, TANK } from '../config';
 import { getEntity, type EntityEntry } from '../world/registry';
 import { swapFromExternalHit } from '../world/propDynamics';
+import { pushFxBurst } from '../fx/particleFeed';
 import { applyEntityDamage, applyPlayerDamage } from './damage';
 import { pushExplosion } from './explosionFeed';
 import type { Vec3 } from './turret';
@@ -206,8 +207,14 @@ export function detonate(deps: DetonateDeps, point: Vec3): void {
   const { world, rapier } = deps;
   const blast = TANK.blast;
 
-  // FX always plays, whatever was (or wasn't) in range.
+  // FX always plays, whatever was (or wasn't) in range: the flash/smoke/scorch feed (this
+  // one, existing since Phase 12) PLUS a physical ember/dust particle burst (Phase 16) from
+  // fx/particles.ts's pool — two independent consumers of the same detonation, same split
+  // combat/hitscan.ts uses for its tracer hit-spark quad vs. its impactSparks burst.
   pushExplosion({ x: point.x, y: point.y, z: point.z, radiusM: blast.radius, t: performance.now() });
+  pushFxBurst('explosion', point.x, point.y, point.z, {
+    intensity: blast.radius / EXPLOSION.particleNominalRadiusM,
+  });
 
   // Gather every collider whose group is compatible, tagged with its body handle for dedupe.
   const ball = new rapier.Ball(blast.radius);
@@ -264,7 +271,10 @@ function affectOne(
   if (entry.kind === 'player') {
     applyPlayerDamage(dmg);
   } else if (entry.hp !== undefined) {
-    applyEntityDamage(entry, dmg);
+    // `center` (the struck body's own translation), not `point` (the blast origin) — a more
+    // accurate "where the destroyed thing actually was" for fx/eventFx.ts's debrisChips burst
+    // when this hp-bearing entity happens to be a non-transformer prop (parkedCar).
+    applyEntityDamage(entry, dmg, center);
   }
 
   // Radial impulse — only DYNAMIC bodies can be pushed (kinematic civilians / fixed transformers

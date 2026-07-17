@@ -65,7 +65,7 @@ import {
 } from 'three';
 import { EXPLOSION, SKID } from '../config';
 import { readExplosions, type ExplosionRecord } from '../combat/explosionFeed';
-import { addShake } from './cameraRig';
+import { addShake, armFovKick } from './cameraRig';
 
 // Must match combat/explosionFeed.ts's private ring-buffer CAP — see that file's header
 // and this file's header above for why duplication-by-hand (not an export) is the pattern.
@@ -273,7 +273,12 @@ export function Explosions() {
       const blast = blasts[i];
       if (blast.t <= lastBlastTRef.current) continue;
       spawnScorch(scorch, rt, blast);
-      addShake(EXPLOSION.shakeStrength);
+      // Phase 16: blasts feed the 'explosion' trauma bucket (their own per-source budget,
+      // not the impact one) but still arm the hard-impact FOV kick explicitly — a blast is
+      // the game's biggest hit and deserves the lens punch; only 'impact'-sourced shake
+      // arms it implicitly (fx/cameraRig.ts's addShake doc).
+      addShake(EXPLOSION.shakeStrength, 'explosion');
+      armFovKick(EXPLOSION.shakeStrength);
       scorchMatrixDirty = true;
       scorchColorDirty = true;
       if (blast.t > newestT) newestT = blast.t;

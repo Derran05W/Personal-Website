@@ -37,6 +37,26 @@ export const SKID = {
   // respawn), NOT a slide: break the stripe instead of stretching one quad across the
   // map. Well above any real single-frame travel (top speed ≈ 0.42 m at 60 fps).
   teleportBreakDistance: 5,
+  // Lateral-slip trigger (Phase 16 Task 2; fx/skidMath.ts's lateralSpeedAtYaw/smoothSlip/
+  // computeLateralSlip): upgrades the mark + tireSmoke trigger from handbrake-only to
+  // "reward deliberate drifts, not gentle cornering" (part-file). The handbrake path stays a
+  // straight OR — holding it still always paints, exactly as before this task.
+  slip: {
+    // |smoothed lateral speed| (m/s) above which a rear-wheel slide counts as a deliberate
+    // drift even with NO handbrake. Tuned against VEHICLE_TUNING.wheels' grip (frictionSlip
+    // 3.2, sideFrictionStiffness 1.4 — fairly grippy) so ordinary cornering at speed stays
+    // well under this and only a real counter-steered powerslide crosses it. Starting
+    // point, live-tunable via leva; re-tune by feel if the chassis grip ever changes.
+    thresholdMps: 3.5,
+    // Lateral speed (m/s) at which slip01 (tireSmoke emitter intensity) saturates to 1. A
+    // hard, sustained drift comfortably clears this.
+    maxMps: 9,
+    // One-pole smoothing factor (0..1, skidMath.ts's smoothSlip) applied to the raw
+    // per-frame lateral speed before it's thresholded — higher tracks faster / smooths
+    // less. Damps single-frame noise (a curb tap, a suspension settle jolt) so a real drift
+    // reads as sustained sideways motion, not a spike.
+    smoothingAlpha: 0.3,
+  },
   // The fade endpoints. Both are plain hex strings, so the leva auto-schema builder skips
   // them (it only surfaces number/boolean leaves) — tune them here, in code.
   colors: {
@@ -138,6 +158,15 @@ export const EXPLOSION = {
   colors: {
     flash: '#fff2c2',
   },
+  // Nominal blast radius (m) the 'explosion' particle burst (fx/particles.ts, Phase 16 Task 1;
+  // pushed by combat/explosion.ts alongside pushExplosion) is calibrated at intensity 1.
+  // combat/explosion.ts computes intensity = radiusM / this — deliberately a fixed baseline
+  // rather than radiusM / TANK.blast.radius (which would always reduce to a tautological 1,
+  // since every blast today IS TANK.blast.radius), so a future non-tank explosion source with
+  // a different radius scales the burst up/down correctly without that call site changing.
+  // Set to TANK.blast.radius's current value (8) — config/tank.ts and this file are siblings
+  // with no cross-import convention, so it's a documented duplicate, not an import.
+  particleNominalRadiusM: 8,
 } as const;
 
 // Tank turret telegraph FX (Phase 12 Task 3; TDD §5.6 tank row "barrel glow + laser dot").
@@ -226,4 +255,28 @@ export const SEARCHLIGHT = {
   // ramp) multiplies every element's brightness. Below this threshold the whole rig is
   // hidden — and it's fully hidden whenever slot 0 is empty / no run is live.
   presenceThreshold: 0.02,
+} as const;
+
+// Police/armored lightbar strobe pattern (Phase 16 Task 3 polish; TDD §5.6). Replaces the
+// original Phase 9/10 ad-hoc inline `phase = (t*3 + i*0.13) % 1; phase < 0.5 ? 1 : 0` (a
+// single-colour 50/50 blink) with a named, config-driven pattern that ALTERNATES two colours
+// (red/blue) rather than just gating one on and off. Consumed by fx/lightbarStrobe.ts's pure
+// lightbarPhase() — ai/units/PoliceMesh.tsx and ai/units/ArmoredMesh.tsx are the only two
+// live lightbar-bearing units (SWAT/gun-truck/tank/heli are all deliberately unmarked/no-
+// strobe, see each of those files' own header) and both consume the SAME pattern here so a
+// mixed police+armored roster reads as one consistent strobe language.
+export const LIGHTBAR = {
+  // Full red+blue cycle rate (Hz) — one complete "red flash, blue flash" pair per this many
+  // seconds' reciprocal. Matches the old hardcoded STROBE_HZ = 3.
+  hz: 3,
+  // Fraction of the cycle red owns before handing off to blue (the "alternation" split).
+  // 0.5 = symmetric; TDD gives no number, so this is the tuned starting point.
+  splitFrac: 0.5,
+  // Fraction of ITS half-cycle the active colour is actually lit, vs. dark — < 0.5 gives a
+  // snappier double-flash beacon look instead of a slow on/off square wave. STARTING POINT,
+  // live-tunable.
+  duty: 0.55,
+  // Per-instance phase offset (fraction of a cycle, × pool index) so a multi-car roster
+  // doesn't blink in lockstep — matches the old hardcoded `i * 0.13`.
+  phaseStaggerPerInstance: 0.13,
 } as const;

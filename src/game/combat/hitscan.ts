@@ -20,6 +20,7 @@ import type { Rng } from '../world/rng';
 import { getEntity } from '../world/registry';
 import { swapFromExternalHit } from '../world/propDynamics';
 import { applyEntityDamage, applyPlayerDamage } from './damage';
+import { pushFxBurst } from '../fx/particleFeed';
 import { pushTracer } from './tracerFeed';
 import type { Vec3 } from './turret';
 
@@ -242,10 +243,16 @@ export function fireRound(deps: HitscanDeps, p: RoundParams): RoundResult {
     } else if (entry.hp !== undefined) {
       // Civilians / transformers / airborne hp-bearing props — same resolver as ram damage,
       // so death events stay consistent (combat/damage.ts owns the emission contract).
-      applyEntityDamage(entry, p.dmgPerHit);
+      applyEntityDamage(entry, p.dmgPerHit, point);
     }
     // else: building / ground / hp-less dynamic prop → tracer only.
   }
+
+  // Physical spark burst at the hit point (Phase 16). Tracers.tsx's hit-spark quad (a
+  // camera-facing billboard drawn from the tracer feed) stays — this ADDS a real particle
+  // burst from fx/particles.ts's pool, same "two independent FX layers" split
+  // combat/explosion.ts uses for its flash + this task's ember burst.
+  pushFxBurst('impactSparks', point.x, point.y, point.z);
 
   pushTracer({
     x0: p.muzzle.x,

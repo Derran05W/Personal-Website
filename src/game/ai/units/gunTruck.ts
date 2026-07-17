@@ -30,6 +30,7 @@ import { playerVehicle } from '../../vehicles/playerRef';
 import type { VehicleInputs } from '../../vehicles/IVehicleModel';
 import { PursuitVehicle } from '../pursuitVehicle';
 import { createStandoffBrain, initialStuckState, pursueSteer, type StandoffBrain, type StuckState } from '../aiSteering';
+import { approachTargetFor } from '../roadNav';
 import type { UnitFactory, UnitHandle, UnitSlot } from '../pursuitTypes';
 import { nextPursuitSlotId } from './slotIds';
 import {
@@ -210,6 +211,9 @@ class GunTruckUnit implements UnitHandle, PursuitStepUnit {
     const mode = this.brain.update(playerSpeed, dist, AI_TICK_DT);
     const steerMode = mode === 'ram' ? 'pursue' : 'orbit';
 
+    // Road-follow when charging in (pursue/ram mode) from far / building-blocked (Phase 16 Task 5);
+    // pursueSteer ignores the approachTarget while orbiting, so the standoff ring is unchanged.
+    const approach = approachTargetFor(pose.x, pose.z, playerPos.x, playerPos.z, this.stuck);
     const result = pursueSteer(
       pose,
       speed,
@@ -222,6 +226,7 @@ class GunTruckUnit implements UnitHandle, PursuitStepUnit {
       steerMode,
       null,
       this.orbitDir,
+      approach,
     );
     this.stuck = result.stuck;
     this.inputs = {

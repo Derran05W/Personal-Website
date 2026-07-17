@@ -42,6 +42,12 @@ import { SwatMesh } from './ai/units/SwatMesh';
 import { GunTruckMesh } from './ai/units/GunTruckMesh';
 import { ProjectilesMount } from './combat/ProjectilesMount';
 import { Tracers } from './fx/Tracers';
+import { Explosions } from './fx/Explosions';
+import { TankTelegraph } from './fx/TankTelegraph';
+import { TankMesh } from './ai/units/TankMesh';
+import { ParticlesMount } from './fx/ParticlesMount';
+import { DamageStatesMount } from './fx/damageStates';
+import { initEventFx } from './fx/eventFx';
 import GameOver from './hud/GameOver';
 import { SirensSystem } from './audio/SirensSystem';
 import { PositionalAudioSystem } from './audio/PositionalAudioSystem';
@@ -176,6 +182,10 @@ export default function Game() {
   // manager seam; game-lifetime subscription.
   useEffect(() => initEventMap(), []);
 
+  // Particle event wiring (Phase 16): transformerDestroyed/propDestroyed -> spark/debris
+  // bursts through the particle feed; game-lifetime subscription like the audio map.
+  useEffect(() => initEventFx(), []);
+
   // Bootstrap seam: BOOT → LOADING → GARAGE. Every branch reads the *current* machine
   // state fresh from the store and only fires the transition it expects, so the store's
   // dev-mode invalid-transition throw can never trigger under StrictMode's double mount
@@ -248,10 +258,24 @@ export default function Game() {
             <ArmoredMesh key={`armored-${worldKey}`} />
             <SwatMesh key={`swat-${worldKey}`} />
             <GunTruckMesh key={`guntruck-${worldKey}`} />
+            {/* NOTE (Phase 16 integration): TankMesh + Explosions + TankTelegraph shipped in
+                Phase 12 and were verified live that session, but the index.tsx wiring never
+                made the commit — the same integration-gap class Phase 14 hit with the heli
+                trio above. Without TankMesh no 'tank' factory registers (★5 spawns only 9 of
+                10 units); without Explosions no blast flash/light/scorch/shake renders even
+                though damage + impulses apply. Wired here for good. */}
+            <TankMesh key={`tank-${worldKey}`} />
             {/* Tank-shell system (Phase 12): pure-point shell pool + explosion resolver.
                 Keyed like the other systems so a regenerate/retry drops in-flight shells. */}
             <ProjectilesMount key={`projectiles-${worldKey}`} />
             <Tracers key={`tracers-${worldKey}`} />
+            <Explosions key={`explosions-${worldKey}`} />
+            <TankTelegraph />
+            {/* Phase 16: the ONE instanced particle system (2 draw calls) draining the
+                particle feed, and the damage-visual poller (tints + smoke/fire emitters).
+                Keyed so a retry/regenerate starts with an empty pool and fresh tint state. */}
+            <ParticlesMount key={`particles-${worldKey}`} />
+            <DamageStatesMount key={`dmgstates-${worldKey}`} />
             <SpawnDirector key={`director-${worldKey}`} world={world} seed={seed} />
             {/* SWAT-squad flank coordinator (Phase 10): publishes flank-slot claims SWAT units
                 read to box in the player. Gameplay infra (ships), keyed like the director. */}

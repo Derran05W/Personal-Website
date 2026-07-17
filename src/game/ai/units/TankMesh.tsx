@@ -29,7 +29,8 @@ import {
   Object3D,
   type InstancedMesh,
 } from 'three';
-import { SPAWN } from '../../config';
+import { ENEMY_UNITS, SPAWN } from '../../config';
+import { hpLostFraction, tintDamageColor } from '../../fx/damageStates';
 import { PaletteCell } from '../../world/archetypes';
 import { addBox, addPrismFrustum, createBuilder, toBufferGeometry } from '../../world/geometry/kit';
 import { getCityMaterial } from '../../world/palette';
@@ -54,7 +55,6 @@ const BARREL_CENTER_Y = 0.42;
 const BARREL_TIP_Z = 3.2;
 
 const WHITE = new Color(1, 1, 1);
-const WRECK_CHAR = new Color('#2a2622');
 const ZERO_MATRIX = new Matrix4().makeScale(0, 0, 0);
 
 const _dummy = new Object3D();
@@ -274,7 +274,10 @@ export function TankMesh() {
       turret.setMatrixAt(i, _turretDummy.matrix);
 
       _color.copy(WHITE);
-      if (slot.state === 'wrecked') _color.multiply(WRECK_CHAR);
+      // Phase 16: graduated damage tint (25/50/75% HP lost), full charred at 'wrecked' — see
+      // fx/damageStates.ts's tintDamageColor header. Applied once, shared by both meshes
+      // (hull + turret always render the same damage state for one unit).
+      tintDamageColor(_color, hpLostFraction(slot.hp, ENEMY_UNITS.tank.hp), slot.state === 'wrecked');
       hull.setColorAt(i, _color);
       turret.setColorAt(i, _color);
 

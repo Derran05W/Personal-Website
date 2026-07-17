@@ -33,6 +33,13 @@ import './Hud.css';
 const STAR_COUNT = 5;
 const FLARE_MS = 600; // Must match Hud.css's hud-star-flare animation-duration.
 const CONTROL_HINTS_MS = 8000;
+// BUSTED wash (Phase 16 Task 4): how long the in-HUD red/blue arrest wash stays up after
+// the `busted` event. In practice the HUD unmounts the instant machine flips to GAMEOVER
+// (combat/runLoop.ts's ~1.2s BUSTED lock), at which point hud/GameOver.tsx's own busted
+// backdrop wash takes over seamlessly — so this timeout is really just a self-clear safety
+// net for the (edge) case where machine lingers in PLAYING. Kept a touch above the lock so
+// the wash never blinks out before the panel arrives.
+const BUSTED_WASH_MS = 2200;
 
 // Below the fixed 64px site header (app/Header.css) with a small gap — same offset
 // reasoning as core/PerfOverlay.tsx (top:70) and core/devPanel.tsx's Leva titleBar
@@ -363,6 +370,52 @@ function DarkCityIndicator() {
   );
 }
 
+/**
+ * BUSTED arrest wash (Phase 16 Task 4). Full-screen red/blue "police light" wash driven by
+ * the `busted` event (state/events.ts) — combat/runLoop.ts emits it at the START of the
+ * ~1.2s BUSTED lock window, while machine is still PLAYING, so this paints over the live
+ * game for the arrest beat and then hands off to hud/GameOver.tsx's own busted backdrop the
+ * moment the run flips to GAMEOVER (and this whole HUD unmounts). Same "one tiny
+ * subscription per concern, self-resetting on runStarted" idiom as useDarkCityState above —
+ * a retried run must not inherit the previous run's wash.
+ */
+function useBustedWash(): boolean {
+  const [active, setActive] = useState(false);
+  const timeoutRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    const offBusted = gameEvents.on('busted', () => {
+      window.clearTimeout(timeoutRef.current);
+      setActive(true);
+      timeoutRef.current = window.setTimeout(() => setActive(false), BUSTED_WASH_MS);
+    });
+    const offStart = gameEvents.on('runStarted', () => {
+      window.clearTimeout(timeoutRef.current);
+      setActive(false);
+    });
+    return () => {
+      offBusted();
+      offStart();
+      window.clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  return active;
+}
+
+// Always rendered (not conditionally mounted) so a re-trigger restarts cleanly via the
+// `--active` class rather than a remount pop — same idiom as DarkCityBanner. The alternating
+// red/blue steps animation + a static reduced-motion fallback both live in Hud.css.
+function BustedWash({ active }: { active: boolean }) {
+  return (
+    <div
+      className={active ? 'hud-busted-wash hud-busted-wash--active' : 'hud-busted-wash'}
+      data-testid="hud-busted-wash"
+      aria-hidden="true"
+    />
+  );
+}
+
 function ControlHints() {
   const [visible, setVisible] = useState(true);
 
@@ -427,6 +480,7 @@ export default function Hud() {
   // not just while machine happens to be PLAYING/PAUSED. See useDarkCityState's doc
   // comment for why that matters for the reset-on-retry behavior.
   const { bannerVisible, allDark } = useDarkCityState();
+  const bustedWashActive = useBustedWash();
   // Task brief point 1: PLAYING + PAUSED only (not GAMEOVER-adjacent) — the game-over
   // screen is a separate future surface (Phase 9), and showing the run HUD underneath it
   // would just be visual noise once the run has ended.
@@ -435,6 +489,9 @@ export default function Hud() {
 
   return (
     <div style={rootStyle} data-testid="hud-root">
+      {/* First child: the BUSTED wash paints BEHIND every HUD chip (DOM order = paint order,
+          no z-index) so the score/stars stay legible on top of the arrest strobe. */}
+      <BustedWash active={bustedWashActive} />
       <WantedStars tier={tier} />
       {allDark ? <DarkCityIndicator /> : null}
       <ScoreDisplay score={score} />

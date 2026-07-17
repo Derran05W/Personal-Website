@@ -13,6 +13,8 @@ export * from './fx';
 export * from './lighting';
 export * from './rendering';
 export * from './audio';
+export * from './particles';
+export * from './damageVisuals';
 
 import { HEAT } from './heat';
 import { SPAWN, HELI } from './spawn';
@@ -22,10 +24,12 @@ import { WORLD, WORLD_GEN, TRAFFIC, TRAFFIC_CIV, POWER_GRID, LIGHT_POOL, PROPS, 
 import { PLAYER_CARS, ENEMY_UNITS, SWAT, SQUAD, GUN_TRUCK, TANK_UNIT, VEHICLE_TUNING, AI_STEERING } from './vehicles';
 import { QUALITY_TIERS } from './quality';
 import { DAMAGE, BUSTED } from './damage';
-import { SKID, TRACER, EXPLOSION, TANK_TELEGRAPH, SEARCHLIGHT } from './fx';
+import { SKID, TRACER, EXPLOSION, TANK_TELEGRAPH, SEARCHLIGHT, LIGHTBAR } from './fx';
 import { LIGHTING } from './lighting';
 import { RENDERING } from './rendering';
 import { SIRENS, SIREN_KINDS, AUDIO_BUSES, VOICE_POOL_CAPS, AUDIO_POSITIONAL, AUDIO_MIX } from './audio';
+import { PARTICLES } from './particles';
+import { DAMAGE_VISUALS } from './damageVisuals';
 
 /**
  * Registry of every tunable config block, keyed by name. The dev tuning panel (leva)
@@ -64,6 +68,7 @@ export const CONFIG = {
   EXPLOSION,
   TANK_TELEGRAPH,
   SEARCHLIGHT,
+  LIGHTBAR,
   LIGHTING,
   RENDERING,
   SIRENS,
@@ -72,4 +77,6 @@ export const CONFIG = {
   VOICE_POOL_CAPS,
   AUDIO_POSITIONAL,
   AUDIO_MIX,
+  PARTICLES,
+  DAMAGE_VISUALS,
 } as const;

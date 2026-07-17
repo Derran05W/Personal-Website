@@ -13,9 +13,13 @@
 // sweep is strictly simpler and provably tunnel-free — see projectiles.test.ts.)
 //
 // The pool owns ≤ TANK.shell.poolSize concurrent shells and exposes getShellPositions() for the
-// FX layer (Task 3) to render the shell mesh + smoke trail — this module keeps zero three.js /
-// render state (trail coordination is left to Task 3 via those positions, not pushed into
-// combat/tracerFeed.ts, which is bullet-tracer-specific).
+// FX layer (Task 3) to render the shell mesh itself — this module keeps zero three.js / render
+// state of its own. The SMOKE TRAIL, however, IS wired here (Phase 16 Task 2): each slot attaches
+// one fx/particleFeed.ts 'shellTrail' emitter on spawn(), mutates its position/velocity in place
+// every step() (the emitter-ownership contract particleFeed.ts documents — no per-frame
+// allocation), and release()s it the instant the shell detonates or ages out. Not pushed into
+// combat/tracerFeed.ts (bullet-tracer-specific, one-shot beams) — an in-flight shell needs a
+// PERSISTENT attached source, exactly what particleFeed.ts's emitter half exists for.
 //
 // The imperative Rapier bits (the world sweep raycast) are isolated behind an injected ShellSweep
 // so ShellPool's stepping, lifetime, recycle, and no-tunnel behavior are all unit-tested with a
@@ -23,6 +27,7 @@
 
 import type { RapierContext, RapierRigidBody } from '@react-three/rapier';
 import { CollisionGroup, TANK } from '../config';
+import { attachFxEmitter, type FxEmitter } from '../fx/particleFeed';
 import type { Vec3 } from './turret';
 
 type RapierWorld = RapierContext['world'];
@@ -128,6 +133,11 @@ interface ShellSlot {
   ageSec: number;
   firer: number;
   seq: number; // acquisition order (oldest = smallest) for full-pool eviction
+  // Phase 16: this slot's live smoke-trail emitter while active, else null. Owned entirely by
+  // spawn()/step()/recycle()/evictOldest() below — never read by getShellPositions() or any
+  // external caller, so it's fine for this to be a plain mutable field on an otherwise-pure
+  // data slot.
+  emitter: FxEmitter | null;
 }
 
 export interface ShellPoolDeps {
@@ -160,7 +170,19 @@ export class ShellPool {
     this.lifetimeSec = deps.lifetimeSec ?? TANK.shell.lifetimeSec;
     const size = deps.poolSize ?? TANK.shell.poolSize;
     for (let i = 0; i < size; i++) {
-      this.slots.push({ active: false, x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 1, ageSec: 0, firer: -1, seq: 0 });
+      this.slots.push({
+        active: false,
+        x: 0,
+        y: 0,
+        z: 0,
+        dx: 0,
+        dy: 0,
+        dz: 1,
+        ageSec: 0,
+        firer: -1,
+        seq: 0,
+        emitter: null,
+      });
       this.free.push(size - 1 - i); // pop() hands out 0,1,2,… first
     }
   }
@@ -192,6 +214,10 @@ export class ShellPool {
     s.ageSec = 0;
     s.firer = firerBodyHandle;
     s.seq = this.seq++;
+    // Every free-list/evicted slot's emitter is null by construction (recycle()/evictOldest()
+    // below both null it out before the index becomes reusable) — attach a fresh one at the
+    // muzzle rather than defensively releasing a stale one first.
+    s.emitter = attachFxEmitter('shellTrail', origin.x, origin.y, origin.z);
   }
 
   /** Advance every live shell one physics step: sweep [pos → pos + dir·segLen]; detonate at the
@@ -206,7 +232,7 @@ export class ShellPool {
         const px = s.x + s.dx * hit.toi;
         const py = s.y + s.dy * hit.toi;
         const pz = s.z + s.dz * hit.toi;
-        this.recycle(i);
+        this.recycle(i); // releases the trail emitter (see recycle())
         this.detonate(px, py, pz);
         continue;
       }
@@ -214,6 +240,16 @@ export class ShellPool {
       s.y += s.dy * segLen;
       s.z += s.dz * segLen;
       s.ageSec += dt;
+      // Trail follows the point every step it's still alive — mutated in place per
+      // particleFeed.ts's emitter-ownership contract (position/velocity, no reallocation).
+      if (s.emitter) {
+        s.emitter.position.x = s.x;
+        s.emitter.position.y = s.y;
+        s.emitter.position.z = s.z;
+        s.emitter.velocity.x = s.dx * this.speed;
+        s.emitter.velocity.y = s.dy * this.speed;
+        s.emitter.velocity.z = s.dz * this.speed;
+      }
       if (s.ageSec >= this.lifetimeSec) this.recycle(i);
     }
   }
@@ -237,11 +273,15 @@ export class ShellPool {
     const s = this.slots[index];
     if (!s.active) return;
     s.active = false;
+    s.emitter?.release();
+    s.emitter = null;
     this.free.push(index);
   }
 
   /** Full-pool fallback: recycle (silently drop) the oldest live shell and return its slot so a
-   * spawn always succeeds. Unreachable under real ★5 fire cadence — documented in spawn(). */
+   * spawn always succeeds. Unreachable under real ★5 fire cadence — documented in spawn(). Does
+   * NOT go through recycle() (the slot is about to be reused immediately by the caller, not
+   * returned to the free list), so it releases the outgoing shell's trail emitter itself. */
   private evictOldest(): number {
     let oldest = 0;
     let oldestSeq = Infinity;
@@ -252,6 +292,8 @@ export class ShellPool {
       }
     }
     this.slots[oldest].active = false;
+    this.slots[oldest].emitter?.release();
+    this.slots[oldest].emitter = null;
     return oldest;
   }
 }

@@ -21,6 +21,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useAfterPhysicsStep, useBeforePhysicsStep } from '@react-three/rapier';
 import { SpawnDirectorController, collectRoadPoints } from './spawnDirector';
+import { setRoadNav, resetRoadNav } from './roadNav';
 import { createRng } from '../world/rng';
 import { unitsRef } from './pursuitTypes';
 import { gameEvents } from '../state/events';
@@ -43,9 +44,15 @@ export function SpawnDirector({ world, seed }: SpawnDirectorProps) {
     const controller = new SpawnDirectorController({
       roadPoints,
       rng: createRng(seed).fork('spawnDirector'),
+      // Approach-biased spawn selection (Phase 16 Task 5): road-graph nodes + tile grid.
+      nav: { nodes: world.graph.nodes, tiles: world.tiles },
     });
     controllerRef.current = controller;
     unitsRef.current = controller.api;
+    // Publish the world so pursuit units can road-follow toward the player (ai/roadNav.ts) —
+    // this mount owns the pursuit-navigation data alongside the pool, so no new mount is added
+    // to game/index.tsx. Cleared on teardown/regenerate/retry below.
+    setRoadNav(world);
 
     const offTier = gameEvents.on('tierChanged', () => controller.requestFill());
     const offEnd = gameEvents.on('runEnded', () => controller.despawnAll());
@@ -56,8 +63,9 @@ export function SpawnDirector({ world, seed }: SpawnDirectorProps) {
       controller.dispose();
       if (unitsRef.current === controller.api) unitsRef.current = null;
       controllerRef.current = null;
+      resetRoadNav();
     };
-  }, [roadPoints, seed]);
+  }, [roadPoints, seed, world]);
 
   useBeforePhysicsStep(() => {
     controllerRef.current?.stepBefore();

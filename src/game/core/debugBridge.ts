@@ -37,6 +37,8 @@ import {
 import { startChaosBench, type BenchReport } from '../ai/chaosBench';
 import { heliDebugRef } from '../ai/helicopter';
 import { heliRef, type HeliLivery } from '../ai/heliTypes';
+import { getParticleStats, type ParticleStats } from '../fx/particles';
+import { getReducedShake } from '../state/store';
 
 // Phase 7 traffic verification: exactly-once event proof. The civHit/civWrecked emitter
 // payloads are empty, so scripted checks can't scrape them from the DOM — count them here
@@ -479,6 +481,15 @@ declare global {
        * the player) off the sealed HeliSlot seam — lets a scripted check watch a livery swap
        * fly OUT to the edge (large dist) and the new one fly IN. Empty when no mount is live. */
       heliSlots: () => HeliSlotSample[];
+      /** Phase 16 proof: live particle-pool occupancy + how many of the system's two
+       * materials currently draw — the scripted mirror of the dev panel's FX BOARD meters
+       * (soak scripts watch `live` return to ~0 and `drawCalls` stay ≤ 2). */
+      particleStats: () => ParticleStats;
+      /** Phase 16 a11y flag (persisted setting; Phase 18 surfaces the real UI): when true
+       * the camera rig zeroes shake offsets + FOV kick at apply time. Scripted A/B proof
+       * drives this, then diffs camera jitter across identical blasts. */
+      setReducedShake: (value: boolean) => void;
+      getReducedShake: () => boolean;
     };
   }
 }
@@ -590,4 +601,7 @@ window.__smashy = {
   lightPoolPositions: getLightPoolPositions,
   setForcedHeliTier,
   heliSlots,
+  particleStats: getParticleStats,
+  setReducedShake: (value) => getGameState().setReducedShake(value),
+  getReducedShake,
 };

@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { CollisionGroup } from '../config';
+import { getFxEmitters, resetFxFeed } from '../fx/particleFeed';
 import {
   SHELL_SWEEP_GROUPS,
   ShellPool,
@@ -7,6 +8,16 @@ import {
   sweepSegLength,
   type ShellSweep,
 } from './projectiles';
+
+// ShellPool.spawn() now attaches a real fx/particleFeed.ts 'shellTrail' emitter (Phase 16
+// Task 2) — the module-scope emitter Set persists across `it` blocks within this file, so
+// every test below must leave it clean regardless of whether IT remembered to detonate/expire
+// every shell it spawned (several intentionally don't, e.g. the eviction test). Mirrors this
+// codebase's established `__resetXForTest`-between-tests convention (combat/contacts.test.ts,
+// combat/damage.test.ts, etc.).
+afterEach(() => {
+  resetFxFeed();
+});
 
 describe('SHELL_SWEEP_GROUPS (what a shell detonates on)', () => {
   it('is membership PROJECTILE and a filter of every hittable group INCLUDING pursuit', () => {
@@ -155,4 +166,60 @@ describe('ShellPool — no tunneling through a thin obstacle at any speed', () =
       expect(maxSeenX).toBeLessThanOrEqual(wallX + 1e-9);
     });
   }
+});
+
+describe('ShellPool — shellTrail emitter lifecycle (Phase 16 Task 2)', () => {
+  it('attaches one shellTrail emitter at the muzzle on spawn, released on detonation', () => {
+    const det = detonateSpy();
+    const hitNow: ShellSweep = () => ({ toi: 0, colliderHandle: 7 });
+    const pool = new ShellPool({ sweep: hitNow, detonate: det.fn, speed: 45, lifetimeSec: 4, poolSize: 1 });
+
+    expect(getFxEmitters().size).toBe(0);
+    pool.spawn(-1, { x: 1, y: 2, z: 3 }, { x: 0, y: 0, z: 1 });
+    expect(getFxEmitters().size).toBe(1);
+    const [emitter] = Array.from(getFxEmitters());
+    expect(emitter.preset).toBe('shellTrail');
+    expect(emitter.position).toEqual({ x: 1, y: 2, z: 3 });
+
+    pool.step(1 / 60); // sweep hits immediately (toi 0) → detonates → slot recycled
+    expect(getFxEmitters().size).toBe(0); // released, not leaked
+  });
+
+  it('mutates the live emitter position/velocity in place as the shell advances', () => {
+    const det = detonateSpy();
+    const pool = new ShellPool({ sweep: clearSweep, detonate: det.fn, speed: 45, lifetimeSec: 4, poolSize: 1 });
+    pool.spawn(-1, { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 });
+    const [emitter] = Array.from(getFxEmitters());
+
+    pool.step(1 / 60);
+    expect(emitter.position).toEqual({ x: 0, y: 1, z: 45 / 60 });
+    expect(emitter.velocity).toEqual({ x: 0, y: 0, z: 45 });
+
+    pool.step(1 / 60);
+    expect(emitter.position.z).toBeCloseTo((45 / 60) * 2, 9);
+  });
+
+  it('releases the emitter when a shell ages out without detonating', () => {
+    const det = detonateSpy();
+    const pool = new ShellPool({ sweep: clearSweep, detonate: det.fn, speed: 45, lifetimeSec: 4, poolSize: 1 });
+    pool.spawn(-1, { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 });
+    expect(getFxEmitters().size).toBe(1);
+
+    const dt = 1 / 60;
+    const steps = Math.ceil(4 / dt) + 5;
+    for (let i = 0; i < steps; i++) pool.step(dt);
+
+    expect(getFxEmitters().size).toBe(0);
+  });
+
+  it('releases the evicted shell\'s emitter (not leaked) when a full pool recycles the oldest', () => {
+    const det = detonateSpy();
+    const pool = new ShellPool({ sweep: clearSweep, detonate: det.fn, speed: 45, lifetimeSec: 4, poolSize: 1 });
+    pool.spawn(-1, { x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 });
+    const [firstEmitter] = Array.from(getFxEmitters());
+
+    pool.spawn(-1, { x: 9, y: 1, z: 0 }, { x: 0, y: 0, z: 1 }); // pool full (size 1) → evicts the first
+    expect(getFxEmitters().size).toBe(1); // still exactly one live emitter
+    expect(getFxEmitters().has(firstEmitter)).toBe(false); // the evicted shell's own emitter is gone
+  });
 });

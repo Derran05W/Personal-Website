@@ -1,11 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BufferGeometry, Color, InstancedBufferAttribute, InstancedMesh, MeshBasicMaterial } from 'three';
+import {
+  BufferGeometry,
+  Color,
+  InstancedBufferAttribute,
+  InstancedMesh,
+  Matrix4,
+  MeshBasicMaterial,
+} from 'three';
 import {
   applyImpact,
   computeDamage,
   initDamageSystem,
   massFactorOf,
   ramDamageMultiplier,
+  resetSparkThrottle,
   type DamageConfig,
 } from './damage';
 import { ENEMY_UNITS } from '../config/vehicles';
@@ -21,6 +29,7 @@ import { DAMAGE } from '../config/damage';
 import { gameEvents } from '../state/events';
 import { getGameState, useGameStore } from '../state/store';
 import { getShakeTrauma, resetShake } from '../fx/cameraRig';
+import { drainFxBursts, resetFxFeed } from '../fx/particleFeed';
 import { CAMERA } from '../config/camera';
 
 // --- fixtures --------------------------------------------------------------------------------
@@ -46,8 +55,13 @@ function hpLessProp(): EntityEntry {
   return { kind: 'propStatic', archetype: 'mailbox', instanceId: 1, districtId: 0 };
 }
 
-function impact(a: EntityEntry | undefined, b: EntityEntry | undefined, forceMag: number): ImpactRecord {
-  return { aHandle: 1, bHandle: 2, a, b, forceMag };
+function impact(
+  a: EntityEntry | undefined,
+  b: EntityEntry | undefined,
+  forceMag: number,
+  point?: { x: number; y: number; z: number },
+): ImpactRecord {
+  return { aHandle: 1, bHandle: 2, a, b, forceMag, point };
 }
 
 /** Builds a one-instance InstancedMesh and registers it under 'transformerBox' so
@@ -76,6 +90,8 @@ beforeEach(() => {
   __resetContactsForTest();
   useGameStore.setState(initialStoreState, true);
   resetShake();
+  resetFxFeed();
+  resetSparkThrottle();
 });
 
 afterEach(() => {
@@ -84,6 +100,8 @@ afterEach(() => {
   __resetContactsForTest();
   gameEvents.clearAllListeners();
   resetShake();
+  resetFxFeed();
+  resetSparkThrottle();
 });
 
 // --- computeDamage (pure core) ---------------------------------------------------------------
@@ -243,6 +261,39 @@ describe('applyImpact — transformer', () => {
     const forceMag = DAMAGE.forceToSpeedProxy * (DAMAGE.minImpactSpeed + 50);
     expect(() => applyImpact(impact(PLAYER, t, forceMag))).not.toThrow();
   });
+
+  // --- Phase 16: transformerDestroyed's world position (fx/eventFx.ts's spark burst) ---------
+
+  it('carries the dead transformer\'s world position (x/y/z), read off its live InstancedMesh instance', () => {
+    const handles = buildTransformerMesh();
+    handles.mesh.setMatrixAt(0, new Matrix4().makeTranslation(5, 0.6, -3));
+    const events: { districtId: number; x?: number; y?: number; z?: number }[] = [];
+    gameEvents.on('transformerDestroyed', (p) => events.push(p));
+    const t = transformer(1, 4, 0);
+    const forceMag = DAMAGE.forceToSpeedProxy * (DAMAGE.minImpactSpeed + 50);
+
+    applyImpact(impact(PLAYER, t, forceMag));
+
+    expect(events).toHaveLength(1);
+    // Precision 5, not 9: InstancedMesh's instanceMatrix is a Float32Array (matrixToTransform's
+    // own test above uses the same tolerance for the same reason — float32 round-trip, not
+    // float64), so an exact-to-9-decimals match would spuriously fail.
+    expect(events[0].x).toBeCloseTo(5, 5);
+    expect(events[0].y).toBeCloseTo(0.6, 5);
+    expect(events[0].z).toBeCloseTo(-3, 5);
+  });
+
+  it('omits x/y/z when the archetype has no live InstancedMesh this run (no position to derive)', () => {
+    const events: { districtId: number; x?: number }[] = [];
+    gameEvents.on('transformerDestroyed', (p) => events.push(p));
+    const t = transformer(1);
+    const forceMag = DAMAGE.forceToSpeedProxy * (DAMAGE.minImpactSpeed + 50);
+
+    applyImpact(impact(PLAYER, t, forceMag));
+
+    expect(events).toHaveLength(1);
+    expect(events[0].x).toBeUndefined();
+  });
 });
 
 describe('applyImpact — parked car (hp-bearing non-transformer prop)', () => {
@@ -267,6 +318,31 @@ describe('applyImpact — parked car (hp-bearing non-transformer prop)', () => {
     expect(() => applyImpact(impact(PLAYER, mailbox, forceMag))).not.toThrow();
     expect(events).toHaveLength(0);
     expect(mailbox.hp).toBeUndefined();
+  });
+
+  // --- Phase 16: propDestroyed's world position (fx/eventFx.ts's debrisChips burst) ----------
+
+  it('forwards the impact record\'s contact point into propDestroyed\'s x/y/z when it has one', () => {
+    const events: { archetype: string; x?: number; y?: number; z?: number }[] = [];
+    gameEvents.on('propDestroyed', (p) => events.push(p));
+    const car = parkedCar(1);
+    const forceMag = DAMAGE.forceToSpeedProxy * (DAMAGE.minImpactSpeed + 50);
+
+    applyImpact(impact(PLAYER, car, forceMag, { x: 12, y: 0.5, z: -7 }));
+
+    expect(events).toEqual([{ archetype: 'parkedCar', x: 12, y: 0.5, z: -7 }]);
+  });
+
+  it('omits x/y/z when the impact record carries no contact point (Rapier didn\'t report one)', () => {
+    const events: { archetype: string; x?: number }[] = [];
+    gameEvents.on('propDestroyed', (p) => events.push(p));
+    const car = parkedCar(1);
+    const forceMag = DAMAGE.forceToSpeedProxy * (DAMAGE.minImpactSpeed + 50);
+
+    applyImpact(impact(PLAYER, car, forceMag)); // no point
+
+    expect(events).toHaveLength(1);
+    expect(events[0].x).toBeUndefined();
   });
 });
 
@@ -362,6 +438,60 @@ describe('applyImpact — ram damage multiplier (Phase 10)', () => {
   });
 });
 
+// --- single-hit damage cap (Phase 16 Task 3: closes a known large-teleport HP spike) -----------
+
+describe('applyImpact — single-hit damage cap (Phase 16 Task 3)', () => {
+  // Absurdly large — far beyond anything a real contact-force event could produce; exactly the
+  // pathological "large-teleport HP spike" this cap exists to close.
+  const hugeForceMag = DAMAGE.forceToSpeedProxy * 1_000_000;
+
+  it('clamps a huge force so the player never loses more than DAMAGE.maxSingleHit in one contact event', () => {
+    const events: { hp: number; amount: number }[] = [];
+    gameEvents.on('playerDamaged', (p) => events.push(p));
+    getGameState().setPlayerHp(100000); // effectively indestructible, isolates one hit's damage
+    const t = transformer(9999);
+
+    applyImpact(impact(PLAYER, t, hugeForceMag));
+
+    expect(events).toHaveLength(1);
+    expect(events[0].amount).toBe(DAMAGE.maxSingleHit);
+    expect(getGameState().playerHp).toBeCloseTo(100000 - DAMAGE.maxSingleHit, 9);
+  });
+
+  it('clamps a huge force against an hp-bearing registry entity (transformer) the same way', () => {
+    const t = transformer(9999);
+
+    applyImpact(impact(PLAYER, t, hugeForceMag));
+
+    expect(t.hp).toBeCloseTo(9999 - DAMAGE.maxSingleHit, 9);
+  });
+
+  it('does not clip an ordinary hit that lands under the cap', () => {
+    const t = transformer(9999);
+    // A normal moderate hit — well under maxSingleHit per config/damage.ts's own tuning notes
+    // (a full-speed square building hit is ~25-35 hp; maxSingleHit is 45).
+    const forceMag = DAMAGE.forceToSpeedProxy * (DAMAGE.minImpactSpeed + 5);
+
+    applyImpact(impact(PLAYER, t, forceMag));
+
+    const lost = 9999 - (t.hp ?? 0);
+    expect(lost).toBeGreaterThan(0);
+    expect(lost).toBeLessThan(DAMAGE.maxSingleHit);
+  });
+
+  it('the ram-multiplier-inflated damage is ALSO capped (the clamp runs after the multiplier)', () => {
+    // Above the vehicle-pair (dynamic-vs-dynamic) threshold, using SWAT's 1.5x ram multiplier —
+    // huge enough that even the fully-multiplied value would blow past the cap unclamped.
+    getGameState().setPlayerHp(100000);
+    const before = getGameState().playerHp;
+    const forceMag = DAMAGE.vehicleRamForceProxy * 1_000_000;
+
+    applyImpact(impact(PLAYER, pursuitUnit('swat'), forceMag));
+
+    expect(before - getGameState().playerHp).toBe(DAMAGE.maxSingleHit);
+  });
+});
+
 // --- guards: undefined / hp-less / no-op combinations --------------------------------------------
 
 describe('applyImpact — defensive guards', () => {
@@ -418,6 +548,57 @@ describe('applyImpact — camera shake', () => {
     const bothSides = getShakeTrauma();
 
     expect(bothSides).toBeCloseTo(neitherSide, 10);
+  });
+
+  // --- Phase 16 Task 3: impactSparks burst, pushed alongside shake for the same hits ----------
+
+  it('pushes an impactSparks burst at the contact point for a shake-worthy hit', () => {
+    const t = transformer(9999);
+    applyImpact(impact(PLAYER, t, nonCappedForceMag, { x: 4, y: 1, z: -2 }));
+
+    const seen: { preset: string; x: number; y: number; z: number }[] = [];
+    drainFxBursts(-1, (b) => seen.push({ preset: b.preset, x: b.x, y: b.y, z: b.z }));
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ preset: 'impactSparks', x: 4, y: 1, z: -2 });
+  });
+
+  it('pushes no impactSparks burst below shakeForceThreshold', () => {
+    applyImpact(impact(undefined, undefined, DAMAGE.shakeForceThreshold - 1));
+
+    const seen: unknown[] = [];
+    drainFxBursts(-1, (b) => seen.push(b));
+    expect(seen).toHaveLength(0);
+  });
+
+  // --- Phase 16 integration hardening: the two spark-only gates (see maybeShakeAndSpark's
+  // doc comment — both were found live, with the pool pinned at 500/500 during a slide) ------
+
+  it('a bare-ground scrape (one unregistered side) shakes but never sparks', () => {
+    applyImpact(impact(PLAYER, undefined, nonCappedForceMag, { x: 1, y: 0, z: 1 }));
+
+    expect(getShakeTrauma()).toBeGreaterThan(0);
+    const seen: unknown[] = [];
+    drainFxBursts(-1, (b) => seen.push(b));
+    expect(seen).toHaveLength(0);
+  });
+
+  it('wedge-spam impacts inside sparkMinIntervalMs push exactly one burst', () => {
+    const t = transformer(9999);
+    applyImpact(impact(PLAYER, t, nonCappedForceMag, { x: 4, y: 1, z: -2 }));
+    applyImpact(impact(PLAYER, t, nonCappedForceMag, { x: 4, y: 1, z: -2 }));
+    applyImpact(impact(PLAYER, t, nonCappedForceMag, { x: 4, y: 1, z: -2 }));
+
+    const seen: unknown[] = [];
+    drainFxBursts(-1, (b) => seen.push(b));
+    expect(seen).toHaveLength(1);
+
+    // Once the throttle window has passed, the next wedge step sparks again.
+    resetSparkThrottle();
+    applyImpact(impact(PLAYER, t, nonCappedForceMag, { x: 4, y: 1, z: -2 }));
+    const seen2: unknown[] = [];
+    drainFxBursts(-1, (b) => seen2.push(b));
+    expect(seen2).toHaveLength(2); // drain re-reads from -1: the prior burst + the new one
   });
 });
 

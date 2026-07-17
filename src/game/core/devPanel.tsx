@@ -42,6 +42,8 @@ import {
   type SoundName,
 } from '../audio/eventMap';
 import { worldRef } from '../world/worldRef';
+import { attachFxEmitter, pushFxBurst, type ParticlePreset } from '../fx/particleFeed';
+import { getParticleStats } from '../fx/particles';
 
 // Task 5 debug-tint colour: the ONE end-to-end proof that an archetype's district-grouped
 // [start,count] ranges (world/instancing.ts) are correct — a single button recolours every
@@ -271,6 +273,40 @@ function grantHeatToTier(tier: number): void {
   if (target === undefined) return;
   const delta = target - state.heat;
   if (delta > 0) state.addHeat(delta);
+}
+
+// Phase 16 Task 1 debug tooling: FX board -----------------------------------------------------
+// Fires a particle preset (fx/particleFeed.ts → fx/particles.ts) ~6 m ahead of the player so a
+// human can eyeball every effect on demand. Bursts fire once (impacts/debris/explosions/arc
+// showers); emitters attach at the point and auto-release after a short demo window so the
+// panel can preview persistent smokes/fire without leaving an orphan attached forever. The
+// spawn point is the player's INTERPOLATED pose forward vector (its local +Z basis — identity
+// yaw faces world +Z per this file's teleport helpers), lifted 0.8 m to chassis-ish height.
+// No-op unless a run is live (playerVehicle set) AND fx/ParticlesMount.tsx is mounted to render
+// what this spawns — the feed silently drops bursts with no consumer, by design.
+const FX_DEMO_EMITTER_MS = 2500;
+
+function fireFxAhead(preset: ParticlePreset): void {
+  const pose = playerVehicle.current?.readState().pose;
+  if (!pose) return;
+  const q = pose.rotation;
+  // Local +Z basis vector of the pose rotation, in world space (the car's forward).
+  let fx = 2 * (q.x * q.z + q.w * q.y);
+  let fz = 1 - 2 * (q.x * q.x + q.y * q.y);
+  const len = Math.hypot(fx, fz) || 1;
+  fx /= len;
+  fz /= len;
+  const ox = pose.position.x + fx * 6;
+  const oy = pose.position.y + 0.8;
+  const oz = pose.position.z + fz * 6;
+
+  if (CONFIG.PARTICLES.presets[preset].kind === 'burst') {
+    pushFxBurst(preset, ox, oy, oz, { intensity: 1 });
+  } else {
+    const emitter = attachFxEmitter(preset, ox, oy, oz);
+    emitter.intensity = 1;
+    window.setTimeout(() => emitter.release(), FX_DEMO_EMITTER_MS);
+  }
 }
 
 export default function DevPanel() {
@@ -669,6 +705,30 @@ export default function DevPanel() {
         },
         { interval: 200 },
       );
+      return schema as unknown as LevaSchema;
+    },
+    [],
+  );
+
+  // --- FX BOARD: Phase 16 particle-system preview + pool monitor ---------------------------
+  // One button per ParticlePreset (fires ~6 m ahead of the player via fireFxAhead) plus a
+  // live pool-utilization / draw-call readout straight off fx/particles.ts's getParticleStats.
+  // Only renders anything once the orchestrator mounts fx/ParticlesMount.tsx (see fireFxAhead).
+  useControls(
+    'FX BOARD',
+    () => {
+      const schema: Record<string, unknown> = {};
+      for (const preset of Object.keys(CONFIG.PARTICLES.presets) as ParticlePreset[]) {
+        schema[preset] = button(() => fireFxAhead(preset));
+      }
+      schema['particles (live/pool)'] = monitor(
+        () => {
+          const s = getParticleStats();
+          return `${s.live}/${s.poolSize}`;
+        },
+        { interval: 200 },
+      );
+      schema['fx draw calls'] = monitor(() => getParticleStats().drawCalls, { interval: 200 });
       return schema as unknown as LevaSchema;
     },
     [],

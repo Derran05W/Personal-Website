@@ -6,6 +6,7 @@ import {
   createStandoffBrain,
   initialStuckState,
   initialStandoffState,
+  roadSeekDurationFor,
   yawToward,
   wrapAngle,
   type PursuitSteerParams,
@@ -166,7 +167,7 @@ describe('stuck recovery', () => {
   });
 
   it('reversal phase counts down and is not aborted by re-evaluation', () => {
-    const inReverse: StuckState = { slowSec: 0, reverseRemainSec: 0.2, reverseDir: -1 };
+    const inReverse: StuckState = { slowSec: 0, reverseRemainSec: 0.2, reverseDir: -1, roadSeekRemainSec: 0, stuckEpisodes: 0 };
     // Even though the player is now dead ahead & the unit is "fine", reversal holds.
     const r = pursueSteer(atOrigin, 5, { x: 0, z: 40 }, still, CLEAR, inReverse, params, DT);
     expect(r.behavior).toBe('stuck');
@@ -176,14 +177,14 @@ describe('stuck recovery', () => {
   });
 
   it('does NOT count as stuck while moving at speed (timer resets)', () => {
-    const primed: StuckState = { slowSec: 2, reverseRemainSec: 0, reverseDir: 1 };
+    const primed: StuckState = { slowSec: 2, reverseRemainSec: 0, reverseDir: 1, roadSeekRemainSec: 0, stuckEpisodes: 0 };
     const r = pursueSteer(atOrigin, 15, { x: 0, z: 40 }, still, CLEAR, primed, params, DT);
     expect(r.stuck.slowSec).toBe(0);
     expect(r.behavior).toBe('pursue');
   });
 
   it('reversal steers toward the CLEARER side (right clear → +, left clear → −)', () => {
-    const primed: StuckState = { slowSec: params.stuckSec, reverseRemainSec: 0, reverseDir: 1 };
+    const primed: StuckState = { slowSec: params.stuckSec, reverseRemainSec: 0, reverseDir: 1, roadSeekRemainSec: 0, stuckEpisodes: 0 };
     const rightClear: AvoidHits = { center: 0, left: 0.1, right: 0.9 };
     const rr = pursueSteer(atOrigin, 0.1, { x: 0, z: 40 }, still, rightClear, primed, params, DT);
     expect(rr.command.steer).toBeGreaterThan(0);
@@ -229,7 +230,7 @@ describe('slow-target press-in (pursue mode)', () => {
   it('SUPPRESSES stuck recovery — a unit leaning on a stopped player never reverses away', () => {
     // Slow-while-throttling with time already banked: press-in must reset the timer (never trip);
     // the non-press contrast keeps accumulating. Kept below stuckSec so the contrast doesn't trip.
-    const primed: StuckState = { slowSec: 2.0, reverseRemainSec: 0, reverseDir: 1 };
+    const primed: StuckState = { slowSec: 2.0, reverseRemainSec: 0, reverseDir: 1, roadSeekRemainSec: 0, stuckEpisodes: 0 };
     const pressed = pursueSteer(atOrigin, 0.1, slowClose, still, CLEAR, primed, P, DT);
     expect(pressed.behavior).toBe('press');
     expect(pressed.stuck.slowSec).toBe(0);
@@ -471,5 +472,164 @@ describe('standoff ram-switch (createStandoffBrain wrapper)', () => {
   it('a cornered player flips update() to ram immediately', () => {
     const brain = createStandoffBrain(cfg);
     expect(brain.update(1, SB.corneredDistM - 2, DT)).toBe('ram');
+  });
+});
+
+// --- Phase 16 Task 5: road-follow approach mode (pursue mode + approachTarget) ----------------
+describe('road-follow approach (pursue mode, approachTarget)', () => {
+  const APPROACH_ARG = (t: { x: number; z: number } | null) => t; // readability alias
+
+  it('steers toward the road WAYPOINT, not the player, and labels behavior "approach"', () => {
+    // Player far dead ahead (+Z); the road waypoint is off to the RIGHT (+X). The unit must aim
+    // at the waypoint (steer right), not the player (which would be steer ~0).
+    const r = pursueSteer(
+      atOrigin, 10, { x: 0, z: 60 }, still, CLEAR, initialStuckState, P, DT,
+      'pursue', null, 1, APPROACH_ARG({ x: 30, z: 0 }),
+    );
+    expect(r.behavior).toBe('approach');
+    expect(r.command.steer).toBeGreaterThan(0);
+  });
+
+  it('SUPPRESSES ram: a player inside commitDistM stays "approach" (road-follow wins)', () => {
+    // Player well inside the ram band, but an approachTarget is present → never rams.
+    const r = pursueSteer(
+      atOrigin, 10, { x: 0, z: P.commitDistM - 5 }, still, CLEAR, initialStuckState, P, DT,
+      'pursue', null, 1, APPROACH_ARG({ x: 20, z: 0 }),
+    );
+    expect(r.behavior).toBe('approach');
+    expect(r.command.steer).toBeGreaterThan(0); // toward the +X waypoint, not the +Z player
+  });
+
+  it('closes relentlessly: full throttle toward a waypoint dead ahead, floor respected in a turn', () => {
+    const straight = pursueSteer(
+      atOrigin, 15, { x: 0, z: 60 }, still, CLEAR, initialStuckState, P, DT,
+      'pursue', null, 1, APPROACH_ARG({ x: 0, z: 40 }),
+    );
+    expect(straight.behavior).toBe('approach');
+    expect(Math.abs(straight.command.steer)).toBeLessThan(0.05);
+    expect(straight.command.throttle).toBeCloseTo(1);
+
+    const turning = pursueSteer(
+      atOrigin, 15, { x: 0, z: 60 }, still, CLEAR, initialStuckState, P, DT,
+      'pursue', null, 1, APPROACH_ARG({ x: 60, z: 3 }),
+    );
+    expect(turning.command.throttle).toBeGreaterThanOrEqual(P.throttleFloor - 1e-9);
+  });
+
+  it('avoidance still WINS while approaching (dodging → "avoid")', () => {
+    const wall: AvoidHits = { center: 0.05, left: 0.1, right: 0.9 };
+    const r = pursueSteer(
+      atOrigin, 10, { x: 0, z: 60 }, still, wall, initialStuckState, P, DT,
+      'pursue', null, 1, APPROACH_ARG({ x: 0, z: 40 }),
+    );
+    expect(r.command.steer).toBeGreaterThan(0); // steers toward the clearer (right) side
+    expect(r.behavior).toBe('avoid');
+  });
+
+  it('a null approachTarget is exactly the pre-Phase-16 pursue (no regression)', () => {
+    const withNull = pursueSteer(
+      atOrigin, 10, { x: 30, z: 0 }, still, CLEAR, initialStuckState, P, DT,
+      'pursue', null, 1, APPROACH_ARG(null),
+    );
+    const legacy = pursueSteer(atOrigin, 10, { x: 30, z: 0 }, still, CLEAR, initialStuckState, P, DT);
+    expect(withNull.behavior).toBe('pursue');
+    expect(withNull.command.steer).toBeCloseTo(legacy.command.steer);
+  });
+
+  it('is IGNORED in flank mode (a claimed SWAT still boxes in)', () => {
+    const r = pursueSteer(
+      atOrigin, 10, { x: 0, z: 40 }, still, CLEAR, initialStuckState, P, DT,
+      'flank', { x: 30, z: 0 }, 1, APPROACH_ARG({ x: -30, z: 0 }),
+    );
+    expect(r.behavior).toBe('flank');
+    expect(r.command.steer).toBeGreaterThan(0); // toward the flank slot (+X), NOT the approach (−X)
+  });
+
+  it('is IGNORED in orbit mode (the standoff ring is unchanged)', () => {
+    const onRing = { x: 0, z: P.orbitRadiusM, yaw: 0 };
+    const r = pursueSteer(
+      onRing, 10, { x: 0, z: 0 }, still, CLEAR, initialStuckState, P, DT,
+      'orbit', null, 1, APPROACH_ARG({ x: 40, z: 0 }),
+    );
+    expect(r.behavior).toBe('orbit');
+  });
+});
+
+// --- Phase 16 Task 5: unstick-toward-road state machine --------------------------------------
+describe('roadSeekDurationFor (escalation)', () => {
+  it('is the base window with no prior episodes', () => {
+    expect(roadSeekDurationFor(0, P)).toBeCloseTo(P.roadSeekBaseSec);
+  });
+
+  it('escalates by roadSeekEscalationSec per consecutive episode', () => {
+    expect(roadSeekDurationFor(2, P)).toBeCloseTo(P.roadSeekBaseSec + 2 * P.roadSeekEscalationSec);
+  });
+
+  it('caps at roadSeekMaxSec and never goes negative', () => {
+    expect(roadSeekDurationFor(1000, P)).toBe(P.roadSeekMaxSec);
+    expect(roadSeekDurationFor(-5, P)).toBeCloseTo(P.roadSeekBaseSec); // clamps episodes at 0
+  });
+});
+
+describe('unstick road-seek state machine (pursueSteer)', () => {
+  const params: PursuitSteerParams = { ...AI_STEERING, stuckSec: 0.3, reverseSec: 0.2 };
+
+  it('opens a road-seek window (base) when a reversal COMPLETES this step', () => {
+    // A reversal with exactly one dt left: this tick zeroes it → road-seek opens at the base
+    // window (0 prior episodes).
+    const finishing: StuckState = {
+      slowSec: 0, reverseRemainSec: DT, reverseDir: 1, roadSeekRemainSec: 0, stuckEpisodes: 0,
+    };
+    const r = pursueSteer(atOrigin, 5, { x: 0, z: 40 }, still, CLEAR, finishing, params, DT);
+    expect(r.behavior).toBe('stuck');
+    expect(r.stuck.reverseRemainSec).toBeCloseTo(0);
+    expect(r.stuck.roadSeekRemainSec).toBeCloseTo(roadSeekDurationFor(0, params));
+  });
+
+  it('the opened window ESCALATES with the banked episode count', () => {
+    const finishing: StuckState = {
+      slowSec: 0, reverseRemainSec: DT, reverseDir: 1, roadSeekRemainSec: 0, stuckEpisodes: 3,
+    };
+    const r = pursueSteer(atOrigin, 5, { x: 0, z: 40 }, still, CLEAR, finishing, params, DT);
+    expect(r.stuck.roadSeekRemainSec).toBeCloseTo(roadSeekDurationFor(3, params));
+  });
+
+  it('does NOT open the window mid-reversal (still reversing → no road-seek yet)', () => {
+    const midReverse: StuckState = {
+      slowSec: 0, reverseRemainSec: 0.5, reverseDir: 1, roadSeekRemainSec: 0, stuckEpisodes: 2,
+    };
+    const r = pursueSteer(atOrigin, 5, { x: 0, z: 40 }, still, CLEAR, midReverse, params, DT);
+    expect(r.stuck.reverseRemainSec).toBeCloseTo(0.4);
+    expect(r.stuck.roadSeekRemainSec).toBe(0);
+  });
+
+  it('a stuck trip BANKS an episode (increments the count) and starts the reversal', () => {
+    // slowSec already at stuckSec: one more slow-while-throttling tick trips the reversal.
+    const primed: StuckState = {
+      slowSec: params.stuckSec, reverseRemainSec: 0, reverseDir: 1, roadSeekRemainSec: 0, stuckEpisodes: 4,
+    };
+    const r = pursueSteer(atOrigin, 0.1, { x: 0, z: 40 }, still, CLEAR, primed, params, DT);
+    expect(r.behavior).toBe('stuck');
+    expect(r.stuck.reverseRemainSec).toBeCloseTo(params.reverseSec);
+    expect(r.stuck.stuckEpisodes).toBe(5);
+    expect(r.stuck.roadSeekRemainSec).toBe(0);
+  });
+
+  it('counts down an open window each normal tick, keeping the episode count', () => {
+    const seeking: StuckState = {
+      slowSec: 0, reverseRemainSec: 0, reverseDir: 1, roadSeekRemainSec: 0.5, stuckEpisodes: 3,
+    };
+    const r = pursueSteer(atOrigin, 15, { x: 0, z: 40 }, still, CLEAR, seeking, params, DT);
+    expect(r.stuck.roadSeekRemainSec).toBeCloseTo(0.4);
+    expect(r.stuck.stuckEpisodes).toBe(3); // window not yet elapsed → count preserved
+  });
+
+  it('RESETS the episode count when a window elapses without re-sticking (clean escape)', () => {
+    const lastTick: StuckState = {
+      slowSec: 0, reverseRemainSec: 0, reverseDir: 1, roadSeekRemainSec: DT, stuckEpisodes: 3,
+    };
+    const r = pursueSteer(atOrigin, 15, { x: 0, z: 40 }, still, CLEAR, lastTick, params, DT);
+    expect(r.stuck.roadSeekRemainSec).toBe(0);
+    expect(r.stuck.stuckEpisodes).toBe(0);
   });
 });

@@ -13,7 +13,9 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { CylinderGeometry, MeshStandardMaterial, type Group, type Mesh } from 'three';
-import { VEHICLE_TUNING } from '../config';
+import { PLAYER_CARS, VEHICLE_TUNING } from '../config';
+import { hpLostFraction, tintDamageColor } from '../fx/damageStates';
+import { getGameState } from '../state/store';
 import { playerVehicle } from './playerRef';
 
 // Flat low-poly palette — five swatches, named so Phase 17's other cars can restyle by
@@ -108,6 +110,20 @@ export function RustySedanMesh() {
     () => new MeshStandardMaterial({ color: PALETTE.hubcap, flatShading: true }),
     [],
   );
+  // Body + bumper materials: pulled out of inline JSX (unlike cabin/wheel/hubcap, which stay
+  // JSX-declared — this car is the only live instance, so R3F privately owning a material per
+  // JSX node was always fine) so Phase 16's damage tint (below) has a stable ref to mutate
+  // in-place every frame, matching tireMaterial/hubcapMaterial's existing useMemo pattern.
+  // The two bumpers share ONE material (identical colour, identical tint) rather than one
+  // each — cheaper and there's no reason for them to ever diverge.
+  const bodyMaterial = useMemo(
+    () => new MeshStandardMaterial({ color: PALETTE.body, flatShading: true }),
+    [],
+  );
+  const bumperMaterial = useMemo(
+    () => new MeshStandardMaterial({ color: PALETTE.bumper, flatShading: true }),
+    [],
+  );
 
   // Per-wheel refs, index-aligned with WHEEL_SLOTS/readState().wheels. Arrays are
   // allocated once (useRef initial value); useFrame below only ever mutates entries in
@@ -147,15 +163,30 @@ export function RustySedanMesh() {
       const tire = wheelTires.current[i];
       if (tire) tire.rotation.x = wheelState?.rotationAngle ?? 0;
     }
+
+    // Phase 16: graduated damage tint (25/50/75% HP lost), full charred once hp hits 0
+    // (WRECKED — combat/runLoop.ts's wreckedLockSec keeps this car rendering for ~1.2s
+    // before the GAMEOVER transition, so the tint is visible during that beat). Reset to the
+    // base colour every frame before re-tinting — never compound across frames — the same
+    // "recompute fresh from current hp" discipline fx/damageStates.ts's tintDamageColor()
+    // documents for the fleet meshes, just applied to a real Material instead of an
+    // InstancedMesh colour. Smoke/fire emitters for the player are NOT this component's job
+    // (fx/damageStates.ts's DamageStatesMount polls the store directly for those).
+    const playerHp = getGameState().playerHp;
+    const lostFrac = hpLostFraction(playerHp, PLAYER_CARS.rustySedan.hp);
+    const wrecked = playerHp <= 0;
+    bodyMaterial.color.set(PALETTE.body);
+    tintDamageColor(bodyMaterial.color, lostFrac, wrecked);
+    bumperMaterial.color.set(PALETTE.bumper);
+    tintDamageColor(bumperMaterial.color, lostFrac, wrecked);
   });
 
   return (
     <group>
       {/* Main body: exact chassis box so the paint job reads as wrapped around the
           collider rather than floating loose inside it. */}
-      <mesh castShadow receiveShadow>
+      <mesh castShadow receiveShadow material={bodyMaterial}>
         <boxGeometry args={[bodyWidth, bodyHeight, bodyLength]} />
-        <meshStandardMaterial color={PALETTE.body} flatShading />
       </mesh>
 
       {/* Cabin/greenhouse: a narrower, dark box standing proud of the roof — doubles as
@@ -166,13 +197,11 @@ export function RustySedanMesh() {
       </mesh>
 
       {/* Front/rear bumpers. */}
-      <mesh castShadow position={[0, bumperY, bumperZ]}>
+      <mesh castShadow position={[0, bumperY, bumperZ]} material={bumperMaterial}>
         <boxGeometry args={[bumperWidth, BUMPER_HEIGHT, BUMPER_DEPTH]} />
-        <meshStandardMaterial color={PALETTE.bumper} flatShading />
       </mesh>
-      <mesh castShadow position={[0, bumperY, -bumperZ]}>
+      <mesh castShadow position={[0, bumperY, -bumperZ]} material={bumperMaterial}>
         <boxGeometry args={[bumperWidth, BUMPER_HEIGHT, BUMPER_DEPTH]} />
-        <meshStandardMaterial color={PALETTE.bumper} flatShading />
       </mesh>
 
       {/* Wheels — see WHEEL_SLOTS doc comment for the assumed index order. Position and

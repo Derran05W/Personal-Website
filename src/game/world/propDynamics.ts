@@ -374,8 +374,17 @@ export class PropSwapController {
     // knocked flying IS their destruction. hp-BEARING props (parked cars) emit ONLY from
     // the damage resolver when hp hits 0 (they can be launched and later wrecked, or
     // wrecked in place by accumulated sub-threshold rams) — never both, never twice.
+    // `position` (this swap's own captured world transform, step (a) above) is always
+    // defined here — unlike combat/damage.ts's propDestroyed path, this one never needs an
+    // optional fallback — so fx/eventFx.ts's debrisChips burst always lands exactly where
+    // the prop was standing.
     if (target.hp === undefined) {
-      gameEvents.emit('propDestroyed', { archetype: target.archetype });
+      gameEvents.emit('propDestroyed', {
+        archetype: target.archetype,
+        x: position.x,
+        y: position.y,
+        z: position.z,
+      });
     }
   }
 

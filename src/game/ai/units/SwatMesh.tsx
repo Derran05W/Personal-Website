@@ -28,7 +28,8 @@ import {
   Object3D,
   type InstancedMesh,
 } from 'three';
-import { SPAWN, VEHICLE_TUNING } from '../../config';
+import { ENEMY_UNITS, SPAWN, VEHICLE_TUNING } from '../../config';
+import { hpLostFraction, tintDamageColor } from '../../fx/damageStates';
 import { PaletteCell } from '../../world/archetypes';
 import { addBox, createBuilder, toBufferGeometry } from '../../world/geometry/kit';
 import { getCityMaterial } from '../../world/palette';
@@ -46,7 +47,6 @@ const BULK = 1.12;
 const CABIN_HEIGHT_M = 0.62;
 
 const WHITE = new Color(1, 1, 1);
-const WRECK_CHAR = new Color('#2a2622');
 const ZERO_MATRIX = new Matrix4().makeScale(0, 0, 0);
 
 const _dummy = new Object3D();
@@ -214,7 +214,9 @@ export function SwatMesh() {
       mesh.setMatrixAt(i, _dummy.matrix);
 
       _color.copy(WHITE);
-      if (slot.state === 'wrecked') _color.multiply(WRECK_CHAR);
+      // Phase 16: graduated damage tint (25/50/75% HP lost), full charred at 'wrecked' — see
+      // fx/damageStates.ts's tintDamageColor header.
+      tintDamageColor(_color, hpLostFraction(slot.hp, ENEMY_UNITS.swat.hp), slot.state === 'wrecked');
       mesh.setColorAt(i, _color);
 
       // No lightbar — unmarked. aEmissiveOn stays 0 for every live/wrecked instance.

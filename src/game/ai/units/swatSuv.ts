@@ -23,6 +23,7 @@ import { playerVehicle } from '../../vehicles/playerRef';
 import type { VehicleInputs } from '../../vehicles/IVehicleModel';
 import { PursuitVehicle } from '../pursuitVehicle';
 import { initialStuckState, pursueSteer, type StuckState } from '../aiSteering';
+import { approachTargetFor } from '../roadNav';
 import { getSquadTargetForUnit } from '../squadCoordinator';
 import type { UnitFactory, UnitHandle, UnitSlot } from '../pursuitTypes';
 import { nextPursuitSlotId } from './slotIds';
@@ -143,10 +144,14 @@ class SwatUnit implements UnitHandle, PursuitStepUnit {
     // defaults to plain 'pursue' (ram-capable) — exactly the file header's claimed→flank /
     // unclaimed→ram contract.
     const flankTarget = getSquadTargetForUnit(this.slot.id);
+    const playerPos = { x: player.rawPose.position.x, z: player.rawPose.position.z };
+    // Road-follow when UNCLAIMED (pursue mode) and far / building-blocked — pursueSteer ignores
+    // the approachTarget in flank mode, so a claimed SWAT still boxes in exactly as before.
+    const approach = approachTargetFor(pose.x, pose.z, playerPos.x, playerPos.z, this.stuck);
     const result = pursueSteer(
       pose,
       speed,
-      { x: player.rawPose.position.x, z: player.rawPose.position.z },
+      playerPos,
       { x: player.velocity.x, z: player.velocity.z },
       hits,
       this.stuck,
@@ -154,6 +159,8 @@ class SwatUnit implements UnitHandle, PursuitStepUnit {
       AI_TICK_DT,
       flankTarget !== null ? 'flank' : 'pursue',
       flankTarget,
+      1,
+      approach,
     );
     this.stuck = result.stuck;
     this.inputs = {

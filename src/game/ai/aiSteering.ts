@@ -57,6 +57,13 @@ export interface PursuitSteerParams {
   readonly orbitThrottleBase: number;
   /** Throttle P-controller gain: +(orbitSpeedMps − speed) × this, clamped 0..1. */
   readonly orbitSpeedGain: number;
+  // --- unstick-toward-road escalation (Phase 16 Task 5; road-follow after a stuck reversal) ----
+  /** Base road-seek window (s) started when a stuck reversal completes. */
+  readonly roadSeekBaseSec: number;
+  /** Extra road-seek time (s) per prior CONSECUTIVE stuck episode (escalates repeats). */
+  readonly roadSeekEscalationSec: number;
+  /** Cap (s) on the escalated road-seek window. */
+  readonly roadSeekMaxSec: number;
 }
 
 /** Per-unit steering memory carried between 10 Hz decisions. */
@@ -67,9 +74,33 @@ export interface StuckState {
   readonly reverseRemainSec: number;
   /** Steer sign held for the duration of the current reversal (toward the clearer side). */
   readonly reverseDir: number;
+  /** Remaining time (s) in the post-reversal "steer toward the nearest road node" window (0 =
+   * not seeking). While > 0 the unit's caller feeds pursueSteer a road-graph approachTarget so
+   * it doesn't immediately re-beeline into the wall it just backed off (Phase 16 Task 5). */
+  readonly roadSeekRemainSec: number;
+  /** Count of CONSECUTIVE stuck episodes — escalates the road-seek window; reset to 0 when a
+   * road-seek window elapses without the unit re-sticking (a clean escape). */
+  readonly stuckEpisodes: number;
 }
 
-export const initialStuckState: StuckState = { slowSec: 0, reverseRemainSec: 0, reverseDir: 1 };
+export const initialStuckState: StuckState = {
+  slowSec: 0,
+  reverseRemainSec: 0,
+  reverseDir: 1,
+  roadSeekRemainSec: 0,
+  stuckEpisodes: 0,
+};
+
+/** Road-seek window (s) for a unit that has just completed a reversal, given how many
+ * consecutive stuck episodes it has fought: base + episodes × escalation, capped at the max.
+ * Pure — the escalation half of the unstick-toward-road behaviour, unit-tested directly. */
+export function roadSeekDurationFor(
+  episodes: number,
+  params: Pick<PursuitSteerParams, 'roadSeekBaseSec' | 'roadSeekEscalationSec' | 'roadSeekMaxSec'>,
+): number {
+  const raw = params.roadSeekBaseSec + Math.max(0, episodes) * params.roadSeekEscalationSec;
+  return Math.min(params.roadSeekMaxSec, raw);
+}
 
 /**
  * Forward-avoidance ray results. Each is the fraction 0..1 of the ray length at which it hit
@@ -92,7 +123,15 @@ export interface SteerCommand {
   readonly brake: number;
 }
 
-export type SteerBehavior = 'pursue' | 'ram' | 'avoid' | 'stuck' | 'press' | 'flank' | 'orbit';
+export type SteerBehavior =
+  | 'pursue'
+  | 'ram'
+  | 'avoid'
+  | 'stuck'
+  | 'press'
+  | 'flank'
+  | 'orbit'
+  | 'approach';
 
 /** Steering mode (Phase 10–11). 'pursue' seeks the player with velocity-lead + ram-commit +
  * slow-target press-in (the existing police behavior, unchanged for a moving player). 'flank'
@@ -204,6 +243,16 @@ export function orbitDesiredDir(
  *                controller), `orbitDir` (±1, seeded per unit) picking the handedness. NO ram/lead/
  *                press; `flankTarget` ignored. The Phase 11 gun-truck standoff — the unit's brain
  *                (createStandoffBrain) flips it to 'pursue' to actually ram. Avoidance still wins.
+ *
+ * `approachTarget` (Phase 16 Task 5, PURSUE MODE ONLY — ignored for flank/orbit): a road-graph
+ * waypoint (ai/roadNav.approachTargetFor) the unit steers toward INSTEAD of the player when it is
+ * far or its straight line to the player is building-blocked, so it beads along the roads rather
+ * than wedging on a wall. It is a plain seek — the velocity lead, ram-commit, and slow-target
+ * press-in are all suppressed while approaching — but the relentless closing throttle (floor,
+ * wall-cut, corner-ease), the 3-ray avoidance, and stuck recovery all still apply, so an
+ * approaching unit that wedges still recovers and escalates its road-seek. The caller only passes
+ * a non-null waypoint outside pressDistM, so ram/press-in (the BUSTED-critical close behaviours)
+ * are never overridden in practice; when it is null this is exactly the pre-Phase-16 pursue.
  */
 export function pursueSteer(
   pose: { readonly x: number; readonly z: number; readonly yaw: number },
@@ -217,16 +266,25 @@ export function pursueSteer(
   mode: SteerMode = 'pursue',
   flankTarget: { readonly x: number; readonly z: number } | null = null,
   orbitDir = 1,
+  approachTarget: { readonly x: number; readonly z: number } | null = null,
 ): PursueResult {
   // (1) A reversal already in flight: hold reverse + full lock until it elapses. This runs
-  // before everything else so a mid-reversal re-evaluation can't abort the escape early.
+  // before everything else so a mid-reversal re-evaluation can't abort the escape early. On the
+  // step the reversal COMPLETES, open a road-seek window (escalated by the episode count banked
+  // when the reversal was triggered) so the unit heads for the road instead of the wall it just
+  // backed off (Phase 16 Task 5).
   if (prev.reverseRemainSec > 0) {
+    const nextReverse = Math.max(0, prev.reverseRemainSec - dt);
+    const roadSeekRemainSec =
+      nextReverse === 0 ? roadSeekDurationFor(prev.stuckEpisodes, params) : prev.roadSeekRemainSec;
     return {
       command: { steer: params.reverseSteer * prev.reverseDir, throttle: 0, brake: 1 },
       stuck: {
         slowSec: 0,
-        reverseRemainSec: Math.max(0, prev.reverseRemainSec - dt),
+        reverseRemainSec: nextReverse,
         reverseDir: prev.reverseDir,
+        roadSeekRemainSec,
+        stuckEpisodes: prev.stuckEpisodes,
       },
       behavior: 'stuck',
     };
@@ -234,6 +292,8 @@ export function pursueSteer(
 
   const orbiting = mode === 'orbit';
   const flanking = mode === 'flank' && flankTarget !== null;
+  // Road-follow approach (pursue mode only): steer to the road waypoint, not the player's face.
+  const approaching = mode === 'pursue' && approachTarget !== null;
 
   // (2) Desired heading + throttle target.
   // ORBIT: circle the player at the standoff ring (tangential + radial-correction blend; ram/lead/
@@ -244,10 +304,17 @@ export function pursueSteer(
   const dxp = player.x - pose.x;
   const dzp = player.z - pose.z;
   const dist = Math.hypot(dxp, dzp);
-  const ram = !flanking && !orbiting && dist <= params.commitDistM;
+  // Approaching suppresses ram + press-in (seek the road waypoint, not the player) — so a road-
+  // follow can't be mistaken for a ram, and the caller's close-range gate keeps them mutually
+  // exclusive in practice anyway.
+  const ram = !flanking && !orbiting && !approaching && dist <= params.commitDistM;
   const playerSpeed = Math.hypot(playerVel.x, playerVel.z);
   const pressIn =
-    !flanking && !orbiting && playerSpeed < params.pressSpeedMps && dist < params.pressDistM;
+    !flanking &&
+    !orbiting &&
+    !approaching &&
+    playerSpeed < params.pressSpeedMps &&
+    dist < params.pressDistM;
   const commit = ram || pressIn; // aim at the player's current position, no lead
 
   let desiredYaw: number;
@@ -256,6 +323,8 @@ export function pursueSteer(
     desiredYaw = yawToward(dir.x, dir.z);
   } else if (flanking) {
     desiredYaw = yawToward(flankTarget.x - pose.x, flankTarget.z - pose.z);
+  } else if (approaching) {
+    desiredYaw = yawToward(approachTarget.x - pose.x, approachTarget.z - pose.z);
   } else if (commit) {
     desiredYaw = yawToward(dxp, dzp);
   } else {
@@ -326,12 +395,27 @@ export function pursueSteer(
 
   if (slowSec >= params.stuckSec) {
     const reverseDir = rightBlock <= leftBlock ? 1 : -1;
+    // Bank one more stuck episode: the road-seek window opened when THIS reversal completes
+    // (the reverse branch above) escalates with the count, so a unit fighting the same corner
+    // commits harder to the road each time.
     return {
       command: { steer: params.reverseSteer * reverseDir, throttle: 0, brake: 1 },
-      stuck: { slowSec: 0, reverseRemainSec: params.reverseSec, reverseDir },
+      stuck: {
+        slowSec: 0,
+        reverseRemainSec: params.reverseSec,
+        reverseDir,
+        roadSeekRemainSec: 0,
+        stuckEpisodes: prev.stuckEpisodes + 1,
+      },
       behavior: 'stuck',
     };
   }
+
+  // Road-seek countdown: decrement any active window; a window that elapses this step WITHOUT the
+  // unit having re-stuck (we'd have returned above) is a clean escape, so the episode count resets.
+  const roadSeekRemainSec = prev.roadSeekRemainSec > 0 ? Math.max(0, prev.roadSeekRemainSec - dt) : 0;
+  const stuckEpisodes =
+    prev.roadSeekRemainSec > 0 && roadSeekRemainSec === 0 ? 0 : prev.stuckEpisodes;
 
   const dodging = centerBlock > params.avoidCenterDeadzone;
   const behavior: SteerBehavior = orbiting
@@ -344,12 +428,16 @@ export function pursueSteer(
         ? 'ram'
         : pressIn
           ? 'press'
-          : dodging
-            ? 'avoid'
-            : 'pursue';
+          : approaching
+            ? dodging
+              ? 'avoid'
+              : 'approach'
+            : dodging
+              ? 'avoid'
+              : 'pursue';
   return {
     command: { steer, throttle, brake: 0 },
-    stuck: { slowSec, reverseRemainSec: 0, reverseDir: prev.reverseDir },
+    stuck: { slowSec, reverseRemainSec: 0, reverseDir: prev.reverseDir, roadSeekRemainSec, stuckEpisodes },
     behavior,
   };
 }

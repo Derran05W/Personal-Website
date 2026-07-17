@@ -11,14 +11,19 @@ import {
   nearestPointIndex,
   pickCompositionKind,
   registerUnitFactory,
+  roadProximityScore,
+  scoreSpawnCandidate,
+  selectBiasedSpawnPoint,
   selectSpawnPoint,
   shouldThink,
   thinkPhase,
   unregisterUnitFactory,
+  type CandidateScoreWeights,
   type RoadPoint,
+  type SpawnNavContext,
 } from './spawnDirector';
 import { cameraForwardXZ, quatFromYaw } from './traffic';
-import { SPAWN, SPAWN_COMPOSITION, type CompositionEntry } from '../config';
+import { SPAWN, SPAWN_COMPOSITION, WORLD, type CompositionEntry } from '../config';
 import { createRng } from '../world/rng';
 import { gameEvents } from '../state/events';
 import type { Tile } from '../world/types';
@@ -166,6 +171,165 @@ describe('nearestPointIndex', () => {
     ];
     expect(nearestPointIndex(points, 0, 0)).toBe(1);
     expect(nearestPointIndex([], 0, 0)).toBe(-1);
+  });
+});
+
+// ============================================================================================
+// Phase 16 Task 5: approach-biased spawn-ring selection (candidate scoring + weighted pick)
+// ============================================================================================
+
+describe('roadProximityScore', () => {
+  it('is 1 on a node, 0.5 at the reference distance, and decreases monotonically', () => {
+    expect(roadProximityScore(0, 10)).toBeCloseTo(1);
+    expect(roadProximityScore(10, 10)).toBeCloseTo(0.5);
+    expect(roadProximityScore(100, 10)).toBeLessThan(roadProximityScore(30, 10));
+    expect(roadProximityScore(1e6, 10)).toBeLessThan(0.001);
+  });
+});
+
+describe('scoreSpawnCandidate', () => {
+  const W: CandidateScoreWeights = {
+    roadProximityWeight: 1,
+    approachClearnessWeight: 2,
+    biasWeightFloor: 0.05,
+  };
+
+  it('combines both factors above the floor (both 1 → floor + 1)', () => {
+    expect(scoreSpawnCandidate(1, 1, W)).toBeCloseTo(1.05);
+  });
+
+  it('collapses to just the floor when approach clearness is 0', () => {
+    expect(scoreSpawnCandidate(1, 0, W)).toBeCloseTo(0.05);
+  });
+
+  it('increases with approach clearness (a clearer drive scores higher)', () => {
+    expect(scoreSpawnCandidate(0.5, 0.9, W)).toBeGreaterThan(scoreSpawnCandidate(0.5, 0.2, W));
+  });
+
+  it('a 0 weight ignores that factor (^0 = 1)', () => {
+    const ignoreRoad: CandidateScoreWeights = { roadProximityWeight: 0, approachClearnessWeight: 1, biasWeightFloor: 0 };
+    // Road proximity 0.1 is ignored → score is purely the clearness term.
+    expect(scoreSpawnCandidate(0.1, 0.5, ignoreRoad)).toBeCloseTo(0.5);
+  });
+});
+
+describe('selectBiasedSpawnPoint', () => {
+  const cfg = { ringMin: SPAWN.ringMin, ringMax: SPAWN.ringMax };
+  const cam = cameraForwardXZ(45); // "behind" is toward +X,+Z (SE)
+  const allOnes = (): number => 1;
+
+  it('excludes too-close / too-far points (same ring gate as selectSpawnPoint)', () => {
+    const points = [
+      { x: 20, z: 0 }, // too close
+      { x: 53, z: 53 }, // in ring, behind
+      { x: 300, z: 0 }, // too far
+    ];
+    expect(selectBiasedSpawnPoint(points, 0, 0, cam.x, cam.z, cfg, allOnes, () => 0)).toBe(1);
+  });
+
+  it('prefers a behind-camera candidate over an in-front one', () => {
+    const points = [
+      { x: -75, z: 0 }, // in ring, in front (NW)
+      { x: 53, z: 53 }, // in ring, behind (SE)
+    ];
+    expect(selectBiasedSpawnPoint(points, 0, 0, cam.x, cam.z, cfg, allOnes, () => 0.5)).toBe(1);
+  });
+
+  it('weights the pick toward the higher-scored candidate, but keeps a random tiebreak', () => {
+    const points = [
+      { x: 53, z: 53 }, // behind, HIGH score
+      { x: 50, z: 55 }, // behind, low score
+    ];
+    const score = (i: number): number => (i === 0 ? 10 : 0.05);
+    // A low roll lands in the dominant candidate's mass → index 0.
+    expect(selectBiasedSpawnPoint(points, 0, 0, cam.x, cam.z, cfg, score, () => 0)).toBe(0);
+    // A high roll can still land on the low-scored candidate → variety preserved (not deterministic).
+    expect(selectBiasedSpawnPoint(points, 0, 0, cam.x, cam.z, cfg, score, () => 0.999)).toBe(1);
+  });
+
+  it('returns −1 when the ring is empty', () => {
+    const points = [
+      { x: 0, z: 0 },
+      { x: 500, z: 500 },
+    ];
+    expect(selectBiasedSpawnPoint(points, 0, 0, cam.x, cam.z, cfg, allOnes, () => 0.5)).toBe(-1);
+  });
+});
+
+// The controller still fills the cap through the approach-biased path when nav context is
+// supplied (proving the biased selection never spuriously starves the pool).
+describe('SpawnDirectorController — approach-biased selection (nav context)', () => {
+  const PLAYER = { x: 0, z: 0 };
+  const RING_POINTS: RoadPoint[] = [
+    { x: 53, z: 53, tileIndex: 0 },
+    { x: 55, z: 50, tileIndex: 1 },
+    { x: 50, z: 55, tileIndex: 2 },
+    { x: 60, z: 45, tileIndex: 3 },
+    { x: 45, z: 60, tileIndex: 4 },
+    { x: 58, z: 48, tileIndex: 5 },
+    { x: 40, z: 62, tileIndex: 6 },
+    { x: 62, z: 40, tileIndex: 7 },
+    { x: 38, z: 64, tileIndex: 8 },
+    { x: 64, z: 38, tileIndex: 9 },
+  ];
+
+  // All-road tile grid + a graph node on each ring candidate → every candidate scores well, so
+  // the weighted pick behaves like a healthy uniform-ish draw that always fills the cap.
+  function allRoadTiles(): Tile[] {
+    const N = WORLD.tiles;
+    const tiles: Tile[] = [];
+    for (let row = 0; row < N; row++) {
+      for (let col = 0; col < N; col++) {
+        tiles.push({ col, row, type: 'road', districtId: 0, blockId: -1 });
+      }
+    }
+    return tiles;
+  }
+  const nav: SpawnNavContext = {
+    nodes: RING_POINTS.map((p) => ({ x: p.x, z: p.z })),
+    tiles: allRoadTiles(),
+  };
+
+  let recs: StubRec[];
+  let tier: number;
+  let player: { x: number; z: number } | null;
+  let controller: SpawnDirectorController;
+
+  beforeEach(() => {
+    recs = [];
+    tier = 0;
+    player = { ...PLAYER };
+    registerUnitFactory('police', stubFactory(recs));
+    controller = new SpawnDirectorController({
+      roadPoints: RING_POINTS,
+      rng: createRng(416).fork('bias-test'),
+      getTier: () => tier,
+      getPlayerPos: () => player,
+      camForward: cameraForwardXZ(),
+      nav,
+    });
+  });
+
+  afterEach(() => {
+    controller.dispose();
+    unregisterUnitFactory('police');
+  });
+
+  it('fills caps[tier] via the biased path and keeps every spawn in the ring', () => {
+    tier = 5;
+    controller.requestFill();
+    controller.stepAfter();
+    expect(controller.api.activeCount()).toBe(SPAWN.caps[5]);
+    for (const rec of recs) {
+      const d = Math.hypot(rec.slot.x - PLAYER.x, rec.slot.z - PLAYER.z);
+      expect(d).toBeGreaterThan(SPAWN.ringMin - 5);
+      expect(d).toBeLessThan(SPAWN.ringMax + 5);
+    }
+  });
+
+  it('forceSpawn still succeeds through the biased path', () => {
+    expect(controller.api.forceSpawn('police')).toBe(true);
+    expect(controller.api.activeCount()).toBe(1);
   });
 });
 

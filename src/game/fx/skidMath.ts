@@ -18,6 +18,75 @@ export function skidFadeProgress(age: number, fadeSeconds: number): number {
   return clamp01(age / fadeSeconds);
 }
 
+// --- lateral-slip trigger (Phase 16 Task 2) -------------------------------------------------
+// Upgrades the mark/tire-smoke trigger from handbrake-only to "reward deliberate drifts, not
+// gentle cornering" (part-file). Three small pure functions, composed by fx/SkidMarks.tsx each
+// frame — kept separate rather than one do-everything function because each has a distinct
+// job/testing shape: (1) project the chassis's world velocity onto its own heading to get a
+// single-frame lateral speed reading, (2) low-pass that reading across frames so a one-frame
+// contact-point/suspension spike can't fire the trigger, (3) gate + scale the (smoothed)
+// reading into the bool/strength SkidMarks.tsx and the tireSmoke emitter actually consume.
+
+/**
+ * Signed lateral speed (m/s) of a chassis moving at world-space velocity (vx, vz) with the
+ * given heading yaw (rad) — positive = drifting toward the chassis's own right side, zero =
+ * moving exactly along (or against) its nose. `headingYaw` uses this project's +Z-forward,
+ * `atan2(dx, dz)` convention (matches computeSkidSegment's yaw above and combat/hitscan.ts's
+ * bulletDirection) so callers can derive it the same way a mark's own segment yaw is derived.
+ * The chassis's local +X ("right") axis at that heading is (cos(yaw), 0, -sin(yaw)) — the same
+ * yaw-about-Y rotation matrix bulletDirection's forward vector uses, just projecting onto the
+ * perpendicular axis instead. Pure/testable.
+ */
+export function lateralSpeedAtYaw(vx: number, vz: number, headingYaw: number): number {
+  const rightX = Math.cos(headingYaw);
+  const rightZ = -Math.sin(headingYaw);
+  return vx * rightX + vz * rightZ;
+}
+
+/**
+ * One-pole low-pass filter step: blends `prev` toward `raw` by `alpha` (0..1 — higher tracks
+ * faster / smooths less; 1 = no smoothing, immediately snaps to `raw`). Generic (not slip-
+ * specific) — used to damp a single-frame lateral-speed spike (a curb tap, a suspension
+ * settle jolt) so the slip trigger reads sustained sideways motion, not noise. Pure/testable.
+ */
+export function smoothSlip(prev: number, raw: number, alpha: number): number {
+  const a = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha;
+  return prev + (raw - prev) * a;
+}
+
+/** The mark/tire-smoke trigger's gate + strength. */
+export interface SlipState {
+  /** True while a rear-wheel slide should paint marks / smoke — handbrake held OR the
+   * (already-smoothed) lateral speed clears `thresholdMps`. */
+  readonly slipping: boolean;
+  /** 0..1 strength ramp from `thresholdMps` (0) to `maxMps` (1), driven purely by the
+   * measured slide — NOT forced to 1 just because the handbrake is held, so a handbrake
+   * pivot with little real sideways speed still ramps smoke in rather than popping to full
+   * intensity immediately. Feeds fx/particleFeed.ts's tireSmoke emitter `intensity`. */
+  readonly slip01: number;
+}
+
+/**
+ * Turns an already-smoothed lateral speed (see smoothSlip above) + handbrake state into the
+ * skid trigger. `slipping` is true when the handbrake is held (the pre-existing path — kept
+ * as a straight OR, per the part-file) OR `|lateralSpeedMps|` exceeds `thresholdMps` (a
+ * deliberate, unassisted drift). `slip01` clamps the 0..1 ramp between `thresholdMps` and
+ * `maxMps`; a degenerate `maxMps <= thresholdMps` falls back to a hard 0/1 step rather than
+ * dividing by a non-positive range. Pure/testable.
+ */
+export function computeLateralSlip(
+  lateralSpeedMps: number,
+  handbrake: boolean,
+  thresholdMps: number,
+  maxMps: number,
+): SlipState {
+  const magnitude = Math.abs(lateralSpeedMps);
+  const overThreshold = magnitude > thresholdMps;
+  const range = maxMps - thresholdMps;
+  const slip01 = range > 0 ? clamp01((magnitude - thresholdMps) / range) : overThreshold ? 1 : 0;
+  return { slipping: handbrake || overThreshold, slip01 };
+}
+
 export interface SkidSegment {
   /** Midpoint between the previous and current wheel ground point (world XZ). */
   readonly midX: number;

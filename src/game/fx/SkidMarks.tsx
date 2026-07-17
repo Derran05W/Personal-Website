@@ -21,6 +21,15 @@
 // flat, +Y normal). That's correct for this phase's flat test slab only; marks on the test
 // ramp — and any real sloped/curved surface — are skipped by the flat-ground guard below.
 // Proper surface-projected decals are a Phase 16 problem.
+//
+// LATERAL-SLIP TRIGGER (Phase 16 Task 2): the mark trigger is no longer handbrake-only.
+// Each frame this component projects the chassis's world velocity onto its own heading
+// (skidMath.ts's lateralSpeedAtYaw), low-pass filters that across frames (smoothSlip — damps
+// a one-frame contact-point spike), then gates it (computeLateralSlip): a deliberate,
+// unassisted powerslide now paints marks exactly like the handbrake does (kept as a straight
+// OR — see config/fx.ts's SKID.slip block for the tuning rationale), and the SAME trigger
+// drives ONE fx/particleFeed.ts 'tireSmoke' emitter at the rear-axle midpoint, intensity =
+// slip01, attached while sliding and released the instant the slide (or the vehicle) ends.
 
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
@@ -37,7 +46,14 @@ import {
 import { SKID, VEHICLE_TUNING } from '../config';
 import { getDrivingInput } from '../input';
 import { playerVehicle } from '../vehicles/playerRef';
-import { computeSkidSegment, skidFadeProgress } from './skidMath';
+import { attachFxEmitter, type FxEmitter } from './particleFeed';
+import {
+  computeLateralSlip,
+  computeSkidSegment,
+  lateralSpeedAtYaw,
+  skidFadeProgress,
+  smoothSlip,
+} from './skidMath';
 
 // The two REAR wheels, tracked independently. readState().wheels order is [FL, FR, RL, RR]
 // (IVehicleModel.ts / RustySedanMesh WHEEL_SLOTS); indices 2/3 are the rear pair. xSign
@@ -49,6 +65,7 @@ const REAR_WHEELS = [
 
 // --- module-scope scratch (no per-frame allocation) --------------------------------------
 const Y_AXIS = new Vector3(0, 1, 0);
+const Z_AXIS = new Vector3(0, 0, 1); // chassis-local forward, before quaternion rotation
 const HIDDEN = new Matrix4().makeScale(0, 0, 0); // degenerate → renders nothing; never mutated
 const RUBBER = new Color(SKID.colors.rubber); // fade start (t=0)
 const GROUND = new Color(SKID.colors.ground); // fade target (t=1)
@@ -57,6 +74,7 @@ const _chassisPos = new Vector3();
 const _chassisQuat = new Quaternion();
 const _localOffset = new Vector3();
 const _worldPoint = new Vector3();
+const _forward = new Vector3();
 const _pos = new Vector3();
 const _quat = new Quaternion();
 const _scale = new Vector3();
@@ -74,6 +92,8 @@ interface SkidRuntime {
   readonly hasLast: [boolean, boolean]; // per rear wheel: is there a valid anchor to span from?
   aliveCount: number; // fast skip of the fade sweep when nothing is on screen
   writeCursor: number; // next slot to (over)write — oldest recycles first
+  lateralSpeedSmoothed: number; // skidMath.ts's smoothSlip accumulator, m/s
+  tireSmoke: FxEmitter | null; // live while sliding; null otherwise (see the useFrame body below)
 }
 
 function createRuntime(): SkidRuntime {
@@ -85,7 +105,15 @@ function createRuntime(): SkidRuntime {
     hasLast: [false, false],
     aliveCount: 0,
     writeCursor: 0,
+    lateralSpeedSmoothed: 0,
+    tireSmoke: null,
   };
+}
+
+/** Detach the tire-smoke emitter (idempotent — safe to call whether or not one is live). */
+function releaseTireSmoke(rt: SkidRuntime): void {
+  rt.tireSmoke?.release();
+  rt.tireSmoke = null;
 }
 
 export function SkidMarks() {
@@ -137,7 +165,19 @@ export function SkidMarks() {
       rt.writeCursor = 0;
       rt.hasLast[0] = false;
       rt.hasLast[1] = false;
+      rt.lateralSpeedSmoothed = 0;
+      releaseTireSmoke(rt); // defensive: a StrictMode double-mount can't inherit a live emitter
     }
+  }, []);
+
+  // Release the tire-smoke emitter on unmount (route-away / GARAGE teardown mid-slide) — a
+  // separate effect from the geometry/material disposal below so its cleanup is guaranteed
+  // to run regardless of that effect's own dep identity.
+  useEffect(() => {
+    return () => {
+      const rt = runtimeRef.current;
+      if (rt) releaseTireSmoke(rt);
+    };
   }, []);
 
   useFrame((_, dt) => {
@@ -174,6 +214,8 @@ export function SkidMarks() {
       // Vehicle gone (GARAGE/menus/teardown): break both stripes so the next run starts fresh.
       rt.hasLast[0] = false;
       rt.hasLast[1] = false;
+      rt.lateralSpeedSmoothed = 0;
+      releaseTireSmoke(rt);
     } else {
       const state = model.readState();
       const pose = state.pose; // interpolated pose (TDD §7) — matches the camera, no jitter
@@ -182,6 +224,21 @@ export function SkidMarks() {
 
       const handbrake = getDrivingInput().handbrake;
       const wheels = VEHICLE_TUNING.wheels;
+
+      // Lateral-slip trigger (see file header): project world velocity onto the chassis's
+      // own heading, smooth it across frames, then gate/scale it. `headingYaw` uses this
+      // project's +Z-forward atan2(dx,dz) convention (skidMath.ts's own doc comment) — same
+      // convention computeSkidSegment already uses for a mark's own yaw below.
+      _forward.copy(Z_AXIS).applyQuaternion(_chassisQuat);
+      const headingYaw = Math.atan2(_forward.x, _forward.z);
+      const rawLateralSpeed = lateralSpeedAtYaw(state.velocity.x, state.velocity.z, headingYaw);
+      rt.lateralSpeedSmoothed = smoothSlip(rt.lateralSpeedSmoothed, rawLateralSpeed, SKID.slip.smoothingAlpha);
+      const slip = computeLateralSlip(
+        rt.lateralSpeedSmoothed,
+        handbrake,
+        SKID.slip.thresholdMps,
+        SKID.slip.maxMps,
+      );
 
       for (let w = 0; w < REAR_WHEELS.length; w += 1) {
         const { index, xSign } = REAR_WHEELS[w];
@@ -200,8 +257,11 @@ export function SkidMarks() {
 
         const onFlatGround =
           Math.abs(_worldPoint.y - wheels.radius) < SKID.flatGroundYTolerance;
+        // `slip.slipping` already folds the handbrake OR in (skidMath.ts's
+        // computeLateralSlip) — this is the SAME trigger the old handbrake-only check used,
+        // just widened to also catch a deliberate unassisted powerslide.
         const emitting =
-          handbrake && wheel.inContact && state.speed > SKID.minSpeed && onFlatGround;
+          slip.slipping && wheel.inContact && state.speed > SKID.minSpeed && onFlatGround;
 
         if (!emitting) {
           rt.hasLast[w] = false; // conditions lapsed → break the stripe
@@ -248,6 +308,46 @@ export function SkidMarks() {
 
         rt.lastX[w] = px;
         rt.lastZ[w] = pz;
+      }
+
+      // Tire smoke (Phase 16 Task 2): ONE chassis-level emitter at the rear-axle midpoint —
+      // unlike the marks above (per-wheel, X = ±halfTrack), the midpoint's local X is 0 (the
+      // two ±halfTrack offsets cancel), so it's the same local-to-world transform with a
+      // fresh scratch write, using the REAR wheels' averaged suspension length (they can
+      // differ under roll). Gated on both rear wheels touching so nothing smokes mid-air.
+      const wheelRL = state.wheels[REAR_WHEELS[0].index];
+      const wheelRR = state.wheels[REAR_WHEELS[1].index];
+      _localOffset.set(
+        0,
+        wheels.connectionY - (wheelRL.suspensionLength + wheelRR.suspensionLength) * 0.5,
+        wheels.rearZ,
+      );
+      _worldPoint.copy(_localOffset).applyQuaternion(_chassisQuat).add(_chassisPos);
+      const axleOnFlatGround = Math.abs(_worldPoint.y - wheels.radius) < SKID.flatGroundYTolerance;
+      const smoking =
+        slip.slipping &&
+        state.speed > SKID.minSpeed &&
+        wheelRL.inContact &&
+        wheelRR.inContact &&
+        axleOnFlatGround;
+
+      if (smoking) {
+        if (rt.tireSmoke === null) {
+          rt.tireSmoke = attachFxEmitter('tireSmoke', _worldPoint.x, _worldPoint.y, _worldPoint.z);
+        }
+        // Mutate the existing emitter in place every slipping frame (particleFeed.ts's
+        // emitter-ownership contract — no per-frame allocation): position tracks the axle,
+        // velocity inherits the chassis's own so the smoke drifts in the car's wake, and
+        // intensity rides slip01 (0 at the slip threshold, 1 at SKID.slip.maxMps).
+        rt.tireSmoke.position.x = _worldPoint.x;
+        rt.tireSmoke.position.y = _worldPoint.y;
+        rt.tireSmoke.position.z = _worldPoint.z;
+        rt.tireSmoke.velocity.x = state.velocity.x;
+        rt.tireSmoke.velocity.y = state.velocity.y;
+        rt.tireSmoke.velocity.z = state.velocity.z;
+        rt.tireSmoke.intensity = slip.slip01;
+      } else {
+        releaseTireSmoke(rt);
       }
     }
 

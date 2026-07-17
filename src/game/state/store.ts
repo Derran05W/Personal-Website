@@ -14,6 +14,15 @@ import { HEAT, WORLD_GEN } from '../config';
 export interface Settings {
   quality: 'high' | 'med' | 'low';
   muted: boolean;
+  /**
+   * Accessibility: when true, fx/cameraRig.ts zeroes the positional camera shake AND the
+   * hard-impact FOV kick (trauma still accumulates and decays — it just isn't applied), so
+   * motion-sensitive players get a stable frame. Persisted like every other setting. Phase
+   * 18 surfaces the UI toggle; until then the store setter (setReducedShake) is the only
+   * surface — a dev debug-bridge switch drives it. Added additively (defaults false) so
+   * pre-Phase-16 persisted settings still hydrate — see loadSettings/isValidSettings.
+   */
+  reducedShake: boolean;
 }
 
 // Exported for game/core/quality.ts: the auto quality-tier detection must check whether
@@ -22,7 +31,7 @@ export interface Settings {
 // "in-memory default", so the raw key is the source of truth. (Task C export exception.)
 export const SETTINGS_STORAGE_KEY = 'smashy6ix:settings';
 
-const DEFAULT_SETTINGS: Settings = { quality: 'high', muted: false };
+const DEFAULT_SETTINGS: Settings = { quality: 'high', muted: false, reducedShake: false };
 
 // Phase 8: wired to the real config (was a local literal mirror while game/config was
 // authored in parallel — see git history). Ascending, index = tier, thresholds[0] must be
@@ -42,12 +51,20 @@ export function tierForHeat(heat: number, thresholds: readonly number[]): number
   return tier;
 }
 
-function isValidSettings(value: unknown): value is Settings {
+// `reducedShake` is validated as OPTIONAL (undefined | boolean), exactly the additive,
+// version-safe extension idiom state/persistence.ts uses for `darkCityUnlocked`: an
+// envelope written before this field existed is simply missing the key, and loadSettings
+// normalises that absence to the `false` default rather than rejecting the whole (otherwise
+// valid) stored quality/muted choice.
+function isValidSettings(
+  value: unknown,
+): value is { quality: Settings['quality']; muted: boolean; reducedShake?: boolean } {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as Record<string, unknown>;
   return (
     (candidate.quality === 'high' || candidate.quality === 'med' || candidate.quality === 'low') &&
-    typeof candidate.muted === 'boolean'
+    typeof candidate.muted === 'boolean' &&
+    (candidate.reducedShake === undefined || typeof candidate.reducedShake === 'boolean')
   );
 }
 
@@ -59,7 +76,9 @@ function loadSettings(): Settings {
     const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!raw) return DEFAULT_SETTINGS;
     const parsed: unknown = JSON.parse(raw);
-    return isValidSettings(parsed) ? parsed : DEFAULT_SETTINGS;
+    if (!isValidSettings(parsed)) return DEFAULT_SETTINGS;
+    // Normalise the additive `reducedShake` field: absent (older envelope) -> false default.
+    return { quality: parsed.quality, muted: parsed.muted, reducedShake: parsed.reducedShake ?? false };
   } catch {
     return DEFAULT_SETTINGS;
   }
@@ -95,6 +114,9 @@ export interface GameStoreState {
   setSeed: (seed: number) => void;
   setQuality: (quality: Settings['quality']) => void;
   toggleMuted: () => void;
+  /** A11y (Phase 16): persist the reduced-camera-shake preference. Read from non-React
+   * code (fx/cameraRig.ts) via the `getReducedShake` getter below, not this action. */
+  setReducedShake: (reducedShake: boolean) => void;
   /** Out-of-band reset (route-change/unmount teardown) — NOT a table transition. */
   hardReset: () => void;
   /**
@@ -179,6 +201,14 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     });
   },
 
+  setReducedShake: (reducedShake) => {
+    set((state) => {
+      const settings = { ...state.settings, reducedShake };
+      saveSettings(settings);
+      return { settings };
+    });
+  },
+
   hardReset: () => {
     // BOOT has no predecessor in TRANSITIONS, so this intentionally bypasses
     // assertTransition rather than going through `transition`. Settings and seed are
@@ -198,3 +228,12 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 // Convenience for non-React systems (AI, physics callbacks, etc.) that need a one-shot
 // read without subscribing.
 export const getGameState = useGameStore.getState;
+
+/**
+ * Plain getter for the reduced-camera-shake accessibility preference, for non-React hot-path
+ * code (fx/cameraRig.ts runs in a per-frame useFrame and must NOT subscribe to the store —
+ * see this file's header rule on per-frame reads). Reads the live settings value each call.
+ */
+export function getReducedShake(): boolean {
+  return getGameState().settings.reducedShake;
+}
