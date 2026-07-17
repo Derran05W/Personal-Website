@@ -8,6 +8,7 @@ import {
   recordRunEnd,
   resetProgress,
   setDarkCityUnlocked,
+  unlockAllCars,
 } from './persistence';
 
 beforeEach(() => {
@@ -400,5 +401,48 @@ describe('unlockedCarIds + carUnlocked (Phase 17)', () => {
     localStorage.setItem(PROGRESS_STORAGE_KEY, '{not valid json at all');
     expect(() => loadProgress()).not.toThrow();
     expect(loadProgress()).toEqual({ v: 1, bestScore: 0, lifetimeScore: 0 });
+  });
+});
+
+describe('unlockAllCars (dev shortcut)', () => {
+  it('unlocks the whole roster and persists it, emitting carUnlocked per non-starter id', () => {
+    const handler = vi.fn();
+    gameEvents.on('carUnlocked', handler);
+
+    const result = unlockAllCars();
+
+    expect(result.unlockedCarIds).toEqual([
+      'rustySedan',
+      'streetRacer',
+      'pickup',
+      'schoolBus',
+      'monsterTruck',
+      'redRocket',
+    ]);
+    expect(loadProgress().unlockedCarIds).toEqual(result.unlockedCarIds);
+    // rustySedan (threshold 0) was already unlocked on a fresh envelope — no event for it.
+    expect(handler).toHaveBeenCalledTimes(5);
+    expect(handler).not.toHaveBeenCalledWith({ carId: 'rustySedan' });
+  });
+
+  it('is idempotent — a second call emits nothing and leaves the envelope untouched', () => {
+    unlockAllCars();
+    const handler = vi.fn();
+    gameEvents.on('carUnlocked', handler);
+
+    const before = loadProgress();
+    expect(unlockAllCars()).toEqual(before);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('preserves score/badge/seed fields already in the envelope', () => {
+    recordRunEnd(700); // bestScore 700, lifetimeScore 700, streetRacer earned
+    recordLastSeed(1234);
+
+    const result = unlockAllCars();
+
+    expect(result.bestScore).toBe(700);
+    expect(result.lifetimeScore).toBe(700);
+    expect(result.lastSeed).toBe(1234);
   });
 });

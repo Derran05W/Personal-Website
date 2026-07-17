@@ -235,6 +235,35 @@ export function resetProgress(): void {
 }
 
 /**
+ * Dev-only: unlocks the entire PLAYER_CARS roster at once (devPanel "unlock all cars"
+ * button), independent of lifetimeScore. Writes every UNLOCKS id into the persisted
+ * `unlockedCarIds` (monotonic — the set survives "earn it properly later" and reloads;
+ * only `resetProgress` clears it) and emits `carUnlocked` per id that wasn't already
+ * unlocked, so the store/garage/NEW-badge subscribers pick it up live without a reload.
+ * Same read-modify-write + idempotence idiom as `setDarkCityUnlocked`: a repeat click
+ * with everything already unlocked returns the unmodified envelope, no write, no events.
+ */
+export function unlockAllCars(): Progress {
+  const current = loadProgress();
+  const previouslyUnlocked = new Set<string>([
+    ...unlockedCarIdsForScore(current.lifetimeScore),
+    ...(current.unlockedCarIds ?? []),
+  ]);
+  const allIds = Object.keys(UNLOCKS) as PlayerCarId[];
+  const newlyUnlocked = allIds.filter((id) => !previouslyUnlocked.has(id));
+  if (newlyUnlocked.length === 0) return current;
+
+  const next: Progress = { ...current, unlockedCarIds: allIds };
+  saveProgress(next);
+
+  for (const carId of newlyUnlocked) {
+    gameEvents.emit('carUnlocked', { carId });
+  }
+
+  return next;
+}
+
+/**
  * Subscribes `recordRunEnd` to `runEnded` and `recordLastSeed` to `runStarted`
  * (state/events.ts) — the write triggers for score/unlock and city persistence, per the
  * project's typed-emitter convention ("systems stay decoupled", CLAUDE.md). Call once, at

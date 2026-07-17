@@ -17,7 +17,7 @@ import { playerVehicle } from '../vehicles/playerRef';
 import { spawnPoseRef } from '../world/spawn';
 import type { VehiclePose } from '../vehicles/IVehicleModel';
 import { getDevToggles, setDevToggle } from './devToggles';
-import { loadProgress, resetProgress } from '../state/persistence';
+import { loadProgress, resetProgress, unlockAllCars } from '../state/persistence';
 import { trafficRef } from '../ai/trafficTypes';
 import { unitsRef, type UnitSlot } from '../ai/pursuitTypes';
 import {
@@ -476,6 +476,10 @@ export default function DevPanel() {
       schema['best score'] = monitor(() => loadProgress().bestScore, { interval: 250 });
       schema['lifetime score'] = monitor(() => loadProgress().lifetimeScore, { interval: 250 });
       schema['reset progress'] = button(() => resetProgress());
+      // Phase 17 dev shortcut: whole roster unlocked in one click (persisted; "reset
+      // progress" above is the undo). Emits carUnlocked per newly-added id, so the
+      // garage reflects it live — no reload needed.
+      schema['unlock all cars'] = button(() => unlockAllCars());
 
       // Phase 9 Task 4 debug tooling — police/game-over verification ------------------------
       // unitsRef (ai/pursuitTypes.ts) is null until ai/spawnDirector.ts's mount runs (a
