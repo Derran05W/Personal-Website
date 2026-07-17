@@ -61,6 +61,17 @@ onImpact((impact) => {
 // button does.
 const TINT_COLOR = new Color('#ff2222');
 
+// Phase 10 Task 3: forceSpawnUnit's runtime kind guard. UnitKind (ai/pursuitTypes.ts) is a
+// string-literal union with no runtime representation, so a plain string argument off
+// window (Playwright's page.evaluate can't pass a typed literal) needs a real value to
+// validate against rather than an unsafe cast. Kept in lockstep with UnitKind by hand — the
+// same discipline Part 4's own unit modules already follow when they extend that union.
+const KNOWN_UNIT_KINDS: readonly UnitKind[] = ['police', 'armored', 'swat'];
+
+function isUnitKind(kind: string): kind is UnitKind {
+  return (KNOWN_UNIT_KINDS as readonly string[]).includes(kind);
+}
+
 // Phase 9 Task 4: force a GAMEOVER with reason 'busted' without needing the real detector
 // live (combat/runLoop.ts, a concurrent sibling task — speed<1 for 3s AND >=3 pursuers
 // within 8m — which in turn needs Task 1/2's pursuit units actually chasing the player to
@@ -167,8 +178,16 @@ declare global {
       }[];
       /** Phase 9 Task 4 debug: force-spawn one police unit near the player, ignoring spawn
        * caps (ai/pursuitTypes.ts's PursuitApi.forceSpawn). False if the director hasn't
-       * mounted yet or declined to spawn. */
+       * mounted yet or declined to spawn. Kept as a thin sugar alias over forceSpawnUnit
+       * ('police') below — existing scripts calling this by name keep working unchanged. */
       forceSpawnPolice: () => boolean;
+      /** Phase 10 Task 3 debug: force-spawn one unit of `kind` near the player, ignoring
+       * spawn caps — generalizes forceSpawnPolice to every registered UnitKind ('police' |
+       * 'armored' | 'swat'). False if `kind` isn't a known UnitKind, the director hasn't
+       * mounted yet, `kind` has no registered factory yet (Part 4 units register on their
+       * own schedule — see ai/spawnDirector.ts's unknown-factory fallback), or the director
+       * otherwise declined to spawn. Never throws. */
+      forceSpawnUnit: (kind: string) => boolean;
       /** Phase 9 Task 4 debug: flips core/devToggles.ts's `invincible` flag. See that
        * module's doc comment for the handoff — this flag alone changes no behavior until
        * combat/damage.ts's applyPlayerDamage() is wired to read it. */
@@ -254,6 +273,7 @@ window.__smashy = {
         behaviorLabel: s.behaviorLabel,
       })),
   forceSpawnPolice: () => unitsRef.current?.forceSpawn('police' satisfies UnitKind) ?? false,
+  forceSpawnUnit: (kind) => (isUnitKind(kind) ? (unitsRef.current?.forceSpawn(kind) ?? false) : false),
   setInvincible: (value) => setDevToggle('invincible', value),
   forceBustedGameOver,
   sirenSnapshot: () => getSirenDebugSnapshot(),

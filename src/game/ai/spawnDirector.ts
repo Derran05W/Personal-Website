@@ -28,7 +28,7 @@
 // director spawns a replacement while the wreck lingers. The fixed pool (SlotBook) is what
 // bounds total bodies, so a wreck can never let the pool overflow.
 
-import { SPAWN, SPAWN_COMPOSITION, type CompositionEntry } from '../config';
+import { SPAWN, SPAWN_COMPOSITION, type CompositionEntry, type MinPreferredEntry } from '../config';
 import { createRng, type Rng } from '../world/rng';
 import { tileCenter, type Tile } from '../world/types';
 import { playerVehicle } from '../vehicles/playerRef';
@@ -180,6 +180,39 @@ export function pickCompositionKind(
  * for `lingerSec` at the current `simTime`. `wreckedAt < 0` = not yet observed wrecked. */
 export function lingerExpired(simTime: number, wreckedAt: number, lingerSec: number): boolean {
   return wreckedAt >= 0 && simTime - wreckedAt >= lingerSec;
+}
+
+/** Count of currently PURSUING (non-wrecked) units of `kind` among `slots` — a lingering
+ * wreck of that kind doesn't count toward it, mirroring the controller's own
+ * `pursuingCount()` discipline (a wreck is debris, not a pursuer). Pure; backs
+ * `minPreferred` fill order below and is unit-tested directly against plain slot fixtures. */
+export function countPursuingKind(slots: readonly UnitSlot[], kind: UnitKind): number {
+  let n = 0;
+  for (const s of slots) {
+    if (s.kind === kind && s.state !== 'wrecked') n++;
+  }
+  return n;
+}
+
+/** Filters a tier's weighted composition entries down to kinds with a REGISTERED factory,
+ * preserving each surviving entry's weight untouched (so ratios among the remaining kinds
+ * are exactly what the config table specifies — no renormalization needed since
+ * `pickCompositionKind` already works off relative weights).
+ *
+ * This is the "fall back to a registered kind" half of the unknown-factory guard: Part 4
+ * lands a unit's factory registration (ai/units/*'s mesh mount) on its own schedule, so a
+ * composition row can legitimately reference a kind before its factory exists yet (or after
+ * a hot-reload drops one — `unregisterUnitFactory`). Excluding it from the roll means the
+ * OTHER registered kinds in the same tier still fill the cap at their relative weights,
+ * instead of the whole tier stalling on the missing kind. If every entry is filtered out,
+ * `pickCompositionKind` sees an empty list and returns null (handled by the caller — see
+ * `trySpawn`'s "skip the spawn this round" fallback). Pure — `isRegistered` injected so this
+ * is testable without the module-scope factory map. */
+export function filterRegisteredEntries(
+  entries: readonly CompositionEntry[],
+  isRegistered: (kind: UnitKind) => boolean,
+): CompositionEntry[] {
+  return entries.filter((e) => isRegistered(e.kind));
 }
 
 // ===========================================================================================
@@ -342,11 +375,31 @@ export class SpawnDirectorController {
     }
 
     // Top pursuing units up to the current cap.
-    const cap = capForTier(this.getTier(), SPAWN.caps);
-    const entries = SPAWN_COMPOSITION.tiers[this.getTier()] ?? [];
-    let guard = MAX_CAP + 1; // hard bound: never loop forever if no spawn point is available
+    const tier = this.getTier();
+    const cap = capForTier(tier, SPAWN.caps);
+    const entries = SPAWN_COMPOSITION.tiers[tier] ?? [];
+    const minPreferred: readonly MinPreferredEntry[] = SPAWN_COMPOSITION.minPreferred?.[tier] ?? [];
+    // Shared across BOTH passes below: a single hard bound so a run of unlucky rolls (an
+    // unregistered kind, an exhausted ring) can never spin forever regardless of which pass
+    // is consuming it — see trySpawn/trySpawnKind's "return false, never throw" contract.
+    let guard = MAX_CAP + 1;
+
+    // Pass 1 — minPreferred: guarantee each preferred kind's floor BEFORE the weighted roll
+    // gets a turn (TDD/Phase 10 rationale: squad.ts's flank slots need bodies to claim them,
+    // so ★3 wants >=2 SWAT on the ground before spending the rest of the cap on the mix).
+    for (const pref of minPreferred) {
+      while (
+        this.pursuingCount() < cap &&
+        countPursuingKind(this.slots, pref.kind) < pref.count &&
+        guard-- > 0
+      ) {
+        if (!this.trySpawnKind(player, pref.kind)) break; // no ring point / no factory — next pref
+      }
+    }
+
+    // Pass 2 — weighted fill for whatever's left of the cap.
     while (this.pursuingCount() < cap && guard-- > 0) {
-      if (!this.trySpawn(player, entries)) break; // no ring point this pass — retry next maintain
+      if (!this.trySpawn(player, entries)) break; // no ring point / no registered kind this pass
     }
   }
 
@@ -361,9 +414,12 @@ export class SpawnDirectorController {
 
   // --- spawn / despawn ----------------------------------------------------------------------
 
-  /** Spawn one unit for the current tier's `entries` at a ring road tile. Returns false (no
-   * side effect) if the ring is empty, the roll yields no kind, no factory is registered, the
-   * pool is full, or the factory declines. */
+  /** Spawn one unit for the current tier's `entries` at a ring road tile. Rolls only among
+   * kinds with a REGISTERED factory (filterRegisteredEntries) — a composition entry whose
+   * unit module hasn't registered yet is transparently excluded from the roll rather than
+   * ever reaching spawnAt's factory-undefined branch, so the other kinds in the mix keep
+   * filling the cap at their relative weights. Returns false (no side effect) if the ring is
+   * empty, no entry has a registered factory, or the pool is full. */
   private trySpawn(player: Vec2, entries: readonly CompositionEntry[]): boolean {
     const idx = selectSpawnPoint(
       this.roadPoints,
@@ -375,8 +431,28 @@ export class SpawnDirectorController {
       this.pickIndex,
     );
     if (idx < 0) return false;
-    const kind = pickCompositionKind(entries, this.rng.next);
-    if (kind === null) return false;
+    const registered = filterRegisteredEntries(entries, (k) => factories.has(k));
+    const kind = pickCompositionKind(registered, this.rng.next);
+    if (kind === null) return false; // nothing in this tier's mix has a factory yet
+    return this.spawnAt(idx, kind);
+  }
+
+  /** Spawn one unit of a SPECIFIC `kind` (minPreferred fill) at a ring road tile — same
+   * ring-point selection as trySpawn, but no weighted roll. Falls through to spawnAt's own
+   * factory-undefined guard (returns false, never throws) when `kind`'s unit module hasn't
+   * registered a factory yet, so an unmet minimum for a not-yet-built kind just quietly
+   * carries over to the next maintenance pass instead of blocking anything. */
+  private trySpawnKind(player: Vec2, kind: UnitKind): boolean {
+    const idx = selectSpawnPoint(
+      this.roadPoints,
+      player.x,
+      player.z,
+      this.camFwd.x,
+      this.camFwd.z,
+      SPAWN,
+      this.pickIndex,
+    );
+    if (idx < 0) return false;
     return this.spawnAt(idx, kind);
   }
 

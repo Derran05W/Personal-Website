@@ -31,6 +31,7 @@
 import { useEffect } from 'react';
 import { Color } from 'three';
 import { DAMAGE } from '../config/damage';
+import { ENEMY_UNITS } from '../config/vehicles';
 import { gameEvents } from '../state/events';
 import { getGameState } from '../state/store';
 import { getDevToggles } from '../core/devToggles';
@@ -78,15 +79,40 @@ export function computeDamage(
  * The "other side's mass factor" for the damage formula: entry's mass (DAMAGE.archetypeMassKg
  * for its archetype, or the reference mass for the player — it IS the reference, so its own
  * factor is always exactly 1) divided by DAMAGE.referenceMassKg. Entities with no known mass
- * (undefined entry, buildings, unlisted archetypes, pursuit/civilian units — not modeled yet)
- * default to factor 1, per this phase's documented scope.
+ * (undefined entry, buildings, unlisted archetypes, civilian units — not modeled yet) default
+ * to factor 1, per this phase's documented scope.
+ *
+ * Phase 10 extension: `kind: 'pursuit'` entries carry their own `unitKind` (world/registry.ts
+ * seam) set by the unit factories (ai/units/*) — ENEMY_UNITS[unitKind].massFactor IS ALREADY
+ * a factor relative to the reference chassis mass (policeSedan.ts's header: "massFactor 1.0
+ * resolves to 1200 kg against the 1200 kg reference chassis"), so it's used directly, not
+ * divided by referenceMassKg again. A pursuit entry with no unitKind (shouldn't happen; every
+ * current factory sets one) falls through to the generic archetype path below, which is a
+ * no-op for pursuit entries (they carry no archetype) and lands on the factor-1 default.
  */
 export function massFactorOf(entry: EntityEntry | undefined): number {
   if (!entry) return 1;
   if (entry.kind === 'player') return 1;
+  if (entry.kind === 'pursuit' && entry.unitKind) {
+    return ENEMY_UNITS[entry.unitKind].massFactor;
+  }
   if (entry.archetype) {
     const massKg = DAMAGE.archetypeMassKg[entry.archetype];
     if (massKg !== undefined) return massKg / DAMAGE.referenceMassKg;
+  }
+  return 1;
+}
+
+/**
+ * Ram damage multiplier (Phase 10): ENEMY_UNITS[unitKind].ramDamageMultiplier when `attacker`
+ * is a pursuit unit that carries one, else 1 (the neutral/no-op default — also what an absent
+ * config field means, per EnemyUnitDef's doc comment). Kept separate from massFactorOf because
+ * it is directional (see applySideDamage's call site: it scales damage dealt BY a unit's ram
+ * TO the player, never the reverse), where massFactorOf is symmetric.
+ */
+export function ramDamageMultiplier(attacker: EntityEntry | undefined): number {
+  if (attacker?.kind === 'pursuit' && attacker.unitKind) {
+    return ENEMY_UNITS[attacker.unitKind].ramDamageMultiplier ?? 1;
   }
   return 1;
 }
@@ -197,7 +223,13 @@ function applySideDamage(
   const cfg: DamageConfig = isVehiclePair
     ? { ...DAMAGE, forceToSpeedProxy: DAMAGE.vehicleRamForceProxy }
     : DAMAGE;
-  const damage = computeDamage(forceMag, massFactorOf(other), cfg);
+  let damage = computeDamage(forceMag, massFactorOf(other), cfg);
+  // Ram damage multiplier (Phase 10): a pursuit unit's ram INTO the player hurts more per its
+  // own kind (swat 1.5×, armored 1.15×) — directional, never applied when the player rams a
+  // unit (target.kind === 'pursuit' side of isVehiclePair uses the plain, unmultiplied factor).
+  if (target.kind === 'player' && other.kind === 'pursuit') {
+    damage *= ramDamageMultiplier(other);
+  }
   if (damage <= 0) return;
   if (target.kind === 'player') {
     applyPlayerDamage(damage);

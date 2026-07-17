@@ -189,6 +189,24 @@ function UnitOverlay() {
   );
 }
 
+/**
+ * Grants exactly enough heat to reach `tier`'s threshold (config/heat.ts's
+ * tierThresholds, index = tier); a no-op if the player is already at/above it — heat is
+ * monotonic and never decays (locked design decision), so this can only ever move the
+ * wanted level up, same as real play. Shared by the "set tier" dropdown and the Phase 10
+ * "force tier N" buttons below: the dropdown is the general-purpose picker for a human
+ * clicking through the panel, the buttons are the scriptable path — leva's own DOM is
+ * canvas-occluded in headless Playwright, so a single-purpose button (like the existing
+ * "+N heat" buttons) is what a scripted verification run can actually drive.
+ */
+function grantHeatToTier(tier: number): void {
+  const state = getGameState();
+  const target = CONFIG.HEAT.tierThresholds[tier];
+  if (target === undefined) return;
+  const delta = target - state.heat;
+  if (delta > 0) state.addHeat(delta);
+}
+
 export default function DevPanel() {
   // Subscribe to machine only: it drives which transition buttons are valid and the
   // read-only state display. Rebuilds the Debug folder via the [machine] dep below.
@@ -328,14 +346,14 @@ export default function DevPanel() {
       schema['set tier'] = {
         value: 0,
         options: CONFIG.HEAT.tierThresholds.map((_, tier) => tier),
-        onChange: (tier: number) => {
-          const state = getGameState();
-          const target = CONFIG.HEAT.tierThresholds[tier];
-          if (target === undefined) return;
-          const delta = target - state.heat;
-          if (delta > 0) state.addHeat(delta);
-        },
+        onChange: (tier: number) => grantHeatToTier(tier),
       };
+
+      // Phase 10 Task 3: dedicated force-tier buttons for ★2/★3 (armored/SWAT composition
+      // verification) — same grantHeatToTier as "set tier" above, just as single-purpose
+      // buttons a headless script can drive without touching leva's own DOM controls.
+      schema['force tier 2'] = button(() => grantHeatToTier(2));
+      schema['force tier 3'] = button(() => grantHeatToTier(3));
 
       // Live run score (state/store.ts) vs. persisted meta-progression
       // (state/persistence.ts, written on `runEnded`) — the monitors below make the
@@ -353,9 +371,38 @@ export default function DevPanel() {
       schema['force spawn police'] = button(() => {
         unitsRef.current?.forceSpawn('police');
       });
+      // Phase 10 Task 3: same forceSpawn seam, generalized to the two Part 4 kinds this
+      // phase adds. Armored/SWAT unit modules (ai/units/*, Task 2) register their factories
+      // on their own schedule — before that, forceSpawn('armored'/'swat') is a no-op (the
+      // director's factory-undefined guard returns false without throwing), so these
+      // buttons are safe to click at any point in the build.
+      schema['force spawn armored'] = button(() => {
+        unitsRef.current?.forceSpawn('armored');
+      });
+      schema['force spawn swat'] = button(() => {
+        unitsRef.current?.forceSpawn('swat');
+      });
       schema['pursuit units'] = monitor(() => unitsRef.current?.activeCount() ?? 0, {
         interval: 250,
       });
+      // Composition readout: live counts per kind, straight off unitsRef's slots — the
+      // human-facing mirror of what SPAWN_COMPOSITION/minPreferred (config/spawn.ts) are
+      // actually producing at the current tier (e.g. "police:4 armored:2" at ★2, "police:3
+      // armored:2 swat:3" at ★3 once armored/swat factories are registered).
+      schema['composition'] = monitor(
+        () => {
+          const counts = new Map<string, number>();
+          for (const s of unitsRef.current?.slots ?? []) {
+            if (s.kind === null) continue;
+            counts.set(s.kind, (counts.get(s.kind) ?? 0) + 1);
+          }
+          if (counts.size === 0) return 'none';
+          return Array.from(counts.entries())
+            .map(([kind, n]) => `${kind}:${n}`)
+            .join(' ');
+        },
+        { interval: 250 },
+      );
 
       // Invincible: writes ONLY the devToggles.ts flag (leva-free, safe to import from any
       // build) — it does not itself change gameplay. combat/damage.ts's applyPlayerDamage()
@@ -434,6 +481,12 @@ export default function DevPanel() {
       graphViz: {
         value: getDevToggles().graphViz,
         onChange: (value: boolean) => setDevToggle('graphViz', value),
+      },
+      // Phase 10: in-scene SWAT-squad flank visualizer (ai/SquadViz.tsx) — posts at the two
+      // flank slots + lines to their claimants.
+      squadViz: {
+        value: getDevToggles().squadViz,
+        onChange: (value: boolean) => setDevToggle('squadViz', value),
       },
       // Task 5 district-range proof: each button fans over every archetype (or every
       // EMISSIVE archetype) and writes exactly one district's [start,count] slice. Eyeball

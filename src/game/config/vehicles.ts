@@ -179,6 +179,17 @@ export interface EnemyUnitDef {
   // Top speed as a percentage of STARTER_TOP_SPEED. TDD §5.6.
   readonly topSpeedPct: number;
   readonly behavior: EnemyBehavior;
+  // Phase 10 (★2/★3 escalation): ram damage multiplier applied ONLY to damage this kind
+  // deals TO THE PLAYER via the vehicle-pair ram path (combat/damage.ts) — never the
+  // reverse (the player ramming a unit uses the unit's plain mass factor, unmultiplied).
+  // Absent/undefined behaves as 1 (combat/damage.ts's `?? 1`); police is given an explicit
+  // 1 for legibility even though it's the same as the default.
+  readonly ramDamageMultiplier?: number;
+  // Phase 10 (armored only): scripted bonus impulse (N·s, capped/rate-limited — see
+  // ai/units/armoredPolice.ts) applied to the PLAYER body on an armored↔player contact, on
+  // top of Rapier's own collision response — the "bulldozer shove" TDD §5.6 calls for.
+  // Absent for every other kind (no shove).
+  readonly shoveImpulse?: number;
 }
 
 // Keyed by unit id. TDD §5.6 table.
@@ -191,9 +202,24 @@ export interface EnemyUnitDef {
 // TDD §5.6 table) avoids a massKg/topSpeedScale pair drifting out of sync with massFactor/
 // topSpeedPct.
 export const ENEMY_UNITS = {
-  police: { hp: 40, massFactor: 1.0, topSpeedPct: 105, behavior: 'pursuit' },
-  armored: { hp: 90, massFactor: 1.6, topSpeedPct: 90, behavior: 'pursuit' },
-  swat: { hp: 120, massFactor: 1.8, topSpeedPct: 100, behavior: 'flank' },
+  police: { hp: 40, massFactor: 1.0, topSpeedPct: 105, behavior: 'pursuit', ramDamageMultiplier: 1 },
+  // Phase 10: 1.6× mass = 1920 kg against the 1200 kg reference chassis (VEHICLE_TUNING.
+  // chassis.massKg) — ai/units/armoredPolice.ts applies this as a REAL Rapier mass override
+  // (setAdditionalMassProperties, scaled from the same formula raycastVehicle.ts's create()
+  // uses) so armored actually plows through props/civilians instead of only "counting"
+  // heavier in the damage formula. ramDamageMultiplier 1.15: rams hit a little harder than a
+  // sedan on top of the mass difference already baked into massFactorOf().
+  armored: {
+    hp: 90,
+    massFactor: 1.6,
+    topSpeedPct: 90,
+    behavior: 'pursuit',
+    ramDamageMultiplier: 1.15,
+    shoveImpulse: 2200,
+  },
+  // Phase 10: ramDamageMultiplier 1.5 — SWAT rams hurt noticeably more than police/armored,
+  // on top of its own 1.8× mass factor.
+  swat: { hp: 120, massFactor: 1.8, topSpeedPct: 100, behavior: 'flank', ramDamageMultiplier: 1.5 },
   gunTruck: { hp: 100, massFactor: 1.5, topSpeedPct: 95, behavior: 'standoff' },
   tank: { hp: 400, massFactor: 6.0, topSpeedPct: 55, behavior: 'siege' },
 } as const satisfies Record<string, EnemyUnitDef>;
@@ -286,4 +312,63 @@ export const AI_STEERING = {
   // consistent "on its roof = dead" behavior across all vehicles.
   wreckUpDot: 0.3,
   wreckFlipSustainSec: 1.5,
+  // --- slow-target press-in (Phase 10; BUSTED reachability, phase-09-notes.md debt) --------
+  // The Phase 9 shortfall: rams shove a stopped player (resetting the BUSTED speed window) and
+  // building-avoidance keeps units ORBITING >8 m when the player is wall-pinned, so an organic
+  // BUSTED (≥3 pursuers within BUSTED.pursuerRadius while the player is stopped) was almost
+  // unreachable. The fix, applied in aiSteering.pursueSteer's PURSUE mode only: when the target
+  // (player) is slower than pressSpeedMps AND the unit is already within pressDistM, the unit
+  //   (a) COMMITS — drops the velocity lead and drives at the player's current position (like a
+  //       ram, but the band reaches out to pressDistM instead of stopping at commitDistM), and
+  //   (b) DAMPS its avoidance term by pressAvoidScale so it crowds right up to a wall-pinned
+  //       player instead of peeling off around the building behind them.
+  // Result: cops PACK a stationary player (low closing speed, so they hold it pinned rather than
+  // knocking it away) → the organic BUSTED window closes. Inactive the instant the player moves
+  // faster than pressSpeedMps, so normal high-speed chases are byte-for-byte unchanged.
+  pressSpeedMps: 2,
+  pressDistM: 15,
+  pressAvoidScale: 0.3,
+  // --- flank arrival easing (Phase 10; used by the 'flank' steering mode / SWAT flankers) ---
+  // A flanker seeks an assigned squad slot (ai/squad.ts) rather than the player. As it closes
+  // inside flankArriveM of that slot it eases the throttle down toward flankArriveThrottle so it
+  // SETTLES into formation ~parallel to the player instead of ramming through the slot at full
+  // speed. flankArriveThrottle sits below the pursue throttleFloor on purpose — a flanker holds
+  // station, it isn't relentlessly closing for a hit (that's what the rammers are for).
+  flankArriveM: 8,
+  flankArriveThrottle: 0.2,
+} as const;
+
+// SWAT squad flank-coordinator params (Phase 10 Task 1; TDD §5.6 SWAT row: "two units steer to
+// ±30° offsets ahead of the player to box in; others ram"). Consumed by the PURE coordinator
+// (ai/squad.ts — slot geometry, claim assignment, stuck-claim release) that the SquadMount
+// (ai/SquadMount.tsx) drives at SPAWN.aiTickHz and publishes through ai/squadCoordinator.ts.
+// All leva-live; the TDD gives only the ±30°/box-in intent, so these are the tunable baseline.
+export const SQUAD = {
+  // The two flank slots sit this far ahead of the player, at ±flankOffsetDeg off the base
+  // direction (TDD §5.6). 13 m ≈ one car length ahead + a lane, close enough to box, far enough
+  // that a moving player can still try to split them.
+  flankDistanceM: 13,
+  flankOffsetDeg: 30,
+  // Base direction is the player's VELOCITY heading while they're moving at least this fast (box
+  // in where they're GOING), otherwise their FACING (a near-stationary player has no meaningful
+  // velocity heading). TDD §5.6 "ahead of the player".
+  flankSpeedThresholdMps: 3,
+  // Claim cost = distance(unit→slot) + heading-misalignment(rad) × headingWeightM. The heading
+  // term weights "already pointing at the slot" against raw proximity, so a well-oriented unit
+  // isn't out-bid by a marginally-closer one facing the wrong way (which would then arc across
+  // the player's nose to reach its slot).
+  headingWeightM: 6,
+  // Incumbency hysteresis: a challenger takes an already-claimed slot only if its cost beats the
+  // incumbent's by at least this fraction — kills claim thrash when two units are near-tied and
+  // jitter would otherwise flip the assignment every tick.
+  hysteresisPct: 0.2,
+  // Stuck-claim release: a claim frees up if its claimant fails to get within reachDistM of the
+  // slot for unreachableSec continuously (e.g. wedged behind a building), so a better-placed
+  // unit can take the slot instead of the whole flank stalling on one stuck member.
+  reachDistM: 6,
+  unreachableSec: 2,
+  // clampToDrivable spiral-search bound (tiles): a flank slot that lands on a building or fenced
+  // (transformer) tile snaps to the nearest drivable (road/park/parkingLot) tile center within
+  // this Chebyshev radius. 6 tiles = 60 m, comfortably larger than any single building footprint.
+  clampMaxRadiusTiles: 6,
 } as const;

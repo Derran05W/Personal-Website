@@ -185,3 +185,91 @@ describe('stuck recovery', () => {
     expect(rl.command.steer).toBeLessThan(0);
   });
 });
+
+// --- Phase 10: slow-target press-in (BUSTED reachability, phase-09-notes.md debt) ------------
+describe('slow-target press-in (pursue mode)', () => {
+  // A near-stopped player just OUTSIDE the ram band but inside pressDistM.
+  const slowClose = { x: 0, z: 12 }; // dist 12: > commitDistM(10), < pressDistM(15)
+  const creep = { x: 1.5, z: 0 }; // speed 1.5 < pressSpeedMps(2)
+  const fast = { x: 0, z: 10 }; // speed 10 > pressSpeedMps → no press
+
+  it('engages (behavior "press") when the player is slow AND within pressDistM but past the ram band', () => {
+    const r = pursueSteer(atOrigin, 5, slowClose, creep, CLEAR, initialStuckState, P, DT);
+    expect(r.behavior).toBe('press');
+    expect(r.command.throttle).toBeGreaterThan(0);
+  });
+
+  it('COMMITS (drops the lead → aims at the current position) so a lateral drift is ignored', () => {
+    // creep drifts toward +X; a leading unit would steer right, a committed one aims dead ahead.
+    const r = pursueSteer(atOrigin, 5, slowClose, creep, CLEAR, initialStuckState, P, DT);
+    expect(Math.abs(r.command.steer)).toBeLessThan(0.05);
+  });
+
+  it('does NOT engage for a moving player (identical geometry) — normal pursue is unchanged', () => {
+    const r = pursueSteer(atOrigin, 5, slowClose, fast, CLEAR, initialStuckState, P, DT);
+    expect(r.behavior).toBe('pursue');
+  });
+
+  it('DAMPS avoidance (crowd the wall-pinned player) vs. a full-strength pursue turn', () => {
+    const oneSideBlocked: AvoidHits = { center: 1, left: 0.2, right: 1 }; // left more blocked → steer right
+    const pressed = pursueSteer(atOrigin, 5, slowClose, creep, oneSideBlocked, initialStuckState, P, DT);
+    const pursuing = pursueSteer(atOrigin, 5, slowClose, fast, oneSideBlocked, initialStuckState, P, DT);
+    expect(pressed.behavior).toBe('press');
+    expect(pressed.command.steer).toBeGreaterThan(0); // still steers away a bit
+    expect(pressed.command.steer).toBeLessThan(pursuing.command.steer); // but far less than a normal avoid
+  });
+
+  it('SUPPRESSES stuck recovery — a unit leaning on a stopped player never reverses away', () => {
+    // Slow-while-throttling with time already banked: press-in must reset the timer (never trip);
+    // the non-press contrast keeps accumulating. Kept below stuckSec so the contrast doesn't trip.
+    const primed: StuckState = { slowSec: 2.0, reverseRemainSec: 0, reverseDir: 1 };
+    const pressed = pursueSteer(atOrigin, 0.1, slowClose, still, CLEAR, primed, P, DT);
+    expect(pressed.behavior).toBe('press');
+    expect(pressed.stuck.slowSec).toBe(0);
+    // The same slow unit against a FAST (non-press) player DOES keep accumulating toward a reversal.
+    const notPressed = pursueSteer(atOrigin, 0.1, slowClose, fast, CLEAR, primed, P, DT);
+    expect(notPressed.stuck.slowSec).toBeGreaterThan(0);
+  });
+
+  it('drives HARD at the player (wall-ahead throttle cut lifted) to close the pin', () => {
+    // A building dead ahead would normally cut throttle; while pressing in it must not.
+    const wallAhead: AvoidHits = { center: 0, left: 1, right: 1 };
+    const pressed = pursueSteer(atOrigin, 5, slowClose, creep, wallAhead, initialStuckState, P, DT);
+    const pursuing = pursueSteer(atOrigin, 5, slowClose, fast, wallAhead, initialStuckState, P, DT);
+    expect(pressed.command.throttle).toBeGreaterThan(pursuing.command.throttle);
+  });
+});
+
+// --- Phase 10: flank steering mode (SWAT hold formation on a squad slot) ---------------------
+describe('flank steering mode', () => {
+  const player = { x: 0, z: 40 }; // player straight ahead
+  const flankRight = { x: 30, z: 0 }; // squad slot off to the RIGHT of the unit
+
+  it('seeks the FLANK TARGET, not the player (behavior "flank")', () => {
+    const r = pursueSteer(atOrigin, 10, player, still, CLEAR, initialStuckState, P, DT, 'flank', flankRight);
+    expect(r.behavior).toBe('flank');
+    expect(r.command.steer).toBeGreaterThan(0); // toward +X (the slot), NOT +Z (the player)
+  });
+
+  it('never rams: a flank target inside the ram band stays "flank", not "ram"', () => {
+    const closeSlot = { x: 0, z: 5 }; // inside commitDistM
+    const r = pursueSteer(atOrigin, 10, { x: 0, z: 5 }, still, CLEAR, initialStuckState, P, DT, 'flank', closeSlot);
+    expect(r.behavior).toBe('flank');
+  });
+
+  it('eases the throttle on close approach so it holds formation instead of ramming through', () => {
+    const far = pursueSteer(atOrigin, 10, player, still, CLEAR, initialStuckState, P, DT, 'flank', { x: 0, z: 30 });
+    const near = pursueSteer(atOrigin, 10, player, still, CLEAR, initialStuckState, P, DT, 'flank', { x: 0, z: 1 });
+    expect(far.command.throttle).toBeCloseTo(1); // full throttle far from the slot
+    expect(near.command.throttle).toBeLessThan(far.command.throttle);
+    // At the slot the throttle tapers toward flankArriveThrottle (below the pursue floor).
+    expect(near.command.throttle).toBeLessThan(P.throttleFloor);
+    expect(near.command.throttle).toBeGreaterThan(0);
+  });
+
+  it('falls back to pursue when it holds no slot (flankTarget null)', () => {
+    const r = pursueSteer(atOrigin, 10, { x: 30, z: 0 }, still, CLEAR, initialStuckState, P, DT, 'flank', null);
+    expect(r.behavior).toBe('pursue');
+    expect(r.command.steer).toBeGreaterThan(0); // seeks the player again
+  });
+});

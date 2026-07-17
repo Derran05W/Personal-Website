@@ -12,6 +12,7 @@ import {
   COLLIDES_WITH,
   interactionGroups,
   type CollisionGroupName,
+  type EnemyUnitDef,
 } from './index';
 
 describe('heat', () => {
@@ -119,5 +120,29 @@ describe('vehicles', () => {
     expect(Object.keys(ENEMY_UNITS).sort()).toEqual(
       ['armored', 'gunTruck', 'police', 'swat', 'tank'].sort(),
     );
+  });
+
+  it('Phase 10: armored/swat escalate hp, mass, and ram multiplier over police', () => {
+    expect(ENEMY_UNITS.armored.hp).toBeGreaterThan(ENEMY_UNITS.police.hp);
+    expect(ENEMY_UNITS.swat.hp).toBeGreaterThan(ENEMY_UNITS.armored.hp);
+    expect(ENEMY_UNITS.armored.massFactor).toBeGreaterThan(ENEMY_UNITS.police.massFactor);
+    expect(ENEMY_UNITS.swat.massFactor).toBeGreaterThan(ENEMY_UNITS.armored.massFactor);
+    expect(ENEMY_UNITS.armored.ramDamageMultiplier ?? 1).toBeGreaterThan(
+      ENEMY_UNITS.police.ramDamageMultiplier ?? 1,
+    );
+    expect(ENEMY_UNITS.swat.ramDamageMultiplier ?? 1).toBeGreaterThan(
+      ENEMY_UNITS.armored.ramDamageMultiplier ?? 1,
+    );
+  });
+
+  it('only armored defines a shoveImpulse', () => {
+    // ENEMY_UNITS is `as const`, so each entry's literal type only carries the keys actually
+    // written for it — widen to EnemyUnitDef (structurally compatible; optional fields simply
+    // absent) to assert absence on police/swat without a type error.
+    const police: EnemyUnitDef = ENEMY_UNITS.police;
+    const swat: EnemyUnitDef = ENEMY_UNITS.swat;
+    expect(ENEMY_UNITS.armored.shoveImpulse).toBeGreaterThan(0);
+    expect(police.shoveImpulse).toBeUndefined();
+    expect(swat.shoveImpulse).toBeUndefined();
   });
 });

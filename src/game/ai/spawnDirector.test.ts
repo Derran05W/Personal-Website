@@ -4,6 +4,8 @@ import {
   STEPS_PER_THINK,
   capForTier,
   collectRoadPoints,
+  countPursuingKind,
+  filterRegisteredEntries,
   lingerExpired,
   nearestPointIndex,
   pickCompositionKind,
@@ -19,7 +21,7 @@ import { SPAWN, SPAWN_COMPOSITION, type CompositionEntry } from '../config';
 import { createRng } from '../world/rng';
 import { gameEvents } from '../state/events';
 import type { Tile } from '../world/types';
-import type { UnitFactory, UnitHandle, UnitSlot } from './pursuitTypes';
+import type { UnitFactory, UnitHandle, UnitKind, UnitSlot } from './pursuitTypes';
 
 // --- fixtures --------------------------------------------------------------------------------
 
@@ -37,14 +39,14 @@ interface StubRec {
   disposed: boolean;
 }
 
-function stubFactory(recs: StubRec[]): UnitFactory {
+function stubFactory(recs: StubRec[], kind: UnitKind = 'police'): UnitFactory {
   // Faithfully records the pose the director hands it — including the yaw — exactly as a real
   // unit factory (Task 2) writes the spawn pose into its slot.
   return ({ x, z, yaw }) => {
     const q = quatFromYaw(yaw);
     const slot: UnitSlot = {
       id: recs.length,
-      kind: 'police',
+      kind,
       state: 'pursuing',
       x,
       y: 0,
@@ -197,29 +199,117 @@ describe('thinkPhase / shouldThink (10 Hz stagger)', () => {
 });
 
 describe('pickCompositionKind', () => {
-  it('v1 table: ★0 spawns nothing; every tier ≥ ★1 picks police', () => {
+  it('★0 spawns nothing; the still-single-kind tiers (★1/★4/★5) always pick police', () => {
     expect(pickCompositionKind(SPAWN_COMPOSITION.tiers[0], () => 0.5)).toBeNull();
-    for (let t = 1; t <= 5; t++) {
+    for (const t of [1, 4, 5]) {
       expect(pickCompositionKind(SPAWN_COMPOSITION.tiers[t], () => 0)).toBe('police');
       expect(pickCompositionKind(SPAWN_COMPOSITION.tiers[t], () => 0.999)).toBe('police');
     }
   });
 
-  it('rolls proportional to weight across multiple kinds (Part 4 shape)', () => {
-    // UnitKind is only 'police' in v1; cast a two-kind table to prove the picker is generic
-    // over the composition shape Part 4 will use (police + a heavier unit at higher tiers).
-    const entries = [
+  it('rolls proportional to weight across multiple kinds (Phase 10 shape)', () => {
+    const entries: CompositionEntry[] = [
       { kind: 'police', weight: 1 },
       { kind: 'armored', weight: 3 },
-    ] as unknown as readonly CompositionEntry[];
-    expect(pickCompositionKind(entries, () => 0.1) as string).toBe('police'); // r=0.4 → −0.6 <0
-    expect(pickCompositionKind(entries, () => 0.9) as string).toBe('armored'); // r=3.6 → past police
+    ];
+    expect(pickCompositionKind(entries, () => 0.1)).toBe('police'); // r=0.4 → −0.6 <0
+    expect(pickCompositionKind(entries, () => 0.9)).toBe('armored'); // r=3.6 → past police
   });
 
   it('returns null for an empty list or all-zero weights', () => {
     expect(pickCompositionKind([], () => 0.5)).toBeNull();
     const zeroed = [{ kind: 'police', weight: 0 }] as const;
     expect(pickCompositionKind(zeroed, () => 0.5)).toBeNull();
+  });
+});
+
+describe('countPursuingKind', () => {
+  function slot(kind: UnitKind | null, state: 'pursuing' | 'wrecked'): UnitSlot {
+    return { id: 0, kind, state, x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1, hp: 1, behaviorLabel: '' };
+  }
+
+  it('counts only non-wrecked units of the given kind', () => {
+    const slots = [
+      slot('swat', 'pursuing'),
+      slot('swat', 'pursuing'),
+      slot('swat', 'wrecked'), // lingering wreck — must not count
+      slot('police', 'pursuing'),
+      slot(null, 'pursuing'), // free pool slot — kind is null, must not count
+    ];
+    expect(countPursuingKind(slots, 'swat')).toBe(2);
+    expect(countPursuingKind(slots, 'police')).toBe(1);
+    expect(countPursuingKind(slots, 'armored')).toBe(0);
+  });
+
+  it('is 0 for an empty slot list', () => {
+    expect(countPursuingKind([], 'police')).toBe(0);
+  });
+});
+
+describe('filterRegisteredEntries', () => {
+  const entries: CompositionEntry[] = [
+    { kind: 'police', weight: 3 },
+    { kind: 'armored', weight: 2 },
+    { kind: 'swat', weight: 3 },
+  ];
+
+  it('keeps only entries whose kind passes isRegistered, weights untouched', () => {
+    const registeredOnlyPoliceAndSwat = (k: string) => k === 'police' || k === 'swat';
+    expect(filterRegisteredEntries(entries, registeredOnlyPoliceAndSwat)).toEqual([
+      { kind: 'police', weight: 3 },
+      { kind: 'swat', weight: 3 },
+    ]);
+  });
+
+  it('returns everything when all kinds are registered', () => {
+    expect(filterRegisteredEntries(entries, () => true)).toEqual(entries);
+  });
+
+  it('returns [] when nothing is registered', () => {
+    expect(filterRegisteredEntries(entries, () => false)).toEqual([]);
+  });
+});
+
+describe('★2/★3 composition weights (chi-squared-loose bounds)', () => {
+  // Not a strict chi-squared test — a generous tolerance band around the expected proportion
+  // across many seeded draws, enough to catch a badly wrong weight (e.g. a swapped ratio)
+  // without being flaky over reasonable RNG variance.
+  const N = 4000;
+
+  function draw(entries: readonly CompositionEntry[], seedLabel: string): Record<string, number> {
+    const rng = createRng(1).fork(seedLabel);
+    const counts: Record<string, number> = {};
+    for (let i = 0; i < N; i++) {
+      const kind = pickCompositionKind(entries, rng.next);
+      if (kind !== null) counts[kind] = (counts[kind] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  it('★2 draws police:armored close to the configured 3:2 weight ratio', () => {
+    const counts = draw(SPAWN_COMPOSITION.tiers[2], 'tier2-weights');
+    const total = (counts.police ?? 0) + (counts.armored ?? 0);
+    expect(total).toBe(N);
+    const policeFrac = (counts.police ?? 0) / N;
+    const armoredFrac = (counts.armored ?? 0) / N;
+    // Expected: police 0.6, armored 0.4 — loose ±0.08 band.
+    expect(policeFrac).toBeGreaterThan(0.52);
+    expect(policeFrac).toBeLessThan(0.68);
+    expect(armoredFrac).toBeGreaterThan(0.32);
+    expect(armoredFrac).toBeLessThan(0.48);
+  });
+
+  it('★3 draws police:armored:swat close to the configured 3:2:3 weight ratio', () => {
+    const counts = draw(SPAWN_COMPOSITION.tiers[3], 'tier3-weights');
+    const total = (counts.police ?? 0) + (counts.armored ?? 0) + (counts.swat ?? 0);
+    expect(total).toBe(N);
+    // Expected: police 0.375, armored 0.25, swat 0.375 — loose ±0.08 band each.
+    expect((counts.police ?? 0) / N).toBeGreaterThan(0.29);
+    expect((counts.police ?? 0) / N).toBeLessThan(0.46);
+    expect((counts.armored ?? 0) / N).toBeGreaterThan(0.17);
+    expect((counts.armored ?? 0) / N).toBeLessThan(0.33);
+    expect((counts.swat ?? 0) / N).toBeGreaterThan(0.29);
+    expect((counts.swat ?? 0) / N).toBeLessThan(0.46);
   });
 });
 
@@ -415,5 +505,184 @@ describe('SpawnDirectorController', () => {
     }
     expect(recs[0].disposed).toBe(true);
     expect(controller.api.activeCount()).toBe(SPAWN.caps[1]); // back to steady state
+  });
+});
+
+// ============================================================================================
+// minPreferred fill order (Phase 10 Task 3) — three stub factories (police/armored/swat), all
+// registered, driving the real ★2/★3 SPAWN_COMPOSITION rows.
+// ============================================================================================
+
+describe('SpawnDirectorController — minPreferred fill order', () => {
+  const PLAYER = { x: 0, z: 0 };
+  const RING_POINTS: RoadPoint[] = [
+    { x: 53, z: 53, tileIndex: 0 },
+    { x: 55, z: 50, tileIndex: 1 },
+    { x: 50, z: 55, tileIndex: 2 },
+    { x: 60, z: 45, tileIndex: 3 },
+    { x: 45, z: 60, tileIndex: 4 },
+    { x: 58, z: 48, tileIndex: 5 },
+    { x: 40, z: 62, tileIndex: 6 },
+    { x: 62, z: 40, tileIndex: 7 },
+  ];
+
+  let recs: StubRec[];
+  let tier: number;
+  let player: { x: number; z: number } | null;
+  let controller: SpawnDirectorController;
+
+  beforeEach(() => {
+    recs = [];
+    tier = 0;
+    player = { ...PLAYER };
+    registerUnitFactory('police', stubFactory(recs, 'police'));
+    registerUnitFactory('armored', stubFactory(recs, 'armored'));
+    registerUnitFactory('swat', stubFactory(recs, 'swat'));
+    controller = new SpawnDirectorController({
+      roadPoints: RING_POINTS,
+      rng: createRng(77).fork('minpreferred-test'),
+      getTier: () => tier,
+      getPlayerPos: () => player,
+      camForward: cameraForwardXZ(),
+    });
+  });
+
+  afterEach(() => {
+    controller.dispose();
+    unregisterUnitFactory('police');
+    unregisterUnitFactory('armored');
+    unregisterUnitFactory('swat');
+  });
+
+  it("★3 fills its minPreferred SWAT quota before spending the rest of the cap on the weighted roll", () => {
+    tier = 3;
+    controller.requestFill();
+    controller.stepAfter();
+    expect(controller.api.activeCount()).toBe(SPAWN.caps[3]);
+
+    const minSwat = SPAWN_COMPOSITION.minPreferred?.[3]?.find((p) => p.kind === 'swat')?.count ?? 0;
+    expect(minSwat).toBeGreaterThan(0); // sanity: the config row this test exercises is non-trivial
+    // Pass 1 (minPreferred) always completes before pass 2 (weighted) within one maintain()
+    // call, so the FIRST `minSwat` units ever spawned this run must be the guaranteed kind.
+    expect(recs.slice(0, minSwat).every((r) => r.slot.kind === 'swat')).toBe(true);
+    // And the quota is actually met live, not just attempted first.
+    expect(recs.filter((r) => r.slot.kind === 'swat').length).toBeGreaterThanOrEqual(minSwat);
+  });
+
+  it('a wrecked (lingering) SWAT unit stops counting toward the quota, so a replacement spawns', () => {
+    tier = 3;
+    controller.requestFill();
+    controller.stepAfter();
+    const swatBefore = recs.filter((r) => r.slot.kind === 'swat' && r.slot.state !== 'wrecked').length;
+    expect(swatBefore).toBeGreaterThanOrEqual(2);
+
+    const swatRec = recs.find((r) => r.slot.kind === 'swat');
+    expect(swatRec).toBeDefined();
+    swatRec!.slot.state = 'wrecked'; // lingers as debris — must not count toward the >=2 floor
+
+    controller.requestFill();
+    controller.stepAfter();
+
+    const pursuingSwat = recs.filter((r) => r.slot.kind === 'swat' && r.slot.state !== 'wrecked').length;
+    expect(pursuingSwat).toBeGreaterThanOrEqual(2);
+  });
+
+  it('★2 has no minPreferred entry — fills purely from its two-kind weighted roll', () => {
+    tier = 2;
+    controller.requestFill();
+    controller.stepAfter();
+    expect(controller.api.activeCount()).toBe(SPAWN.caps[2]);
+    expect(SPAWN_COMPOSITION.minPreferred?.[2] ?? []).toEqual([]);
+    // Only ★2's two configured kinds ever appear (no leakage from swat, which has no floor
+    // and a zero weight in this tier's row).
+    expect(recs.every((r) => r.slot.kind === 'police' || r.slot.kind === 'armored')).toBe(true);
+    expect(recs).toHaveLength(SPAWN.caps[2]);
+  });
+});
+
+// ============================================================================================
+// Unknown-factory fallback (Phase 10 Task 3) — a composition pick whose kind has no registered
+// factory (Task 2's armored/swat units land on their own schedule) must skip cleanly: fall
+// back to a registered kind within the same tier, or spawn nothing this round — never throw.
+// ============================================================================================
+
+describe('SpawnDirectorController — unknown-factory fallback', () => {
+  const PLAYER = { x: 0, z: 0 };
+  const RING_POINTS: RoadPoint[] = [
+    { x: 53, z: 53, tileIndex: 0 },
+    { x: 55, z: 50, tileIndex: 1 },
+    { x: 50, z: 55, tileIndex: 2 },
+    { x: 60, z: 45, tileIndex: 3 },
+    { x: 45, z: 60, tileIndex: 4 },
+    { x: 58, z: 48, tileIndex: 5 },
+  ];
+
+  let recs: StubRec[];
+  let tier: number;
+  let player: { x: number; z: number } | null;
+  let controller: SpawnDirectorController;
+
+  beforeEach(() => {
+    recs = [];
+    tier = 0;
+    player = { ...PLAYER };
+    controller = new SpawnDirectorController({
+      roadPoints: RING_POINTS,
+      rng: createRng(99).fork('unknown-factory-test'),
+      getTier: () => tier,
+      getPlayerPos: () => player,
+      camForward: cameraForwardXZ(),
+    });
+  });
+
+  afterEach(() => {
+    controller.dispose();
+    unregisterUnitFactory('police');
+    unregisterUnitFactory('armored');
+    unregisterUnitFactory('swat');
+  });
+
+  it('★2 fills entirely with police when armored has no registered factory yet (never throws)', () => {
+    registerUnitFactory('police', stubFactory(recs, 'police'));
+    // Deliberately NOT registering 'armored' — simulates Task 2 (armored/swat units) still
+    // being mid-flight while this composition/director work lands.
+    tier = 2;
+    expect(() => {
+      controller.requestFill();
+      controller.stepAfter();
+    }).not.toThrow();
+    expect(controller.api.activeCount()).toBe(SPAWN.caps[2]);
+    expect(recs.every((r) => r.slot.kind === 'police')).toBe(true);
+  });
+
+  it('a tier whose entire mix has no registered factory spawns nothing, never throws, never hangs', () => {
+    // No factories registered at all — worst case for the fallback guard.
+    tier = 1; // ★1's composition is police-only
+    expect(() => {
+      controller.requestFill();
+      controller.stepAfter();
+    }).not.toThrow();
+    expect(controller.api.activeCount()).toBe(0);
+    expect(recs).toHaveLength(0);
+  });
+
+  it('forceSpawn of an unregistered kind returns false cleanly instead of throwing', () => {
+    expect(() => controller.api.forceSpawn('swat')).not.toThrow();
+    expect(controller.api.forceSpawn('swat')).toBe(false);
+    expect(controller.api.activeCount()).toBe(0);
+  });
+
+  it('★3 minPreferred SWAT quota is skipped (not spun on) when swat has no registered factory', () => {
+    registerUnitFactory('police', stubFactory(recs, 'police'));
+    registerUnitFactory('armored', stubFactory(recs, 'armored'));
+    // swat deliberately unregistered — the minPreferred pass must give up on it cleanly and
+    // let the weighted pass fill the rest of the cap with the registered kinds.
+    tier = 3;
+    expect(() => {
+      controller.requestFill();
+      controller.stepAfter();
+    }).not.toThrow();
+    expect(controller.api.activeCount()).toBe(SPAWN.caps[3]);
+    expect(recs.every((r) => r.slot.kind === 'police' || r.slot.kind === 'armored')).toBe(true);
   });
 });

@@ -48,34 +48,72 @@ export interface CompositionEntry {
   readonly weight: number;
 }
 
+/** A per-tier "guarantee at least N of this kind before the weighted roll gets a turn"
+ * quota (SPAWN_COMPOSITION.minPreferred). See that field's doc comment for the fill-order
+ * contract. */
+export interface MinPreferredEntry {
+  readonly kind: UnitKind;
+  /** Minimum count of currently-pursuing (non-wrecked) units of `kind` the director tries
+   * to maintain before spending any more of the tier's cap on weighted picks. */
+  readonly count: number;
+}
+
 /** Shape of the per-tier spawn-composition table. */
 export interface SpawnComposition {
   /** Indexed by wanted tier ★0..★5; each a weighted list of kinds to draw from. */
   readonly tiers: readonly (readonly CompositionEntry[])[];
+  /**
+   * Indexed by wanted tier ★0..★5 (same indexing as `tiers`); each tier's (possibly empty)
+   * list of minimum-preferred-kind quotas. Optional at the table level — a tier with no
+   * entry (or an empty array) has no minimum and is filled purely by `tiers[tier]`'s
+   * weighted roll, same as before this field existed.
+   */
+  readonly minPreferred?: readonly (readonly MinPreferredEntry[])[];
 }
 
 /**
  * Per-tier unit-kind mix the spawn director draws from when filling a slot (TDD §5.5/§5.6).
  *
  * The director reads `tiers[tier]`, rolls one kind weighted by `weight`, then spawns via
- * that kind's registered factory. ★0 is empty (peaceful — no pursuit). v1 ships ONLY the
- * police sedan, so every tier ≥ ★1 is a single-entry `[{ kind: 'police', weight: 1 }]`.
+ * that kind's registered factory. ★0 is empty (peaceful — no pursuit).
  *
  * This shape is the extension point for all of Part 4: an escalation phase adds its unit by
- * APPENDING an entry to the tiers where it appears — e.g. ★2 gains `{ kind: 'armored',
- * weight: … }` alongside police, ★5 gains `{ kind: 'tank', … }` (concurrent tanks separately
- * capped by SPAWN.maxTanks in the director). No director code changes: it reads this table
- * generically and looks each kind up in the factory registry. Weights are relative — only
- * their ratios within a tier matter.
+ * APPENDING an entry to the tiers where it appears — e.g. ★5 gains `{ kind: 'tank', … }`
+ * (concurrent tanks separately capped by SPAWN.maxTanks in the director). No director code
+ * changes: it reads this table generically and looks each kind up in the factory registry.
+ * Weights are relative — only their ratios within a tier matter. A kind whose factory isn't
+ * registered yet (e.g. mid-build, before its unit module's mesh mount imports and registers
+ * it) is transparently excluded from the roll rather than stalling the fill — see
+ * ai/spawnDirector.ts's `filterRegisteredEntries`.
+ *
+ * ★2/★3 rows (Phase 10, TDD §5.5 rows 2-3) are feel-tunable — these weights are a starting
+ * point, not TDD-given exact numbers; retune here (and in `minPreferred` below) if the
+ * fun-gate playtest wants a different mix.
  */
 export const SPAWN_COMPOSITION = {
   tiers: [
     [], // ★0 — peaceful city, nothing spawns
-    [{ kind: 'police', weight: 1 }], // ★1 — police sedans
-    [{ kind: 'police', weight: 1 }], // ★2 — Part 4: + { kind: 'armored', … }
-    [{ kind: 'police', weight: 1 }], // ★3 — Part 4: + { kind: 'swat', … }
+    [{ kind: 'police', weight: 1 }], // ★1 — police sedans only
+    [
+      { kind: 'police', weight: 3 },
+      { kind: 'armored', weight: 2 },
+    ], // ★2 — armored joins; cap stays SPAWN.caps[2] (6), untouched by this table
+    [
+      { kind: 'police', weight: 3 },
+      { kind: 'armored', weight: 2 },
+      { kind: 'swat', weight: 3 },
+    ], // ★3 — SWAT joins; minPreferred below guarantees flankers actually show up
     [{ kind: 'police', weight: 1 }], // ★4 — Part 4: + { kind: 'gunTruck', … }
     [{ kind: 'police', weight: 1 }], // ★5 — Part 4: + { kind: 'tank', … } (maxTanks capped)
+  ],
+  minPreferred: [
+    [], // ★0
+    [], // ★1
+    [], // ★2 — no minimum; armored is a weighted extra, not a guaranteed presence
+    [{ kind: 'swat', count: 2 }], // ★3 — squad.ts's flank slots need bodies to claim them;
+    // without a floor, an unlucky weighted roll could leave ★3 with zero SWAT for a while.
+    [], // ★4
+    [], // ★5
   ],
 } as const satisfies SpawnComposition;
 

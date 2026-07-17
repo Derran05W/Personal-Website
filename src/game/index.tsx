@@ -31,7 +31,10 @@ import { Traffic } from './ai/TrafficMount';
 import { TrafficMesh } from './ai/TrafficMesh';
 import { RunLoopSystem } from './combat/runLoop';
 import { SpawnDirector } from './ai/SpawnDirectorMount';
+import { SquadMount } from './ai/SquadMount';
 import { PoliceMesh } from './ai/units/PoliceMesh';
+import { ArmoredMesh } from './ai/units/ArmoredMesh';
+import { SwatMesh } from './ai/units/SwatMesh';
 import GameOver from './hud/GameOver';
 import { SirensSystem } from './audio/SirensSystem';
 import { HeatScoreSystem } from './state/heatScoreSystem';
@@ -59,6 +62,9 @@ const PerfOverlay = import.meta.env.DEV ? lazy(() => import('./core/PerfOverlay'
 // (core/devToggles.ts) on top of this DEV guard.
 const Minimap = import.meta.env.DEV ? lazy(() => import('./hud/Minimap')) : null;
 const GraphViz = import.meta.env.DEV ? lazy(() => import('./world/GraphViz')) : null;
+// In-scene SWAT-squad flank visualizer (Phase 10), same DEV-guard + leva-toggle pattern as
+// GraphViz — the coordinator itself (SquadMount) always ships; only this overlay is dev-only.
+const SquadViz = import.meta.env.DEV ? lazy(() => import('./ai/SquadViz')) : null;
 
 // core/debugBridge.ts isn't a component (no default export for lazy()/Suspense to hang
 // off of) — it's a side-effect module that assigns window.__smashy once loaded, purely
@@ -117,6 +123,7 @@ export default function Game() {
   // Reactive read of the leva "graphViz" toggle (core/devToggles.ts) — always false/no-op
   // in prod (nothing ever calls setDevToggle there), cheap enough to call unconditionally.
   const graphVizOn = useDevToggle('graphViz');
+  const squadVizOn = useDevToggle('squadViz');
 
   // The generated city (TDD §5.4): pure data, ~1–2 ms, memoized per seed. Changing the
   // store seed (leva "World" folder / future garage UI) regenerates here, and the
@@ -213,7 +220,12 @@ export default function Game() {
                 per-step tick list; the director owns spawn/despawn/caps. Run-loop owns
                 WRECKED/BUSTED/water → GAMEOVER. All keyed on the retry nonce. */}
             <PoliceMesh key={`police-${worldKey}`} />
+            <ArmoredMesh key={`armored-${worldKey}`} />
+            <SwatMesh key={`swat-${worldKey}`} />
             <SpawnDirector key={`director-${worldKey}`} world={world} seed={seed} />
+            {/* SWAT-squad flank coordinator (Phase 10): publishes flank-slot claims SWAT units
+                read to box in the player. Gameplay infra (ships), keyed like the director. */}
+            <SquadMount key={`squad-${worldKey}`} world={world} />
             <RunLoopSystem key={`runloop-${worldKey}`} />
             {/* Heat/score accrual runs in fixed-step land (Phase 8) — pausing Physics
                 pauses accrual for free. */}
@@ -237,6 +249,12 @@ export default function Game() {
             {GraphViz && graphVizOn ? (
               <Suspense fallback={null}>
                 <GraphViz world={world} />
+              </Suspense>
+            ) : null}
+
+            {SquadViz && squadVizOn ? (
+              <Suspense fallback={null}>
+                <SquadViz />
               </Suspense>
             ) : null}
           </Physics>

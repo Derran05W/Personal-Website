@@ -1,0 +1,44 @@
+// R3F mount that drives the SWAT-squad coordinator (Phase 10 Task 1). Named `SquadMount.tsx`
+// (not `Squad.tsx`) to stay case-distinct from a potential `squad.ts` on case-insensitive file
+// systems, mirroring ai/SpawnDirectorMount.tsx next to ai/spawnDirector.ts.
+//
+// This is GAMEPLAY infrastructure, NOT a dev tool: the published claims are what SWAT units read
+// to flank, so it ships in production (the dev-gated part is only the ai/SquadViz.tsx visualizer).
+// It owns no state of its own — ai/squadCoordinator.ts holds the module-scope published state; the
+// mount just calls updateSquad() on a 10 Hz cadence off the physics step (so it pauses with the
+// world and never runs faster than the units think) and resetSquad() on teardown.
+//
+// MUST live inside <Physics> (the step hook only fires while the world is stepping — i.e. PLAYING)
+// and be keyed on the world seed/run nonce alongside the city/director so the coordinator's
+// published state tears down and rebuilds cleanly on regenerate/retry.
+
+import { useEffect, useRef } from 'react';
+import { useBeforePhysicsStep } from '@react-three/rapier';
+import type { WorldData } from '../world/types';
+import { resetSquad, updateSquad, SQUAD_STEPS_PER_UPDATE } from './squadCoordinator';
+
+export interface SquadMountProps {
+  /** Generated city — its tile data clamps flank slots off buildings (clampToDrivable). */
+  readonly world: WorldData;
+}
+
+export function SquadMount({ world }: SquadMountProps) {
+  const stepRef = useRef(0);
+
+  // Clear any stale published claims on mount and on teardown (regenerate / retry / route away).
+  useEffect(() => {
+    resetSquad();
+    return () => resetSquad();
+  }, [world]);
+
+  useBeforePhysicsStep(() => {
+    // Throttle to the 10 Hz think cadence — the flank slots only need to track the player as often
+    // as a unit re-decides, and clampToDrivable's spiral search shouldn't run at 60 Hz.
+    stepRef.current += 1;
+    if (stepRef.current < SQUAD_STEPS_PER_UPDATE) return;
+    stepRef.current = 0;
+    updateSquad(world);
+  });
+
+  return null;
+}

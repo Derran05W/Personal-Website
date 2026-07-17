@@ -5,8 +5,10 @@ import {
   computeDamage,
   initDamageSystem,
   massFactorOf,
+  ramDamageMultiplier,
   type DamageConfig,
 } from './damage';
+import { ENEMY_UNITS } from '../config/vehicles';
 import { dispatchImpact, __resetContactsForTest } from './contacts';
 import type { ImpactRecord } from './types';
 import { clearRegistry, registerEntity, type EntityEntry } from '../world/registry';
@@ -31,6 +33,11 @@ function transformer(hp: number, districtId = 2, instanceId = 0): EntityEntry {
 
 function parkedCar(hp: number, instanceId = 3, districtId = 5): EntityEntry {
   return { kind: 'propStatic', archetype: 'parkedCar', instanceId, districtId, hp };
+}
+
+/** A pursuit unit registry entry (Phase 10) — police/armored/swat, carrying its unitKind. */
+function pursuitUnit(unitKind: 'police' | 'armored' | 'swat', hp = 999): EntityEntry {
+  return { kind: 'pursuit', districtId: -1, hp, unitKind };
 }
 
 /** A hp-LESS static prop (mailbox etc.) — the swap-emits-propDestroyed side per the file
@@ -139,6 +146,48 @@ describe('massFactorOf', () => {
     expect(massFactorOf(undefined)).toBe(1);
     expect(massFactorOf({ kind: 'building', districtId: 0 })).toBe(1);
     expect(massFactorOf({ kind: 'ground', districtId: -1 })).toBe(1);
+  });
+
+  // --- Phase 10: pursuit-unit mass factors (armored/swat) --------------------------------------
+
+  it('a pursuit entry with a unitKind resolves DIRECTLY to ENEMY_UNITS[unitKind].massFactor (not divided by referenceMassKg again)', () => {
+    expect(massFactorOf(pursuitUnit('police'))).toBe(ENEMY_UNITS.police.massFactor);
+    expect(massFactorOf(pursuitUnit('armored'))).toBe(ENEMY_UNITS.armored.massFactor);
+    expect(massFactorOf(pursuitUnit('swat'))).toBe(ENEMY_UNITS.swat.massFactor);
+  });
+
+  it('armored/swat are heavier than police (1.6x / 1.8x vs 1.0x)', () => {
+    expect(massFactorOf(pursuitUnit('armored'))).toBeGreaterThan(massFactorOf(pursuitUnit('police')));
+    expect(massFactorOf(pursuitUnit('swat'))).toBeGreaterThan(massFactorOf(pursuitUnit('armored')));
+  });
+
+  it('a pursuit entry with no unitKind (should not happen in practice) falls back to 1, not a crash', () => {
+    expect(massFactorOf({ kind: 'pursuit', districtId: -1, hp: 40 })).toBe(1);
+  });
+});
+
+// --- ramDamageMultiplier (Phase 10) -----------------------------------------------------------
+
+describe('ramDamageMultiplier', () => {
+  it('police is 1 (explicit config value, same as the neutral default)', () => {
+    expect(ramDamageMultiplier(pursuitUnit('police'))).toBe(1);
+  });
+
+  it('armored is 1.15, swat is 1.5 — swat hits hardest', () => {
+    expect(ramDamageMultiplier(pursuitUnit('armored'))).toBeCloseTo(1.15, 10);
+    expect(ramDamageMultiplier(pursuitUnit('swat'))).toBeCloseTo(1.5, 10);
+    expect(ramDamageMultiplier(pursuitUnit('swat'))).toBeGreaterThan(ramDamageMultiplier(pursuitUnit('armored')));
+    expect(ramDamageMultiplier(pursuitUnit('armored'))).toBeGreaterThan(ramDamageMultiplier(pursuitUnit('police')));
+  });
+
+  it('a non-pursuit or undefined attacker defaults to 1 (no multiplier)', () => {
+    expect(ramDamageMultiplier(undefined)).toBe(1);
+    expect(ramDamageMultiplier({ kind: 'player', districtId: -1 })).toBe(1);
+    expect(ramDamageMultiplier({ kind: 'civilian', districtId: -1 })).toBe(1);
+  });
+
+  it('a pursuit entry with no unitKind defaults to 1', () => {
+    expect(ramDamageMultiplier({ kind: 'pursuit', districtId: -1 })).toBe(1);
   });
 });
 
@@ -261,6 +310,55 @@ describe('applyImpact — player damage', () => {
     const t = transformer(9999);
     applyImpact(impact(PLAYER, t, 1));
     expect(events).toHaveLength(0);
+  });
+});
+
+// --- applyImpact: ram damage multiplier direction (Phase 10) ------------------------------------
+
+describe('applyImpact — ram damage multiplier (Phase 10)', () => {
+  // Above the vehicle-pair (dynamic-vs-dynamic) threshold — see DAMAGE.vehicleRamForceProxy.
+  const ramForceMag = DAMAGE.vehicleRamForceProxy * (DAMAGE.minImpactSpeed + 10);
+
+  function playerHpLostTo(unitKind: 'police' | 'armored' | 'swat'): number {
+    getGameState().setPlayerHp(100000); // effectively indestructible, isolates one hit's damage
+    const before = getGameState().playerHp;
+    applyImpact(impact(PLAYER, pursuitUnit(unitKind), ramForceMag));
+    return before - getGameState().playerHp;
+  }
+
+  it('a unit ramming the PLAYER scales by its own ramDamageMultiplier: swat > armored > police', () => {
+    const police = playerHpLostTo('police');
+    const armored = playerHpLostTo('armored');
+    const swat = playerHpLostTo('swat');
+
+    expect(armored).toBeGreaterThan(police);
+    expect(swat).toBeGreaterThan(armored);
+    // Matches ENEMY_UNITS' own massFactor × ramDamageMultiplier product exactly (both scale the
+    // same base formula), not just "greater than" — pins the actual multiplier math.
+    expect(swat / police).toBeCloseTo(
+      (ENEMY_UNITS.swat.massFactor * (ENEMY_UNITS.swat.ramDamageMultiplier ?? 1)) /
+        (ENEMY_UNITS.police.massFactor * (ENEMY_UNITS.police.ramDamageMultiplier ?? 1)),
+      6,
+    );
+  });
+
+  it('the PLAYER ramming a unit does NOT apply the unit\'s ram multiplier (directional only) — same damage to any unit kind', () => {
+    const forceMag = ramForceMag;
+    const police = pursuitUnit('police', 99999);
+    const armored = pursuitUnit('armored', 99999);
+    const swat = pursuitUnit('swat', 99999);
+
+    applyImpact(impact(police, PLAYER, forceMag));
+    applyImpact(impact(armored, PLAYER, forceMag));
+    applyImpact(impact(swat, PLAYER, forceMag));
+
+    // Damage taken depends only on the OTHER side (the player)'s mass factor, which is always
+    // 1 — the target unit's own kind/multiplier must not affect what it takes from a player ram.
+    const policeLoss = 99999 - (police.hp ?? 0);
+    const armoredLoss = 99999 - (armored.hp ?? 0);
+    const swatLoss = 99999 - (swat.hp ?? 0);
+    expect(armoredLoss).toBeCloseTo(policeLoss, 10);
+    expect(swatLoss).toBeCloseTo(policeLoss, 10);
   });
 });
 

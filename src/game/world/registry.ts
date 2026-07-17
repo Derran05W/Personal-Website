@@ -15,6 +15,10 @@
 // (Phase 8), powergrid (Phase 13).
 
 import type { ArchetypeName } from './archetypes';
+// Type-only import of the ai-owned pursuit-unit-kind seam (erased at compile time — no
+// runtime world→ai coupling; mirrors config/spawn.ts's own type-only import of the same
+// type). See EntityEntry.unitKind below for why the registry needs it.
+import type { UnitKind } from '../ai/pursuitTypes';
 
 export type EntityKind =
   | 'player'
@@ -39,6 +43,14 @@ export interface EntityEntry {
   readonly districtId: number;
   /** Mutable hit points for damageable entities (transformers, cars…); undefined = indestructible. */
   hp?: number;
+  /** Phase 10 seam extension: which pursuit-unit kind this entry is, set by unit factories
+   * (ai/units/*) at registerEntity time for every `kind: 'pursuit'` entry. Lets
+   * combat/damage.ts's massFactorOf() and ram-damage-multiplier path key off ENEMY_UNITS
+   * directly instead of falling back to the generic archetype-mass table (pursuit units
+   * aren't instanced archetypes, so they had no mass signal before this field existed).
+   * undefined for every non-pursuit entry, and always undefined for entities that predate
+   * this field. */
+  readonly unitKind?: UnitKind;
 }
 
 const entries = new Map<number, EntityEntry>();

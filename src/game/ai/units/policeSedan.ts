@@ -32,6 +32,7 @@ import type { VehicleInputs } from '../../vehicles/IVehicleModel';
 import { PursuitVehicle } from '../pursuitVehicle';
 import { initialStuckState, pursueSteer, type StuckState } from '../aiSteering';
 import type { UnitFactory, UnitHandle, UnitSlot } from '../pursuitTypes';
+import { nextPursuitSlotId } from './slotIds';
 
 type RapierWorld = RapierContext['world'];
 type RapierNamespace = RapierContext['rapier'];
@@ -47,8 +48,9 @@ const POLICE_TOP_SPEED_SCALE = POLICE.topSpeedPct / 100;
 const IDLE_INPUTS: VehicleInputs = { steer: 0, throttle: 0, brake: 0, handbrake: false };
 
 // Stable, monotonic slot ids for debug overlay / traceability (the director slots a unit's own
-// slot by pool index; the id here is purely identity, never an array index).
-let nextSlotId = 0;
+// slot by pool index; the id here is purely identity, never an array index). Phase 10: minted
+// from slotIds.ts's SHARED counter (not a private per-module one) — see that file's header for
+// why a per-kind counter collides once armored/swat coexist with police in the same roster.
 
 // ===========================================================================================
 // Per-step tick list (module scope — survives across the mesh's hook lifetime)
@@ -96,10 +98,15 @@ class PoliceUnit implements UnitHandle, PursuitStepUnit {
   constructor(world: RapierWorld, rapier: RapierNamespace, pose: { x: number; z: number; yaw: number }) {
     this.vehicle = new PursuitVehicle({ world, rapier });
     this.colliderHandle = this.vehicle.spawn(pose, POLICE_TOP_SPEED_SCALE);
-    registerEntity(this.colliderHandle, { kind: 'pursuit', districtId: -1, hp: POLICE.hp });
+    registerEntity(this.colliderHandle, {
+      kind: 'pursuit',
+      districtId: -1,
+      hp: POLICE.hp,
+      unitKind: 'police',
+    });
 
     this.slot = {
-      id: nextSlotId++,
+      id: nextPursuitSlotId(),
       kind: 'police',
       state: 'pursuing',
       x: pose.x,

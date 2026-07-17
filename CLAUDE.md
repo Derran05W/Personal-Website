@@ -77,7 +77,7 @@ Status: `[ ]` todo · `[~]` in progress · `[!]` blocked / awaiting user · `[x]
 - [x] **Phase 9 — Police ★1, WRECKED/BUSTED, full run loop** (M4) — 2026-07-16: spawn director (extensible composition, staggered 10 Hz), police reuse the signed-off vehicle controller (lead/ram/avoid/stuck-recover, strobing lightbar), WRECKED/water/BUSTED states, damage root-cause retune + vehicle-ram proxy, same-seed retry via runId remount, game-over screen + synthesized sirens; M4 battery: swarm→death→pristine retry ×10, 0 errors; organic-BUSTED reachability flagged for Part 4 tuning; 624 tests (see phase-09-notes.md).
 
 ### Part 4 — Escalation (`.planning/part-4-escalation.md`)
-- [ ] **Phase 10 — ★2 Armored + ★3 SWAT flanking** (M5a)
+- [x] **Phase 10 — ★2 Armored + ★3 SWAT flanking** (M5a) — 2026-07-16: squad coordinator (flank slots, hysteresis, drivable clamp), armored (real 1920 kg + shove) + blacked-out SWAT (ram ×1.5) on the P9 chassis, ★2/★3 composition w/ minPreferred, press-in fix (cops crowd-and-hold); ★3 battery: both SWAT flanking live, 3-min chaos soak flat-heap 0-error; 688 tests; organic-BUSTED + unit-prop-launch debts → P11 (see phase-10-notes.md).
 - [ ] **Phase 11 — ★4 Gun trucks: standoff + turret fire** (M5b)
 - [ ] **Phase 12 — ★5 Tanks, shells, explosions + chaos bench** (M5c)
 
