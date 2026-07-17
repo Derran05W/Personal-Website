@@ -156,3 +156,74 @@ export const TANK_TELEGRAPH = {
   dotSize: 0.6,
   maxLines: 2, // safety margin above SPAWN.maxTanks (2) — mirrors GunTruckAimViz's MAX_LINES pattern
 } as const;
+
+// Helicopter searchlight — the ★2+ "drama package" (Phase 14 Task 3; TDD §5.7 "one real
+// SpotLight buys enormous drama for one light's cost" / §8.2 "one heli spotlight"). ONE
+// real SpotLight (shadows OFF) hangs from the LEAD heli (ai/heliTypes.ts slot 0) and tracks
+// the player with lag + slight overshoot (fx/searchlightMath.ts spring). The visible drama
+// is carried by a FAKE volumetric cone (an additive translucent mesh from the heli down to
+// the beam's ground intersection) plus a soft ground-spot ellipse — the fixed ~50° follow
+// camera (TDD §5.3) rarely looks up at the heli, so the cone/ground-spot ARE the feature,
+// not the light itself. Nothing here consults the power grid: it's aircraft light, so it
+// renders identically over a blacked-out district (that dark-street contrast is the whole
+// point). Colour leaves are hex strings, so the leva auto-schema (core/devPanel.tsx surfaces
+// only number/boolean leaves) skips them — tune colours in code + HMR; every number is a
+// live "SEARCHLIGHT" folder slider.
+export const SEARCHLIGHT = {
+  // The one real SpotLight. castShadow is FALSE in the component (additive drama, not a
+  // shadow-caster — and the pooled-light budget, POWER_GRID.lightPoolSize=6, leaves room
+  // for exactly one more real light). three r155+ is physically-based, so `decay` is kept
+  // low: a physically-accurate 1/d² over a 35 m throw would swallow the beam, so this is a
+  // stylized reach-to-the-ground value, not a photometric one.
+  light: {
+    color: '#fff2d0', // warm-white
+    intensity: 90,
+    halfAngleRad: 0.34, // spot cone half-angle (~19.5°); also drives the fake cone's base radius
+    penumbra: 0.75, // soft edge (0 = hard, 1 = fully feathered)
+    distance: 70, // cutoff >= the longest beam throw (altitude over the orbit lean)
+    decay: 0.9, // < 2 → stylized long reach (see note above)
+  },
+
+  // Aim-tracking spring (fx/searchlightMath.ts). The beam chases the player's INTERPOLATED
+  // pose (playerRef) with lag then a slight overshoot — "sweeping to catch you", never a
+  // rigid snap. ζ (dampingRatio) < 1 gives the overshoot; ~0.5–0.8 s settle at freqHz≈1.4.
+  aim: {
+    freqHz: 1.4, // chase speed
+    dampingRatio: 0.6, // < 1 → slight overshoot; 1 = no overshoot, > 1 = sluggish
+    height: 0.4, // m above ground the beam points at (≈ player chassis height)
+    maxSubDt: 1 / 120, // spring integrator sub-step cap (stability on frame-time spikes)
+  },
+
+  // Fake volumetric cone: an additive translucent mesh, apex at the heli, base ring at the
+  // beam→ground intersection, base radius from the spot half-angle. Vertex-colour gradient
+  // (bright at the apex → dim at the ground) fakes light attenuation down the shaft;
+  // additive + depthWrite off (fx/Tracers.tsx's additive discipline) so it glows and never
+  // z-fights. Opacity is PER QUALITY TIER — low tier is dim (P18's mobile pass may trim it
+  // to 0, which the component treats as "hide the cone").
+  cone: {
+    color: '#ffe6a8',
+    radialSegments: 28,
+    apexBrightness: 1, // vertex brightness at the heli end of the shaft
+    baseBrightness: 0.2, // vertex brightness at the ground end (the fade-out)
+    radiusScale: 1, // cone base radius = coneBaseRadius(dist, halfAngle) · this
+    opacity: { high: 0.17, med: 0.13, low: 0.07 } as Record<'high' | 'med' | 'low', number>,
+    flickerAmp: 0.05, // subtle ± opacity noise (searchlight shimmer); 0 = steady
+    flickerHz: 6.5,
+  },
+
+  // Ground spot: a soft-edged ellipse (radial-gradient CanvasTexture) laid flat at the
+  // beam→ground intersection, additive, lifted just above the SkidMarks (0.03) / scorch
+  // (0.035) decal layers so it never z-fights them (SkidMarks' y-hygiene rule).
+  ground: {
+    color: '#ffe6a8',
+    yOffset: 0.05,
+    radiusScale: 1.4, // spot radius = cone base radius · this (spills a touch past the cone)
+    opacity: 0.55,
+    textureSize: 128, // CanvasTexture resolution for the radial falloff
+  },
+
+  // Presence gate/fade: the LEAD heli slot's `presence` (0..1, ai/helicopter.ts's fly-in/out
+  // ramp) multiplies every element's brightness. Below this threshold the whole rig is
+  // hidden — and it's fully hidden whenever slot 0 is empty / no run is live.
+  presenceThreshold: 0.02,
+} as const;

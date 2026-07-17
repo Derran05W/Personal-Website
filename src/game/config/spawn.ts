@@ -3,6 +3,10 @@
 // adding e.g. `{ kind: 'armored', weight: 2 }` is typo-checked by the compiler. The union
 // itself is owned by the ai layer (the seam), config just references it.
 import type { UnitKind } from '../ai/pursuitTypes';
+// Same type-only-import discipline for the helicopter livery union (owned by ai/heliTypes.ts,
+// the Phase 14 seam) — so HELI.liveryByTier below is typo-checked against it and erased at
+// compile time (no runtime config→ai edge).
+import type { HeliLivery } from '../ai/heliTypes';
 
 // Spawn director + helicopter tunables. TDD §5.6 (spawn director, enemy caps),
 // §5.7 (helicopters).
@@ -171,6 +175,35 @@ export const HELI = {
   altitude: 35,
   // Helicopters per tier ★0..★5. TDD §5.7: one heli per tier >= ★2 (police/SWAT/
   // military livery by tier), ★5 adds a second military heli. Ambient only, no
-  // gameplay effect in v1.
+  // gameplay effect in v1. Index = wanted tier; also fixes the flight controller's
+  // active-slot count for that tier (ai/helicopter.ts countForTier).
   perTier: [0, 0, 1, 1, 1, 2],
+  // Livery flown at each tier ★0..★5 (index = wanted tier), or null where no heli flies.
+  // TDD §5.7: ★2 police, ★3 SWAT, ★4/★5 military (★5 is TWO military — see perTier).
+  // Type-checked against ai/heliTypes.ts's HeliLivery union (the seam).
+  liveryByTier: [null, null, 'police', 'swat', 'military', 'military'] as const satisfies readonly (HeliLivery | null)[],
+  // Orbit angular speed (rad/s). ~0.35 → ~18 s period at orbitRadius = a slow, cinematic
+  // sweep (linear tangential speed ≈ orbitRadius·this ≈ 14 m/s). Feel-tunable (not a
+  // TDD-given number).
+  orbitAngularSpeed: 0.35,
+  // Fly-in/out radius (m): the heli's orbit radius eases out to this while its presence
+  // fades to 0 (departing) and in from this while presence fades up (arriving), so a livery
+  // swap reads as the old heli spiralling off toward the map edge and the new one arriving
+  // from it — never a teleport. Well beyond the ~452 m map half-diagonal's on-screen zone.
+  edgeRadiusM: 280,
+  // Banked lean: bank (rad) = clamp(bankGain · signed orbit angular velocity, ±bankMaxRad).
+  // At orbitAngularSpeed this settles to ~0.315 rad (~18°), capped at bankMaxRad (~26°).
+  bankGain: 0.9,
+  bankMaxRad: 0.45,
+  // Gentle altitude bob: y = altitude + bobAmpM·sin(bobFreq·t + seededPhase). Per-slot phase
+  // is seeded off the slot index so the two ★5 helis never bob in lockstep.
+  bobAmpM: 1.2,
+  bobFreq: 0.6,
+  // Main-rotor spin rate (rad/s) accumulated into HeliSlot.rotor (HeliMesh reads it).
+  rotorSpeed: 40,
+  // Presence fade rate (units/sec): a fly-in or fly-out takes ~1 / fadeRate seconds (~2 s).
+  fadeRate: 0.5,
+  // ★5 second heli's constant bearing offset from the lead (rad). π keeps the pair exactly
+  // antipodal every frame — they can never share a bearing (TDD §5.7 "×2").
+  dualPhaseOffset: Math.PI,
 } as const;

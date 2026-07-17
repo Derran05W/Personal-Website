@@ -83,7 +83,7 @@ Status: `[ ]` todo · `[~]` in progress · `[!]` blocked / awaiting user · `[x]
 
 ### Part 5 — Signature & Juice (`.planning/part-5-signature-and-juice.md`)
 - [x] **Phase 13 — Power grid & district blackouts** (M6) — 2026-07-16/17: seeded flicker → permanent district blackouts (write 0.05 ms vs 1 ms budget), 6-light pool w/ hysteresis + dark-exclusion-even-mid-fade, DARK CITY banner + persisted badge, minimap overlay + debug suite; real event chain proven live, 876 tests (see phase-13-notes.md).
-- [ ] **Phase 14 — Helicopters & searchlight** (M7a)
+- [x] **Phase 14 — Helicopters & searchlight** (M7a) — 2026-07-17: orbit/bank flight model w/ presence fly-in/out + ★5 dual at π offset, 96-tri 3-livery heli, ONE SpotLight + fake volumetric cone + ground pool (money shots over dark districts/DARK CITY), zero physics cost (Δ0 A/B), bench 73/150 calls; 916 tests (see phase-14-notes.md).
 - [ ] **Phase 15 — Audio pass** (M7b)
 - [ ] **Phase 16 — FX & juice pass** (M7c)
 

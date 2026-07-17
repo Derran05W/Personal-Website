@@ -26,6 +26,8 @@ import {
   blackoutAll,
   relightDistrict,
   relightAll,
+  setForcedHeliTier,
+  heliSlotsSummary,
 } from './debugBridge';
 import { startChaosBench } from '../ai/chaosBench';
 import { ARCHETYPES } from '../world/archetypes';
@@ -465,6 +467,21 @@ export default function DevPanel() {
           console.error('[chaosBench] failed:', err);
         });
       });
+
+      // Phase 14 Task 1: drive the ambient-heli lifecycle (ai/helicopter.ts) by tier directly,
+      // WITHOUT granting heat — 'off' releases it back to the live heat-driven tier. Routed
+      // through core/debugBridge.ts's setForcedHeliTier (heliDebugRef under the hood), a
+      // null-safe no-op until ai/HeliMount.tsx is mounted. The livery/count per tier: ★0/★1
+      // none, ★2 police, ★3 SWAT, ★4 military, ★5 two military. Lets a human (or the smoke
+      // suite via window.__smashy.setForcedHeliTier) walk 2→3→4→5→2 and watch the swaps.
+      schema['force heli tier'] = {
+        value: 'off',
+        options: ['off', '0', '1', '2', '3', '4', '5'],
+        onChange: (v: string) => setForcedHeliTier(v === 'off' ? null : Number(v)),
+      };
+      // Live heli readout (effective tier + per-slot livery/presence/distance): watch a swap
+      // fly out to the edge (distance climbs) and the new livery fly back in.
+      schema['heli slots'] = monitor(() => heliSlotsSummary(), { interval: 250 });
 
       return schema as unknown as LevaSchema;
     },

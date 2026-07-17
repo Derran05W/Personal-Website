@@ -27,6 +27,8 @@ import { projectilesRef } from '../combat/projectiles';
 import { setDevToggle } from './devToggles';
 import { getSirenDebugSnapshot, type SirenDebugVoice } from '../audio/sirens';
 import { startChaosBench, type BenchReport } from '../ai/chaosBench';
+import { heliDebugRef } from '../ai/helicopter';
+import { heliRef, type HeliLivery } from '../ai/heliTypes';
 
 // Phase 7 traffic verification: exactly-once event proof. The civHit/civWrecked emitter
 // payloads are empty, so scripted checks can't scrape them from the DOM — count them here
@@ -185,6 +187,67 @@ export interface PerfSnapshot {
   readonly fps: number | null;
 }
 
+// Phase 14 Task 1 debug tooling: ambient-helicopter lifecycle -------------------------------
+// The heli system (ai/helicopter.ts via ai/HeliMount.tsx) has NO physics bodies and NO heat
+// coupling — it's driven purely by tier. `setForcedHeliTier` overrides the lifecycle's tier
+// so a scripted (Playwright) or manual check can walk the liveries 2→3→4→5→2 without granting
+// heat; `heliSlots` reads the sealed HeliSlot seam (heliRef) so the same check can watch a
+// swap fly out to the edge and the new livery fly in. Both are null-safe no-ops until
+// HeliMount publishes heliDebugRef/heliRef (same pattern as the pursuit/traffic bridge fns).
+
+/** Phase 14 Task 1: force the heli lifecycle to `tier` (0..5), or null to release it back to
+ * the live (heat-driven) tier. No-op if the heli mount hasn't published its debug handle. */
+export function setForcedHeliTier(tier: number | null): void {
+  heliDebugRef.current?.setForcedTier(tier);
+}
+
+/** Phase 14 Task 1: plain per-slot heli snapshot (no functions — safe to serialize across
+ * page.evaluate). `dist` is the slot's XZ distance from the player (large ⇒ out toward the
+ * edge mid-swap; ≈ HELI.orbitRadius ⇒ settled on orbit). Empty when no heli mount is live. */
+export interface HeliSlotSample {
+  readonly index: number;
+  readonly livery: HeliLivery | null;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly yaw: number;
+  readonly bank: number;
+  readonly presence: number;
+  readonly dist: number;
+}
+
+export function heliSlots(): HeliSlotSample[] {
+  const slots = heliRef.current?.slots;
+  if (!slots) return [];
+  const pose = playerVehicle.current?.readState().pose;
+  const px = pose?.position.x ?? 0;
+  const pz = pose?.position.z ?? 0;
+  return slots.map((s, index) => ({
+    index,
+    livery: s.livery,
+    x: s.x,
+    y: s.y,
+    z: s.z,
+    yaw: s.yaw,
+    bank: s.bank,
+    presence: s.presence,
+    dist: Math.hypot(s.x - px, s.z - pz),
+  }));
+}
+
+/** Phase 14 Task 1: one-line human-readable heli readout for the devPanel monitor — e.g.
+ * "★4→military | s0 military p1.00 d40". Shared so the panel doesn't re-derive the format. */
+export function heliSlotsSummary(): string {
+  const eff = heliDebugRef.current?.getEffectiveTier();
+  const active = heliSlots().filter((s) => s.livery !== null);
+  const head = eff === undefined ? '—' : `★${eff}`;
+  if (active.length === 0) return `${head} | none`;
+  const body = active
+    .map((s) => `s${s.index} ${s.livery} p${s.presence.toFixed(2)} d${s.dist.toFixed(0)}`)
+    .join(' | ');
+  return `${head} | ${body}`;
+}
+
 declare global {
   interface Window {
     __smashy?: {
@@ -334,6 +397,14 @@ declare global {
        * lightPoolViz overlay. Empty until powergrid/lightPool.ts (Task 3) lands — see
        * getLightPoolPositions' doc comment. */
       lightPoolPositions: () => { x: number; z: number }[];
+      /** Phase 14 Task 1 debug: force the ambient-heli lifecycle to `tier` (0..5), or null to
+       * release it back to the heat-driven tier — drives livery/count without granting heat.
+       * No-op until ai/HeliMount.tsx publishes the debug handle. */
+      setForcedHeliTier: (tier: number | null) => void;
+      /** Phase 14 Task 1 proof: per-slot heli snapshot (livery/pose/presence + XZ distance to
+       * the player) off the sealed HeliSlot seam — lets a scripted check watch a livery swap
+       * fly OUT to the edge (large dist) and the new one fly IN. Empty when no mount is live. */
+      heliSlots: () => HeliSlotSample[];
     };
   }
 }
@@ -439,4 +510,6 @@ window.__smashy = {
   relightAll,
   districtDarkStates: () => Array.from({ length: DISTRICT_COUNT }, (_, d) => isDistrictDark(d)),
   lightPoolPositions: getLightPoolPositions,
+  setForcedHeliTier,
+  heliSlots,
 };
