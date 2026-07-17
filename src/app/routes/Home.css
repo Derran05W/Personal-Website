@@ -55,6 +55,43 @@
   text-shadow: 0 1px 12px rgba(0, 0, 0, 0.4);
 }
 
+/* Mobile / prefers-reduced-motion gate (Phase 18 Task 3): shown instead of auto-mounting
+   the game chunk. Big, thumb-friendly tap target; visual language matches the amber
+   accent + pill-button shape used by the garage's "Start driving" CTA. */
+.home__play-btn {
+  position: relative;
+  z-index: 1;
+  margin-top: 1.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: none;
+  border-radius: 999px;
+  padding: 0.9rem 2.4rem;
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(1.1rem, 3.5vw, 1.4rem);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: 0 8px 32px rgba(245, 158, 11, 0.35);
+  transition:
+    transform 0.15s ease,
+    filter 0.15s ease;
+}
+
+.home__play-btn:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home__play-btn:hover {
+    transform: none;
+  }
+}
+
 /* Cheap CSS-only "skyline" silhouette along the horizon — a clip-path on a flat-color
    block, zero image bytes. Placeholder for the real instanced 3D skyline (Phase 2+). */
 .home__skyline {

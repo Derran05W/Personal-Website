@@ -12,6 +12,8 @@
 // deliberate, scoped exception (see Hud.tsx's header comment on the pointer-events
 // convention).
 import type { CSSProperties } from 'react';
+import type { QualityTier } from '../config';
+import { useGameStore } from '../state/store';
 import { openGarage, restartRun, resumeRun } from './pauseMenuActions';
 import './PauseMenu.css';
 
@@ -81,7 +83,63 @@ const hintStyle: CSSProperties = {
   color: 'rgba(245, 245, 245, 0.6)',
 };
 
+// --- Settings section (Phase 18): quality selector + reduced-shake toggle -------------------
+const settingsSectionStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '0.4rem',
+  marginTop: '0.5rem',
+  paddingTop: '0.75rem',
+  borderTop: '1px solid rgba(255, 255, 255, 0.12)',
+  textAlign: 'left',
+};
+
+const sectionLabelStyle: CSSProperties = {
+  fontSize: '0.75rem',
+  fontWeight: 700,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: 'rgba(245, 245, 245, 0.7)',
+};
+
+const qualityRowStyle: CSSProperties = { display: 'flex', gap: '0.4rem' };
+
+const qualityBtnStyle: CSSProperties = {
+  ...btnBaseStyle,
+  flex: 1,
+  padding: '0.45rem 0.5rem',
+  fontSize: '0.85rem',
+  background: 'rgba(255, 255, 255, 0.08)',
+  color: '#f5f5f5',
+};
+
+const qualityBtnActiveStyle: CSSProperties = {
+  ...qualityBtnStyle,
+  background: 'rgba(245, 158, 11, 0.92)',
+  color: '#1a1206',
+};
+
+const toggleRowStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '0.5rem',
+  marginTop: '0.4rem',
+  fontSize: '0.9rem',
+  cursor: 'pointer',
+};
+
+const QUALITY_OPTIONS: readonly { id: QualityTier; label: string }[] = [
+  { id: 'high', label: 'High' },
+  { id: 'med', label: 'Medium' },
+  { id: 'low', label: 'Low' },
+];
+
 export function PauseMenu() {
+  const quality = useGameStore((s) => s.settings.quality);
+  const reducedShake = useGameStore((s) => s.settings.reducedShake);
+  const setQuality = useGameStore((s) => s.setQuality);
+  const setReducedShake = useGameStore((s) => s.setReducedShake);
+
   return (
     <div
       className="pause-menu-backdrop"
@@ -108,6 +166,41 @@ export function PauseMenu() {
         <button type="button" style={secondaryBtnStyle} onClick={restartRun} data-testid="pause-restart">
           Restart
         </button>
+
+        <div style={settingsSectionStyle}>
+          <span style={sectionLabelStyle} id="pause-quality-label">
+            Quality
+          </span>
+          <div style={qualityRowStyle} role="group" aria-labelledby="pause-quality-label">
+            {QUALITY_OPTIONS.map(({ id, label }) => {
+              const active = id === quality;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  style={active ? qualityBtnActiveStyle : qualityBtnStyle}
+                  aria-pressed={active}
+                  onClick={() => setQuality(id)}
+                  data-testid={`pause-quality-${id}`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <span style={hintStyle}>Lower tiers boost FPS · applies fully next run</span>
+
+          <label style={toggleRowStyle}>
+            <input
+              type="checkbox"
+              checked={reducedShake}
+              onChange={(e) => setReducedShake(e.target.checked)}
+              data-testid="pause-reduced-shake"
+            />
+            <span>Reduced camera shake</span>
+          </label>
+        </div>
+
         <span style={hintStyle}>Esc / P resume · G garage</span>
       </div>
     </div>

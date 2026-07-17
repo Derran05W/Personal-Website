@@ -323,7 +323,14 @@ export default function DevPanel() {
         quality: {
           value: getGameState().settings.quality,
           options: Object.keys(QUALITY_TIERS),
-          onChange: (q: string) => {
+          // leva fires onChange once during control REGISTRATION (context.initial) — that
+          // spurious call must not write the store: at boot it can race
+          // applyDetectedQuality() and stamp the pre-heuristic default ('high') with
+          // setQuality's 'user' provenance, silencing the FPS probe forever (found live on
+          // the Phase 18 mobile-emulation pass: iPhone profile booted high/'user'). Only a
+          // real panel interaction may write.
+          onChange: (q: string, _path: string, ctx: { initial: boolean }) => {
+            if (ctx.initial) return;
             const state = getGameState();
             if (state.settings.quality !== q) state.setQuality(q as QualityTier);
           },

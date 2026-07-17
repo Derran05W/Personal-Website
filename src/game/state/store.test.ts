@@ -30,7 +30,7 @@ describe('initial state', () => {
     expect(state.score).toBe(0);
     expect(state.playerHp).toBe(100);
     expect(state.seed).toBe(WORLD_GEN.defaultSeed);
-    expect(state.settings).toEqual({ quality: 'high', muted: false, reducedShake: false });
+    expect(state.settings).toEqual({ quality: 'high', qualitySource: 'auto', muted: false, reducedShake: false });
     expect(state.selectedCarId).toBe('rustySedan');
     expect(state.unlockedCarIds).toEqual(['rustySedan']);
   });
@@ -163,9 +163,15 @@ describe('addScore / setPlayerHp / setSeed', () => {
 describe('settings — setQuality / toggleMuted', () => {
   it('setQuality updates state and persists to localStorage', () => {
     useGameStore.getState().setQuality('med');
-    expect(useGameStore.getState().settings).toEqual({ quality: 'med', muted: false, reducedShake: false });
+    expect(useGameStore.getState().settings).toEqual({
+      quality: 'med',
+      qualitySource: 'user',
+      muted: false,
+      reducedShake: false,
+    });
     expect(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null')).toEqual({
       quality: 'med',
+      qualitySource: 'user',
       muted: false,
       reducedShake: false,
     });
@@ -176,6 +182,7 @@ describe('settings — setQuality / toggleMuted', () => {
     expect(useGameStore.getState().settings.muted).toBe(true);
     expect(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null')).toEqual({
       quality: 'high',
+      qualitySource: 'auto',
       muted: true,
       reducedShake: false,
     });
@@ -195,6 +202,7 @@ describe('settings — setReducedShake (Phase 16 a11y)', () => {
     expect(useGameStore.getState().settings.reducedShake).toBe(true);
     expect(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null')).toEqual({
       quality: 'high',
+      qualitySource: 'auto',
       muted: false,
       reducedShake: true,
     });
@@ -205,7 +213,24 @@ describe('settings — setReducedShake (Phase 16 a11y)', () => {
     store.setQuality('low');
     store.toggleMuted();
     store.setReducedShake(true);
-    expect(useGameStore.getState().settings).toEqual({ quality: 'low', muted: true, reducedShake: true });
+    expect(useGameStore.getState().settings).toEqual({
+      quality: 'low',
+      qualitySource: 'user',
+      muted: true,
+      reducedShake: true,
+    });
+  });
+});
+
+describe('settings — qualitySource provenance (Phase 18)', () => {
+  it("setQuality defaults to 'user' provenance (a menu pick the probe must never override)", () => {
+    useGameStore.getState().setQuality('med');
+    expect(useGameStore.getState().settings.qualitySource).toBe('user');
+  });
+
+  it("setQuality(tier, 'auto') records auto provenance (heuristic / FPS-probe path)", () => {
+    useGameStore.getState().setQuality('low', 'auto');
+    expect(useGameStore.getState().settings.qualitySource).toBe('auto');
   });
 });
 
@@ -230,7 +255,7 @@ describe('hardReset', () => {
     expect(state.score).toBe(0);
     expect(state.playerHp).toBe(100);
     expect(state.seed).toBe(999);
-    expect(state.settings).toEqual({ quality: 'low', muted: false, reducedShake: false });
+    expect(state.settings).toEqual({ quality: 'low', qualitySource: 'user', muted: false, reducedShake: false });
   });
 });
 
@@ -263,7 +288,7 @@ describe('runReset', () => {
 
     const state = useGameStore.getState();
     expect(state.seed).toBe(999);
-    expect(state.settings).toEqual({ quality: 'low', muted: false, reducedShake: false });
+    expect(state.settings).toEqual({ quality: 'low', qualitySource: 'user', muted: false, reducedShake: false });
   });
 
   it('does not emit tierChanged/heatChanged (a silent reset, not a monotonic addHeat call)', () => {
@@ -295,34 +320,39 @@ describe('settings hydration at store creation', () => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({ quality: 'low', muted: true }));
     vi.resetModules();
     const fresh = await import('./store');
-    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'low', muted: true, reducedShake: false });
+    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'low', qualitySource: 'auto', muted: true, reducedShake: false });
   });
 
   it('falls back to defaults on unparseable JSON', async () => {
     localStorage.setItem(SETTINGS_KEY, '{not valid json');
     vi.resetModules();
     const fresh = await import('./store');
-    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'high', muted: false, reducedShake: false });
+    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'high', qualitySource: 'auto', muted: false, reducedShake: false });
   });
 
   it('falls back to defaults on well-formed but wrong-shaped JSON', async () => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({ quality: 'ultra', muted: 'nope' }));
     vi.resetModules();
     const fresh = await import('./store');
-    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'high', muted: false, reducedShake: false });
+    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'high', qualitySource: 'auto', muted: false, reducedShake: false });
   });
 
   it('falls back to defaults when nothing is stored', async () => {
     vi.resetModules();
     const fresh = await import('./store');
-    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'high', muted: false, reducedShake: false });
+    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'high', qualitySource: 'auto', muted: false, reducedShake: false });
   });
 
   it('hydrates a stored reducedShake:true', async () => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({ quality: 'high', muted: false, reducedShake: true }));
     vi.resetModules();
     const fresh = await import('./store');
-    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'high', muted: false, reducedShake: true });
+    expect(fresh.useGameStore.getState().settings).toEqual({
+      quality: 'high',
+      qualitySource: 'auto',
+      muted: false,
+      reducedShake: true,
+    });
   });
 
   it('normalises a pre-Phase-16 envelope (no reducedShake key) to the false default, keeping quality/muted', async () => {
@@ -331,14 +361,51 @@ describe('settings hydration at store creation', () => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({ quality: 'low', muted: true }));
     vi.resetModules();
     const fresh = await import('./store');
-    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'low', muted: true, reducedShake: false });
+    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'low', qualitySource: 'auto', muted: true, reducedShake: false });
   });
 
   it('rejects a present-but-wrong-typed reducedShake to defaults', async () => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({ quality: 'low', muted: true, reducedShake: 'yes' }));
     vi.resetModules();
     const fresh = await import('./store');
-    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'high', muted: false, reducedShake: false });
+    expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'high', qualitySource: 'auto', muted: false, reducedShake: false });
+  });
+
+  it("migrates a pre-Phase-18 envelope (no qualitySource key) to 'auto', keeping the rest", async () => {
+    // Additive/version-safe: a stored settings object from before this field existed must still
+    // hydrate (not reset to defaults), with qualitySource normalised to 'auto' so the FPS probe
+    // may still re-measure it.
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ quality: 'med', muted: false, reducedShake: true }));
+    vi.resetModules();
+    const fresh = await import('./store');
+    expect(fresh.useGameStore.getState().settings).toEqual({
+      quality: 'med',
+      qualitySource: 'auto',
+      muted: false,
+      reducedShake: true,
+    });
+  });
+
+  it("preserves a persisted qualitySource:'user' (a real menu pick survives reload)", async () => {
+    localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({ quality: 'low', qualitySource: 'user', muted: false, reducedShake: false }),
+    );
+    vi.resetModules();
+    const fresh = await import('./store');
+    expect(fresh.useGameStore.getState().settings.qualitySource).toBe('user');
+  });
+
+  it('rejects a present-but-invalid qualitySource to defaults', async () => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ quality: 'low', qualitySource: 'bogus', muted: false }));
+    vi.resetModules();
+    const fresh = await import('./store');
+    expect(fresh.useGameStore.getState().settings).toEqual({
+      quality: 'high',
+      qualitySource: 'auto',
+      muted: false,
+      reducedShake: false,
+    });
   });
 });
 

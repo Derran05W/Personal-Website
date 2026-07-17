@@ -30,6 +30,7 @@ import { useHudSnapshot } from './useHudSnapshot';
 import { PLAYER_CARS } from '../config';
 import { filledStarCount, formatScore, hpColor, hpFillPercent } from './hudFormat';
 import { PauseMenu } from './PauseMenu';
+import { TouchControls } from './touch/TouchControls';
 import './Hud.css';
 
 const STAR_COUNT = 5;
@@ -502,6 +503,12 @@ export default function Hud() {
       {import.meta.env.DEV ? <SeedReadout seed={seed} /> : null}
       <DarkCityBanner visible={bannerVisible} />
       <DamageVignette />
+      {/* Touch controls (Phase 18 Task 1): self-gates on coarse-pointer + PLAYING, so this
+          is a no-op render on desktop / outside a run. Painted above every read-only chip
+          above (it needs real pointer events — PauseMenu below is the only other exception
+          to this tree's pointerEvents:'none' default), below the pause menu itself since
+          the two are mutually exclusive machine states anyway. */}
+      <TouchControls />
       {/* Very last child: the pause menu (Phase 17) paints above absolutely everything
           else in this tree, including the damage vignette — it's the one surface here
           that accepts pointer events (PauseMenu.tsx's own backdrop style). */}

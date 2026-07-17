@@ -25,9 +25,17 @@
 // conversion the kinematic collider handle is retired and the new dynamic handle re-registered
 // carrying the current hp, so an airborne car stays damageable.
 
-import { CAMERA, TRAFFIC_CIV, CollisionGroup, interactionGroups } from '../config';
+import {
+  CAMERA,
+  TRAFFIC_CIV,
+  CollisionGroup,
+  interactionGroups,
+  trafficActiveTarget,
+  type QualityTier,
+} from '../config';
 import type { RapierContext, RapierRigidBody } from '@react-three/rapier';
 import { gameEvents } from '../state/events';
+import { getGameState } from '../state/store';
 import { getEntity, registerEntity, unregisterEntity } from '../world/registry';
 import { propColliderBox } from '../world/worldCollidersLogic';
 import { createRng, type Rng } from '../world/rng';
@@ -374,6 +382,11 @@ export class TrafficController {
   private readonly world: RapierWorld;
   private readonly rapier: RapierNamespace;
   private readonly graph: TrafficGraph;
+  // Phase 18 density scaling: the quality tier frozen at construction. The active-car target is
+  // TRAFFIC_CIV.activeTarget × this tier's trafficDensityModifier (trafficActiveTarget), so lower
+  // tiers run fewer cars. Read once at mount → a mid-run quality change applies on the next keyed
+  // remount, matching the other pool/density rows (the pool `size` below is fixed at construction).
+  private readonly quality: QualityTier;
   // Phase 17 monster-truck crush seam: when this returns true the civilian system YIELDS all
   // player↔civ conversion to combat/playerSpecials.ts's crush path (which converts AND wrecks
   // on contact). Injected (never a store import here — traffic stays civ-focused); defaults to
@@ -417,7 +430,8 @@ export class TrafficController {
     this.crushActive = crushActive;
     this.rng = createRng(seed).fork('traffic');
 
-    const size = Math.max(0, Math.round(TRAFFIC_CIV.activeTarget));
+    this.quality = getGameState().settings.quality;
+    const size = trafficActiveTarget(TRAFFIC_CIV.activeTarget, this.quality);
     this.book = new SlotBook(size);
     this.slots = Array.from({ length: size }, (_, i) => freshSlot(i));
     this.internal = Array.from({ length: size }, () => freshInternal());
@@ -542,7 +556,10 @@ export class TrafficController {
     }
 
     if (player) {
-      const target = Math.min(this.book.size, Math.max(0, Math.round(TRAFFIC_CIV.activeTarget)));
+      // Effective target: the tier-scaled active-car count, still clamped to the pool the
+      // constructor sized (so leva-live raising TRAFFIC_CIV.activeTarget can't exceed it, and
+      // lowering it thins the flow — the pre-Phase-18 leva behaviour, now tier-aware).
+      const target = Math.min(this.book.size, trafficActiveTarget(TRAFFIC_CIV.activeTarget, this.quality));
       let budget = TRAFFIC_CIV.maxSpawnPerStep;
       while (this.book.activeCount < target && budget > 0) {
         budget--;

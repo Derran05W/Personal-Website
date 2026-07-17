@@ -15,7 +15,8 @@
 import { useEffect, useRef } from 'react';
 import { useAfterPhysicsStep, useRapier, type RapierContext } from '@react-three/rapier';
 import { Group, Quaternion, Vector3 } from 'three';
-import { interactionGroups } from '../config';
+import { PROPS, dynamicPropPoolCap, interactionGroups } from '../config';
+import { getGameState } from '../state/store';
 import { getEntity, type EntityEntry } from './registry';
 import { playerVehicle } from '../vehicles/playerRef';
 import { PropSwapController, type Vec3 } from './propDynamics';
@@ -41,7 +42,10 @@ export function PropDynamics({ source }: PropDynamicsProps) {
   useEffect(() => {
     const group = groupRef.current;
     if (group === null) return;
-    const controller = new PropSwapController(world, rapier, group);
+    // Phase 18: size the dynamic-prop pool for the current quality tier (read once at mount —
+    // a mid-run quality change applies on the next keyed remount, per the quality-system doc).
+    const poolCap = dynamicPropPoolCap(PROPS.dynamicPoolCap, getGameState().settings.quality);
+    const controller = new PropSwapController(world, rapier, group, poolCap);
     controllerRef.current = controller;
 
     let unsub: (() => void) | undefined;

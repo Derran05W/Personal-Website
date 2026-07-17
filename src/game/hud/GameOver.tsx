@@ -12,15 +12,25 @@
 // Retry / garage keys: input/keyboard.ts already binds R -> PLAYING and G -> GARAGE (plus
 // M -> mute) while machine === 'GAMEOVER' (verified against that file — Phase 2's keymap).
 // This component adds NO key listeners of its own — a second listener would double-handle
-// the same physical keypress. It is deliberately keyboard-first / click-free (unlike
-// GarageOverlay.tsx's full-bleed start button): every control this screen needs already
-// works the instant it renders, and — unlike the garage's "first interaction of the whole
-// session" button, which also exists to satisfy autoplay-gesture requirements — nothing
-// here needs a click to unlock anything. `pointerEvents: 'none'` throughout, matching
-// hud/Hud.tsx's belt-and-suspenders reasoning: the site header must never be occludable by
-// this overlay regardless of stacking context.
+// the same physical keypress. It is deliberately keyboard-first / click-free on desktop
+// (unlike GarageOverlay.tsx's full-bleed start button): every control this screen needs
+// already works the instant it renders, and — unlike the garage's "first interaction of
+// the whole session" button, which also exists to satisfy autoplay-gesture requirements —
+// nothing here needs a click to unlock anything. `pointerEvents: 'none'` throughout except
+// the two buttons below, matching hud/Hud.tsx's belt-and-suspenders reasoning: the site
+// header must never be occludable by this overlay regardless of stacking context.
+//
+// Phase 18 Task 1: on a coarse-pointer (touch) device there IS no keyboard, so R/G above
+// are unreachable — this component grows two tappable buttons that do exactly what those
+// keys do (the same direct `transition()` calls input/keyboard.ts's handleKeyDown makes
+// for the GAMEOVER case — no extra guard needed, both edges are always legal from
+// GAMEOVER per state/machine.ts's TRANSITIONS table, same as the keyboard path). Desktop
+// is unaffected: the keyboard hint text (`gameover-controls` below) always renders, the
+// buttons are additive and only appear on coarse-pointer.
 import { useSyncExternalStore, type CSSProperties } from 'react';
+import { getGameState } from '../state/store';
 import { loadProgress } from '../state/persistence';
+import { isCoarsePointer } from '../input/touch';
 import { useHudSnapshot } from './useHudSnapshot';
 import { formatScore, filledStarCount } from './hudFormat';
 import { bannerForReason, nextUnlockInfo } from './gameOverFormat';
@@ -89,6 +99,41 @@ const hintStyle: CSSProperties = {
   marginTop: '0.35rem',
 };
 
+// Phase 18 Task 1: coarse-pointer-only tap buttons for the two GAMEOVER actions the
+// keyboard hint above (`gameover-controls`) already describes. Style mirrors
+// hud/PauseMenu.tsx's btnBaseStyle/primaryBtnStyle/secondaryBtnStyle pair — this is the
+// only other surface in this file that needs real pointer events, so it needs the same
+// `pointerEvents: 'auto'` opt-out from the backdrop's `'none'` default.
+const touchActionsStyle: CSSProperties = {
+  display: 'flex',
+  gap: '0.75rem',
+  marginTop: '0.5rem',
+  pointerEvents: 'auto',
+};
+
+const touchBtnBaseStyle: CSSProperties = {
+  padding: '0.65rem 1.5rem',
+  borderRadius: 8,
+  border: 'none',
+  font: 'inherit',
+  fontSize: '1rem',
+  fontWeight: 600,
+  cursor: 'pointer',
+  minHeight: 48,
+};
+
+const touchRetryBtnStyle: CSSProperties = {
+  ...touchBtnBaseStyle,
+  background: 'rgba(245, 158, 11, 0.92)',
+  color: '#1a1206',
+};
+
+const touchGarageBtnStyle: CSSProperties = {
+  ...touchBtnBaseStyle,
+  background: 'rgba(255, 255, 255, 0.08)',
+  color: '#f5f5f5',
+};
+
 // Phase 17: "UNLOCKED: <name>" toast — amber-tinted (the site's --color-accent language)
 // so it reads as a distinct, celebratory event rather than another plain info chip.
 const unlockToastStyle: CSSProperties = {
@@ -135,6 +180,12 @@ export default function GameOver() {
   const progress = loadProgress();
   const best = progress.bestScore;
   const nextUnlock = nextUnlockInfo(progress.lifetimeScore);
+  // One-shot per render is fine here (unlike TouchControls' mount-time snapshot): this
+  // component only re-renders on the throttled <=10Hz useHudSnapshot tick while GAMEOVER
+  // is showing, so re-querying matchMedia costs nothing meaningful, and there's no earlier
+  // "mount" moment to snapshot at (this component is mounted for the whole game lifetime,
+  // long before any device-capability question is relevant).
+  const coarse = isCoarsePointer();
 
   return (
     <div
@@ -171,6 +222,26 @@ export default function GameOver() {
         <span style={{ ...chipStyle, ...hintStyle }} data-testid="gameover-controls">
           R — retry same city · G — garage
         </span>
+        {coarse ? (
+          <div style={touchActionsStyle}>
+            <button
+              type="button"
+              style={touchRetryBtnStyle}
+              data-testid="gameover-retry-btn"
+              onClick={() => getGameState().transition('PLAYING')}
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              style={touchGarageBtnStyle}
+              data-testid="gameover-garage-btn"
+              onClick={() => getGameState().transition('GARAGE')}
+            >
+              Garage
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -1,11 +1,28 @@
-import { render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGameStore } from '../state/store';
 import { gameEvents } from '../state/events';
 import { UNLOCKS } from '../config/unlocks';
 import GameOver from './GameOver';
 import { __resetLastRunEndForTests } from './gameOverRunEnd';
 import { __resetRunUnlocksForTests } from './gameOverUnlocks';
+
+function stubCoarsePointer(matches: boolean): void {
+  vi.stubGlobal(
+    'matchMedia',
+    (query: string) =>
+      ({
+        matches,
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }) satisfies MediaQueryList,
+  );
+}
 
 const initialState = useGameStore.getState();
 
@@ -21,6 +38,10 @@ beforeEach(() => {
   useGameStore.setState(initialState, true);
   __resetLastRunEndForTests();
   __resetRunUnlocksForTests();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 interface GameOverStateOverrides {
@@ -151,5 +172,45 @@ describe('GameOver', () => {
     setGameOverState();
     render(<GameOver />);
     expect(screen.getByTestId('gameover-root')).toHaveStyle({ pointerEvents: 'none' });
+  });
+});
+
+describe('GameOver — coarse-pointer tap buttons (Phase 18 Task 1)', () => {
+  it('does not render Retry/Garage buttons on a fine-pointer (desktop) device', () => {
+    stubCoarsePointer(false);
+    setGameOverState();
+    render(<GameOver />);
+    expect(screen.queryByTestId('gameover-retry-btn')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('gameover-garage-btn')).not.toBeInTheDocument();
+    // Keyboard hint text stays for desktop either way.
+    expect(screen.getByTestId('gameover-controls')).toHaveTextContent(
+      'R — retry same city · G — garage',
+    );
+  });
+
+  it('renders tappable Retry/Garage buttons on a coarse-pointer device', () => {
+    stubCoarsePointer(true);
+    setGameOverState();
+    render(<GameOver />);
+    expect(screen.getByTestId('gameover-retry-btn')).toBeInTheDocument();
+    expect(screen.getByTestId('gameover-garage-btn')).toBeInTheDocument();
+    // The keyboard hint stays too, per the task brief ("keyboard hints stay for desktop").
+    expect(screen.getByTestId('gameover-controls')).toBeInTheDocument();
+  });
+
+  it('tapping Retry transitions GAMEOVER -> PLAYING', () => {
+    stubCoarsePointer(true);
+    setGameOverState();
+    render(<GameOver />);
+    fireEvent.click(screen.getByTestId('gameover-retry-btn'));
+    expect(useGameStore.getState().machine).toBe('PLAYING');
+  });
+
+  it('tapping Garage transitions GAMEOVER -> GARAGE', () => {
+    stubCoarsePointer(true);
+    setGameOverState();
+    render(<GameOver />);
+    fireEvent.click(screen.getByTestId('gameover-garage-btn'));
+    expect(useGameStore.getState().machine).toBe('GARAGE');
   });
 });

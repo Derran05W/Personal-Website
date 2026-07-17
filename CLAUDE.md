@@ -89,7 +89,7 @@ Status: `[ ]` todo · `[~]` in progress · `[!]` blocked / awaiting user · `[x]
 
 ### Part 6 — Ship It (`.planning/part-6-ship.md`)
 - [x] **Phase 17 — Garage, six cars, unlocks, persistence** (M8a) — 2026-07-17: grade→param mapping w/ test-locked sedan invariance, six distinct procedural cars + real garage (cards/bars/locks/keyboard), monster crush + heavy plow + boat-turn specials, lifetime-score unlocks + toast + v1-additive persistence (lastSeed/unlockedCarIds); found & fixed THREE live bugs (garage re-entry never ended the run; pre-existing run-start Suspense race — runStarted lost to a fast click, engine audio/lastSeed dead; HP bar % math wrong for non-100-hp cars); ★5 regression heaviest+lightest clean, bench 92/150 heapΔ0, 1,320 tests (see phase-17-notes.md).
-- [ ] **Phase 18 — Mobile controls & quality tiers** (M8b) — USER GATE: real-phone test
+- [!] **Phase 18 — Mobile controls & quality tiers** (M8b) — 2026-07-17: touch controls (auto-throttle proven hands-free), quality manager finalized (probe + full §10 budget wiring, user-choice-wins), all-tier benches green (med debt closed; low 119.7k/120k), WebGL2 gate + Play card + context-loss recovery, mobile e2e; found & fixed leva boot-provenance bug + root-caused the seed-416 fallen-pole spawn hazard; 1,440 tests (see phase-18-notes.md). AWAITING USER: real-phone test (checklist in notes). Phase 19 MAY proceed in parallel per part file.
 - [ ] **Phase 19 — Toronto landmark layer & lighting polish** (M9)
 - [ ] **Phase 20 — Content, SEO, credits, launch** (M10) — USER GATE: real content + launch approval
 

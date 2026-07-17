@@ -114,12 +114,57 @@ function composeMatrix(x: number, z: number, rotationY: number): Matrix4 {
 }
 
 /**
+ * Deterministically keep ~`fraction` of a list, EVENLY SPREAD across it (no rng, no
+ * clustering): item i survives iff the running kept-count increments at i. `fraction >= 1`
+ * keeps everything (identity, returns a copy); `<= 0` keeps nothing. Keeps exactly
+ * `floor(list.length * fraction)` items. Pure — the Phase 18 parked-car tri-trim (below) is its
+ * only caller, but it is archetype-agnostic. */
+export function keepEvenlySpaced<T>(list: readonly T[], fraction: number): T[] {
+  if (fraction >= 1) return list.slice();
+  if (fraction <= 0) return [];
+  const out: T[] = [];
+  for (let i = 0; i < list.length; i++) {
+    if (Math.floor((i + 1) * fraction) > Math.floor(i * fraction)) out.push(list[i]);
+  }
+  return out;
+}
+
+/** Options for {@link buildCityInstanceSets}. */
+export interface BuildCityInstancesOptions {
+  /**
+   * Phase 18 quality tri-trim (QUALITY_TIERS[tier].parkedCarKeepFraction): fraction of parked
+   * cars to instance. Default 1 (every car). Applied to the parked-car bucket BEFORE tagging, so
+   * the InstancedMesh sources and the parallel collider `placements` derive from the same reduced
+   * set — they can never disagree on which cars exist. Only parked cars are thinned (the biggest
+   * instanced pool by triangles); all other archetypes are untouched.
+   */
+  readonly parkedCarKeepFraction?: number;
+  /**
+   * Phase 18 low-tier scenery trim (QUALITY_TIERS[tier].sceneryKeepFraction): fraction of
+   * decorative scenery — trees, mailboxes, benches, hydrants — to instance. Default 1.
+   * Same evenly-spaced, before-tagging mechanism as the parked-car trim (mesh + colliders
+   * always agree). Fences, streetlights, traffic lights and transformers are deliberately
+   * NOT thinned: fences read as gap-toothed when thinned, lights are gameplay (power grid /
+   * blackouts), transformers ARE gameplay.
+   */
+  readonly sceneryKeepFraction?: number;
+}
+
+/** The archetypes sceneryKeepFraction thins — see its doc comment for the exclusions. */
+const SCENERY_ARCHETYPES = ['tree', 'mailbox', 'bench', 'hydrant'] as const;
+
+/**
  * Assemble every archetype's sorted instance set for one world. Pure and deterministic —
- * calling it twice for the same world yields identical order (sortByDistrict is stable),
- * which is what lets renderer and colliders be built from separate calls in a pinch,
+ * calling it twice for the same world (and options) yields identical order (sortByDistrict is
+ * stable), which is what lets renderer and colliders be built from separate calls in a pinch,
  * though CityScape memoizes one result and passes it to both.
  */
-export function buildCityInstanceSets(world: WorldData): ArchetypeInstanceSet[] {
+export function buildCityInstanceSets(
+  world: WorldData,
+  opts: BuildCityInstancesOptions = {},
+): ArchetypeInstanceSet[] {
+  const parkedCarKeepFraction = opts.parkedCarKeepFraction ?? 1;
+  const sceneryKeepFraction = opts.sceneryKeepFraction ?? 1;
   const sets: ArchetypeInstanceSet[] = [];
   const placements = derivePlacements(world);
 
@@ -130,6 +175,19 @@ export function buildCityInstanceSets(world: WorldData): ArchetypeInstanceSet[] 
     const list = byArchetype.get(p.archetype);
     if (list) list.push(p);
     else byArchetype.set(p.archetype, [p]);
+  }
+
+  // Phase 18 tri-trim: evenly thin the parked-car pool on lower quality tiers before it is
+  // tagged/sorted, so both the mesh and its parallel colliders see the identical reduced set.
+  if (parkedCarKeepFraction < 1) {
+    const cars = byArchetype.get('parkedCar');
+    if (cars) byArchetype.set('parkedCar', keepEvenlySpaced(cars, parkedCarKeepFraction));
+  }
+  if (sceneryKeepFraction < 1) {
+    for (const archetype of SCENERY_ARCHETYPES) {
+      const list = byArchetype.get(archetype);
+      if (list) byArchetype.set(archetype, keepEvenlySpaced(list, sceneryKeepFraction));
+    }
   }
   // Parked-car tints: one dedicated rng stream, forked off the world seed (never the
   // 'props' placement stream — this is a pure rendering roll, not a layout one), consumed

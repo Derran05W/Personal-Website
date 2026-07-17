@@ -18,10 +18,44 @@
 // until the container is rebuilt with the real apt deps baked in — same prefix `pnpm smoke`
 // already needs. This script does nothing special for that; it's inherited from the invoking
 // shell's environment, exactly like any other Playwright-driven command.
+//
+// Phase 18 Task 4: BENCH_TIER knob. `ai/chaosBench.ts`'s own in-page `report.gate` is
+// hard-pinned to the 'high' tier (see that module's file header — it's the default a fresh
+// page load boots with), so it can't tell us whether a device running on 'med'/'low' stays
+// inside ITS OWN budget row. `BENCH_TIER=low pnpm bench:chaos` (default: high) seeds the
+// persisted quality setting via an init script BEFORE any app code runs — state/store.ts's
+// `loadSettings()` reads `localStorage[SETTINGS_STORAGE_KEY]` synchronously at module init,
+// and `core/quality.ts`'s `applyDetectedQuality()` never overrides an already-persisted
+// choice (see both files) — so this reliably pins the tier the whole run boots and stays on,
+// the same way a real user's saved Pause->Quality selector choice would. This script then
+// gates `report.maxDrawCalls`/`report.maxTriangles` (the same raw numbers `report.gate`
+// itself is built from) against the SELECTED tier's budget row instead of always 'high'.
 import { spawn } from 'node:child_process';
 import { chromium } from '@playwright/test';
 
 const DEV_URL = 'http://localhost:5173';
+const SETTINGS_STORAGE_KEY = 'smashy6ix:settings';
+
+const RAW_BENCH_TIER = (process.env.BENCH_TIER ?? 'high').trim().toLowerCase();
+// Mirrors src/game/config/quality.ts's QUALITY_TIERS budget rows (maxDrawCalls/
+// maxTriangles only — the two numbers this script's gate needs). This is a plain .mjs CLI
+// script with no TS/Vite pipeline of its own, so it can't import that module directly;
+// keep these two columns in lockstep by hand with config/quality.ts, same discipline
+// chaosBench.ts's own file-header comment documents for its 'high'-only in-page gate —
+// config/config.test.ts is the source of truth if these ever drift.
+const TIER_BUDGETS = {
+  high: { maxDrawCalls: 150, maxTriangles: 300_000 },
+  med: { maxDrawCalls: 120, maxTriangles: 200_000 },
+  low: { maxDrawCalls: 90, maxTriangles: 120_000 },
+};
+if (!Object.hasOwn(TIER_BUDGETS, RAW_BENCH_TIER)) {
+  console.error(
+    `[bench-chaos] invalid BENCH_TIER "${RAW_BENCH_TIER}" — expected one of: ${Object.keys(TIER_BUDGETS).join(', ')}`,
+  );
+  process.exit(1);
+}
+const BENCH_TIER = RAW_BENCH_TIER;
+const tierBudget = TIER_BUDGETS[BENCH_TIER];
 // Node's fetch (undici) and a browser's own resolver can disagree on how bare "localhost"
 // resolves in this devcontainer — observed here (arm64 Debian) resolving ONLY to ::1 via
 // /etc/hosts (no IPv4 loopback entry) while the container's kernel has dual-stack disabled
@@ -110,6 +144,24 @@ async function main() {
       pageErrors.push(err.message);
     });
 
+    // Pin the persisted quality tier BEFORE any app script runs (init scripts fire ahead of
+    // every navigation's own scripts, including the very first) — see the BENCH_TIER doc
+    // comment near the top of this file for why this is the reliable way to force a tier
+    // regardless of the auto-detect heuristic or a future FPS-probe downgrade.
+    console.log(`[bench-chaos] pinning persisted quality tier to "${BENCH_TIER}"…`);
+    await page.addInitScript(
+      ([key, tier]) => {
+        try {
+          window.localStorage.setItem(key, JSON.stringify({ quality: tier, muted: false, reducedShake: false }));
+        } catch {
+          // Private/incognito or storage disabled: fall through — the app's own
+          // loadSettings() degrades to auto-detect the same way, and the bench's gate
+          // still reports honestly against whatever tier actually applied.
+        }
+      },
+      [SETTINGS_STORAGE_KEY, BENCH_TIER],
+    );
+
     console.log('[bench-chaos] loading the game…');
     await page.goto(DEV_URL, { waitUntil: 'load' });
     // .first(): the dev-only r3f-perf overlay (core/PerfOverlay.tsx) mounts a second, nested
@@ -151,16 +203,21 @@ async function main() {
     console.log('\n[bench-chaos] report (raw):');
     console.log(JSON.stringify(report, null, 2));
 
-    const budgetOk = report.gate.ok;
+    // Gate against the SELECTED tier's own budget row, not report.gate (which ai/
+    // chaosBench.ts hard-pins to 'high' — see this file's BENCH_TIER doc comment above).
+    // report.maxDrawCalls/maxTriangles are the raw peak numbers report.gate itself is
+    // built from, so this is an equivalent check when BENCH_TIER=high (the default) and a
+    // strictly tighter one for med/low.
+    const budgetOk = report.maxDrawCalls < tierBudget.maxDrawCalls && report.maxTriangles < tierBudget.maxTriangles;
     if (!budgetOk) {
       console.error(
-        `[bench-chaos] FAIL: over budget — drawCalls ${report.maxDrawCalls}/${report.gate.maxDrawCalls}, ` +
-          `triangles ${report.maxTriangles}/${report.gate.maxTriangles}`,
+        `[bench-chaos] FAIL: over budget (tier=${BENCH_TIER}) — drawCalls ${report.maxDrawCalls}/${tierBudget.maxDrawCalls}, ` +
+          `triangles ${report.maxTriangles}/${tierBudget.maxTriangles}`,
       );
     } else {
       console.log(
-        `[bench-chaos] OK: drawCalls ${report.maxDrawCalls}/${report.gate.maxDrawCalls}, ` +
-          `triangles ${report.maxTriangles}/${report.gate.maxTriangles} (fps min ${report.minFps ?? 'n/a'} ` +
+        `[bench-chaos] OK (tier=${BENCH_TIER}): drawCalls ${report.maxDrawCalls}/${tierBudget.maxDrawCalls}, ` +
+          `triangles ${report.maxTriangles}/${tierBudget.maxTriangles} (fps min ${report.minFps ?? 'n/a'} ` +
           'avg ' +
           `${report.avgFps ?? 'n/a'} — informational, not gated; see file header).`,
       );

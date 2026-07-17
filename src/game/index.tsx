@@ -57,6 +57,9 @@ import { initPowerGrid } from './powergrid/grid';
 import { initEventMap } from './audio/eventMap';
 import { PowerGridSystem } from './powergrid/PowerGridMount';
 import Hud from './hud/Hud';
+import ContextLossOverlay from './hud/ContextLossOverlay';
+import { ContextLossSystem } from './core/ContextLossMount';
+import { startQualityProbe } from './core/quality';
 import { SkidMarks } from './fx/SkidMarks';
 import { PlayerVehicle } from './vehicles/PlayerVehicle';
 import { PlayerCarMesh } from './vehicles/PlayerCarMesh';
@@ -190,6 +193,11 @@ export default function Game() {
   // bursts through the particle feed; game-lifetime subscription like the audio map.
   useEffect(() => initEventFx(), []);
 
+  // Quality FPS probe (Phase 18): after the machine first reaches GARAGE, sample ~2 s of
+  // frame deltas on the live scene and demote the tier if the device can't hold it. An
+  // explicit user pick in the pause menu (qualitySource 'user') is never overridden.
+  useEffect(() => startQualityProbe(), []);
+
   // Bootstrap seam: BOOT → LOADING → GARAGE. Every branch reads the *current* machine
   // state fresh from the store and only fires the transition it expects, so the store's
   // dev-mode invalid-transition throw can never trigger under StrictMode's double mount
@@ -240,6 +248,9 @@ export default function Game() {
             <AiSystem />
             <EventDrainSystem />
             <CameraFxSystem />
+            {/* WebGL context-loss listeners (Phase 18): pause + restore-overlay flag.
+                Needs only R3F's gl — mounted with the frame-order systems. */}
+            <ContextLossSystem />
 
             <CityScape key={`city-${worldKey}`} world={world} />
             {/* Pooled dynamic lights (Phase 13 Task 3): a handful of real PointLights trail
@@ -360,6 +371,7 @@ export default function Game() {
       {/* Gameplay HUD (Phase 8): DOM overlay, pointer-events none, self-gates to
           PLAYING/PAUSED, ≤10 Hz store sampling. */}
       <Hud />
+      <ContextLossOverlay />
       <GameOver />
       <SirensSystem />
       <PositionalAudioSystem />

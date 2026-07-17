@@ -97,6 +97,19 @@ describe('capForTier', () => {
     expect(capForTier(99, SPAWN.caps)).toBe(10);
     expect(capForTier(0, [])).toBe(0);
   });
+
+  it('scales by the quality pursuit-cap modifier and rounds (Phase 18)', () => {
+    // Default modifier = 1 → the raw table value, unchanged.
+    expect(capForTier(5, SPAWN.caps, 1)).toBe(10);
+    // low tier ×0.7: 10→7, 8→6 (5.6 rounds up), 4→3 (2.8 rounds up).
+    expect(capForTier(5, SPAWN.caps, 0.7)).toBe(7);
+    expect(capForTier(3, SPAWN.caps, 0.7)).toBe(6);
+    expect(capForTier(1, SPAWN.caps, 0.7)).toBe(3);
+    // A modifier ≤ 1 can only shrink the cap → never exceeds max(caps) (pool never overflows).
+    for (const t of [0, 1, 2, 3, 4, 5]) {
+      expect(capForTier(t, SPAWN.caps, 0.7)).toBeLessThanOrEqual(Math.max(...SPAWN.caps));
+    }
+  });
 });
 
 describe('collectRoadPoints', () => {

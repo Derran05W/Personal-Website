@@ -39,6 +39,7 @@ import { startChaosBench, type BenchReport } from '../ai/chaosBench';
 import { heliDebugRef } from '../ai/helicopter';
 import { heliRef, type HeliLivery } from '../ai/heliTypes';
 import { getParticleStats, type ParticleStats } from '../fx/particles';
+import { getDrivingInput, isCoarsePointer, isTouchModeActive } from '../input';
 import { getReducedShake } from '../state/store';
 
 // Phase 7 traffic verification: exactly-once event proof. The civHit/civWrecked emitter
@@ -505,6 +506,9 @@ declare global {
        * drives this, then diffs camera jitter across identical blasts. */
       setReducedShake: (value: boolean) => void;
       getReducedShake: () => boolean;
+      /** Phase 18: live touch-input state — scripted mobile-emulation checks read these
+       * instead of poking at module internals. */
+      touchState: () => { coarse: boolean; touchModeActive: boolean; input: { steer: number; throttle: number; brake: number; handbrake: boolean } };
     };
   }
 }
@@ -622,6 +626,7 @@ window.__smashy = {
   setForcedHeliTier,
   heliSlots,
   particleStats: getParticleStats,
+  touchState: () => ({ coarse: isCoarsePointer(), touchModeActive: isTouchModeActive(), input: { ...getDrivingInput() } }),
   setReducedShake: (value) => getGameState().setReducedShake(value),
   getReducedShake,
 };

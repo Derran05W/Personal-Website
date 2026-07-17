@@ -29,6 +29,17 @@ function selectedCarHp(carId: PlayerCarId): number {
 
 export interface Settings {
   quality: 'high' | 'med' | 'low';
+  /**
+   * Provenance of `quality` (Phase 18). `'user'` means the player picked it explicitly in the
+   * pause menu — a choice the auto FPS probe (core/quality.ts) must NEVER override. `'auto'`
+   * means it was written by the first-load heuristic or the probe, so the probe is free to
+   * re-measure and demote it. Added additively (defaults `'auto'`, like `reducedShake` defaults
+   * false) so an envelope persisted before this field existed still hydrates — see
+   * loadSettings/isValidSettings: a missing `qualitySource` is normalised to `'auto'`, which
+   * preserves the pre-Phase-18 behaviour (persisted settings block auto-DETECTION either way,
+   * but now the probe additionally respects an explicit user pick).
+   */
+  qualitySource: 'auto' | 'user';
   muted: boolean;
   /**
    * Accessibility: when true, fx/cameraRig.ts zeroes the positional camera shake AND the
@@ -47,7 +58,12 @@ export interface Settings {
 // "in-memory default", so the raw key is the source of truth. (Task C export exception.)
 export const SETTINGS_STORAGE_KEY = 'smashy6ix:settings';
 
-const DEFAULT_SETTINGS: Settings = { quality: 'high', muted: false, reducedShake: false };
+const DEFAULT_SETTINGS: Settings = {
+  quality: 'high',
+  qualitySource: 'auto',
+  muted: false,
+  reducedShake: false,
+};
 
 // Phase 8: wired to the real config (was a local literal mirror while game/config was
 // authored in parallel — see git history). Ascending, index = tier, thresholds[0] must be
@@ -74,13 +90,21 @@ export function tierForHeat(heat: number, thresholds: readonly number[]): number
 // valid) stored quality/muted choice.
 function isValidSettings(
   value: unknown,
-): value is { quality: Settings['quality']; muted: boolean; reducedShake?: boolean } {
+): value is {
+  quality: Settings['quality'];
+  qualitySource?: Settings['qualitySource'];
+  muted: boolean;
+  reducedShake?: boolean;
+} {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as Record<string, unknown>;
   return (
     (candidate.quality === 'high' || candidate.quality === 'med' || candidate.quality === 'low') &&
     typeof candidate.muted === 'boolean' &&
-    (candidate.reducedShake === undefined || typeof candidate.reducedShake === 'boolean')
+    (candidate.reducedShake === undefined || typeof candidate.reducedShake === 'boolean') &&
+    (candidate.qualitySource === undefined ||
+      candidate.qualitySource === 'auto' ||
+      candidate.qualitySource === 'user')
   );
 }
 
@@ -93,8 +117,16 @@ function loadSettings(): Settings {
     if (!raw) return DEFAULT_SETTINGS;
     const parsed: unknown = JSON.parse(raw);
     if (!isValidSettings(parsed)) return DEFAULT_SETTINGS;
-    // Normalise the additive `reducedShake` field: absent (older envelope) -> false default.
-    return { quality: parsed.quality, muted: parsed.muted, reducedShake: parsed.reducedShake ?? false };
+    // Normalise the additive fields: absent (older envelope) -> defaults. `reducedShake` -> false;
+    // `qualitySource` -> 'auto' (a pre-Phase-18 persisted quality is treated as auto-provenance,
+    // so the FPS probe may still re-measure it — matching the intent that only an explicit menu
+    // pick locks the tier).
+    return {
+      quality: parsed.quality,
+      qualitySource: parsed.qualitySource ?? 'auto',
+      muted: parsed.muted,
+      reducedShake: parsed.reducedShake ?? false,
+    };
   } catch {
     return DEFAULT_SETTINGS;
   }
@@ -174,7 +206,12 @@ export interface GameStoreState {
    * without re-validating an already-known-unlocked id (dev bridge, tests) can keep using
    * the raw `setSelectedCar` above. */
   selectCar: (carId: PlayerCarId) => void;
-  setQuality: (quality: Settings['quality']) => void;
+  /**
+   * Set the quality tier and stamp its provenance (Phase 18). `source` defaults to `'user'` so
+   * the pause-menu selector's plain `setQuality(q)` call records an explicit, probe-proof pick;
+   * the auto heuristic (core/quality.ts's applyDetectedQuality) and the FPS probe pass `'auto'`.
+   */
+  setQuality: (quality: Settings['quality'], source?: Settings['qualitySource']) => void;
   toggleMuted: () => void;
   /** A11y (Phase 16): persist the reduced-camera-shake preference. Read from non-React
    * code (fx/cameraRig.ts) via the `getReducedShake` getter below, not this action. */
@@ -270,9 +307,9 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     set({ selectedCarId: carId });
   },
 
-  setQuality: (quality) => {
+  setQuality: (quality, source = 'user') => {
     set((state) => {
-      const settings = { ...state.settings, quality };
+      const settings = { ...state.settings, quality, qualitySource: source };
       saveSettings(settings);
       return { settings };
     });

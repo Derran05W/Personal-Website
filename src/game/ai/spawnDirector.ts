@@ -31,6 +31,7 @@
 import {
   SPAWN,
   SPAWN_COMPOSITION,
+  QUALITY_TIERS,
   type CompositionEntry,
   type MaxOfKindEntry,
   type MinPreferredEntry,
@@ -65,11 +66,15 @@ const MAX_CAP = Math.max(...SPAWN.caps);
 // ===========================================================================================
 
 /** Concurrent pursuit cap for a wanted tier, clamped to the caps table's bounds (defensive —
- * tier is always 0..5 in practice). */
-export function capForTier(tier: number, caps: readonly number[]): number {
+ * tier is always 0..5 in practice), then scaled by the quality tier's `pursuitCapModifier`
+ * (Phase 18: ×0.7 on low so a weak device chases fewer cars) and rounded. `modifier` defaults
+ * to 1 (no scaling) so callers/tests that don't care about quality keep the raw table value. A
+ * modifier ≤ 1 can only ever shrink the cap, so the director's fixed pool (sized to max(caps))
+ * never overflows. */
+export function capForTier(tier: number, caps: readonly number[], modifier = 1): number {
   if (caps.length === 0) return 0;
   const i = Math.max(0, Math.min(tier, caps.length - 1));
-  return caps[i];
+  return Math.max(0, Math.round(caps[i] * modifier));
 }
 
 /** A candidate spawn location — the world-space center (pre-jitter) of one road tile. */
@@ -386,6 +391,10 @@ export interface SpawnDirectorOptions {
   readonly getTier?: () => number;
   /** Current player XZ, or null when no run is live. Defaults to the player ref; injectable. */
   readonly getPlayerPos?: () => Vec2 | null;
+  /** Quality-tier pursuit-cap modifier (Phase 18). Defaults to the live store setting; read
+   * fresh each maintenance pass, so a mid-run quality change stops filling toward the reduced
+   * cap immediately (existing pursuers still age out on distance). Injectable for tests. */
+  readonly getPursuitCapModifier?: () => number;
   /** Fixed-camera forward (behind-frame heuristic). Defaults to the §5.3 rig yaw. */
   readonly camForward?: Vec2;
   /** Pure city data enabling the approach-biased spawn pick (Phase 16 Task 5). */
@@ -397,6 +406,7 @@ export class SpawnDirectorController {
   private readonly rng: Rng;
   private readonly getTier: () => number;
   private readonly getPlayerPos: () => Vec2 | null;
+  private readonly getPursuitCapModifier: () => number;
   private readonly camFwd: Vec2;
   // Approach-bias context (Phase 16 Task 5): the nav data + a per-road-point nearest-node distance
   // precomputed ONCE (static per world), so only the player-dependent approach-clearness sampling
@@ -428,6 +438,9 @@ export class SpawnDirectorController {
         const p = playerVehicle.current?.readState().pose.position;
         return p ? { x: p.x, z: p.z } : null;
       });
+    this.getPursuitCapModifier =
+      opts.getPursuitCapModifier ??
+      (() => QUALITY_TIERS[getGameState().settings.quality].pursuitCapModifier);
     this.camFwd = opts.camForward ?? cameraForwardXZ();
 
     const nav = opts.nav ?? null;
@@ -503,9 +516,9 @@ export class SpawnDirectorController {
       if (dx * dx + dz * dz > despawnSq) this.despawn(i);
     }
 
-    // Top pursuing units up to the current cap.
+    // Top pursuing units up to the current cap (scaled by the live quality-tier modifier).
     const tier = this.getTier();
-    const cap = capForTier(tier, SPAWN.caps);
+    const cap = capForTier(tier, SPAWN.caps, this.getPursuitCapModifier());
     const entries = SPAWN_COMPOSITION.tiers[tier] ?? [];
     const minPreferred: readonly MinPreferredEntry[] = SPAWN_COMPOSITION.minPreferred?.[tier] ?? [];
     const maxOfKind: readonly MaxOfKindEntry[] = SPAWN_COMPOSITION.maxOfKind?.[tier] ?? [];

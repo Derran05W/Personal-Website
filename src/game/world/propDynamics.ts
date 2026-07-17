@@ -248,6 +248,12 @@ export class PropSwapController {
   private readonly world: RapierWorld;
   private readonly rapier: RapierNamespace;
   private readonly group: Group;
+  // Effective dynamic-prop pool cap (Phase 18): resolved once at construction from the quality
+  // tier (config/quality.ts's dynamicPropPoolCap) so lower tiers hold fewer airborne props and
+  // total live dynamic bodies stay within the tier's maxDynamicBodies. Defaults to the base
+  // PROPS.dynamicPoolCap when the mount doesn't pass one (tests / high tier). Read at mount →
+  // a mid-run quality change applies on the next remount, matching the other pool/density rows.
+  private readonly poolCap: number;
 
   private readonly dynamics = new Map<ArchetypeName, DynamicArchetype>();
   private readonly slots: PoolSlot[] = [];
@@ -261,14 +267,20 @@ export class PropSwapController {
   private readonly scratchScale = new Vector3();
   private readonly dummy = new Object3D();
 
-  constructor(world: RapierWorld, rapier: RapierNamespace, group: Group) {
+  constructor(
+    world: RapierWorld,
+    rapier: RapierNamespace,
+    group: Group,
+    poolCap: number = PROPS.dynamicPoolCap,
+  ) {
     this.world = world;
     this.rapier = rapier;
     this.group = group;
+    this.poolCap = Math.max(1, Math.floor(poolCap));
     setActiveController(this); // publish as the external-hit target (see swapFromExternalHit)
   }
 
-  /** Current number of live dynamic props (≤ PROPS.dynamicPoolCap). */
+  /** Current number of live dynamic props (≤ this.poolCap). */
   occupancy(): number {
     return this.slots.length;
   }
@@ -435,7 +447,7 @@ export class PropSwapController {
 
   /** Evict one slot when the global pool is full, so an incoming swap always fits. */
   private ensureCapacity(): void {
-    if (this.slots.length < PROPS.dynamicPoolCap) return;
+    if (this.slots.length < this.poolCap) return;
     const candidates: EvictionCandidate[] = this.slots.map((s) => ({
       seq: s.seq,
       sleeping: s.body.isSleeping(),
@@ -470,7 +482,7 @@ export class PropSwapController {
     const existing = this.dynamics.get(archetype);
     if (existing !== undefined) return existing;
 
-    const cap = PROPS.dynamicPoolCap;
+    const cap = this.poolCap;
     const geometry = getArchetypeHandles(archetype)[0].mesh.geometry.clone();
     const emissive = new InstancedBufferAttribute(new Float32Array(cap), 1);
     emissive.setUsage(DynamicDrawUsage); // never rewritten, but keep it dynamic-friendly

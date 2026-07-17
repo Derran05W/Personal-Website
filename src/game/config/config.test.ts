@@ -5,6 +5,11 @@ import {
   HELI,
   TANK,
   QUALITY_TIERS,
+  QUALITY_TIER_ORDER,
+  dynamicPropPoolCap,
+  trafficActiveTarget,
+  PROPS,
+  TRAFFIC_CIV,
   PLAYER_CARS,
   ENEMY_UNITS,
   BUSTED,
@@ -104,6 +109,45 @@ describe('quality tiers', () => {
 
   it('low tier has shadows off', () => {
     expect(QUALITY_TIERS.low.shadowMapSize).toBe(0);
+  });
+
+  it('QUALITY_TIER_ORDER lists every tier lowest→highest', () => {
+    expect(QUALITY_TIER_ORDER).toEqual(['low', 'med', 'high']);
+    expect([...QUALITY_TIER_ORDER].sort()).toEqual(Object.keys(QUALITY_TIERS).sort());
+  });
+
+  it('Phase 18 density knobs are present and bounded (0,1]', () => {
+    for (const tier of Object.values(QUALITY_TIERS)) {
+      expect(tier.trafficDensityModifier).toBeGreaterThan(0);
+      expect(tier.trafficDensityModifier).toBeLessThanOrEqual(1);
+      expect(tier.parkedCarKeepFraction).toBeGreaterThan(0);
+      expect(tier.parkedCarKeepFraction).toBeLessThanOrEqual(1);
+    }
+    // high tier is the full-fat baseline (no trimming).
+    expect(QUALITY_TIERS.high.trafficDensityModifier).toBe(1);
+    expect(QUALITY_TIERS.high.parkedCarKeepFraction).toBe(1);
+  });
+});
+
+describe('per-tier budget resolvers (Phase 18)', () => {
+  it('dynamicPropPoolCap scales the base pool by the tier dynamic-body share, capped at base', () => {
+    const base = PROPS.dynamicPoolCap; // 60
+    expect(dynamicPropPoolCap(base, 'high')).toBe(60);
+    expect(dynamicPropPoolCap(base, 'med')).toBe(45); // 60 × 90/120
+    expect(dynamicPropPoolCap(base, 'low')).toBe(30); // 60 × 60/120
+  });
+
+  it('dynamicPropPoolCap never exceeds base and never drops below 1', () => {
+    expect(dynamicPropPoolCap(60, 'high')).toBeLessThanOrEqual(60);
+    expect(dynamicPropPoolCap(1, 'low')).toBe(1);
+    expect(dynamicPropPoolCap(0, 'low')).toBe(1);
+  });
+
+  it('trafficActiveTarget scales the base target by the tier density modifier', () => {
+    const base = TRAFFIC_CIV.activeTarget; // 24
+    expect(trafficActiveTarget(base, 'high')).toBe(24);
+    expect(trafficActiveTarget(base, 'med')).toBe(20); // round(24 × 0.83)
+    expect(trafficActiveTarget(base, 'low')).toBe(16); // round(24 × 0.67)
   });
 });
 

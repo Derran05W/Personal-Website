@@ -58,6 +58,14 @@ export function setDrivingInputOverride(inputs: DrivingInput | null): void {
   drivingInputOverride = inputs;
 }
 
+/** Whether a synthetic override (see {@link setDrivingInputOverride}) is currently active.
+ * Lets another live input source sharing this seam (input/touch.ts, Phase 18) defer to a
+ * scripted driver instead of racing it, without that source needing its own copy of the
+ * override state. Read-only — only setDrivingInputOverride mutates it. */
+export function hasDrivingInputOverride(): boolean {
+  return drivingInputOverride !== null;
+}
+
 /** Live driving intent. Consumers must treat it as read-only. */
 export function getDrivingInput(): Readonly<DrivingInput> {
   return drivingInputOverride ?? drivingInput;

@@ -14,6 +14,23 @@ export interface QualityTierDef {
   // scales down with the frame budget (fewer overdraw fragments on the additive/alpha
   // passes). Capped at or below PARTICLES.poolSize; high tier uses the full pool.
   readonly particleCap: number;
+  // Phase 18: civilian-traffic density scale (ai/traffic.ts). The active-car target is
+  // TRAFFIC_CIV.activeTarget × this, so lower tiers run fewer cars (fewer kinematic bodies +
+  // fewer potential dynamic conversions). high = full density; resolved counts (base 24):
+  // high 24, med 20, low 16.
+  readonly trafficDensityModifier: number;
+  // Phase 18: fraction of parked cars actually instanced (world/cityInstances.ts, the med-tier
+  // triangle-trim lever). Parked cars are the single biggest instanced pool by triangles
+  // (~76 tris × 634–866 instances/seed = 48k–66k map-wide), so evenly thinning them is the
+  // cheapest way to bring the med tier under its 200k budget. high = every car; meshes AND
+  // colliders read the same thinned set so they can never disagree.
+  readonly parkedCarKeepFraction: number;
+  // Phase 18 low-tier scenery trim: fraction of trees/mailboxes/benches/hydrants kept
+  // (world/cityInstances.ts SCENERY_ARCHETYPES — fences/lights/transformers deliberately
+  // excluded, see its doc comment). Trees alone are 40–54k tris map-wide, the second-
+  // biggest static pool after buildings; this is the lever that pulls the LOW tier toward
+  // its 120k budget after the parked-car trim.
+  readonly sceneryKeepFraction: number;
 }
 
 export const QUALITY_TIERS = {
@@ -26,6 +43,9 @@ export const QUALITY_TIERS = {
     shadowMapSize: 2048,
     dprCap: 2,
     particleCap: 500,
+    trafficDensityModifier: 1,
+    parkedCarKeepFraction: 1,
+    sceneryKeepFraction: 1,
   },
   med: {
     targetFps: 60,
@@ -36,6 +56,9 @@ export const QUALITY_TIERS = {
     shadowMapSize: 1024,
     dprCap: 1.5,
     particleCap: 350,
+    trafficDensityModifier: 0.83,
+    parkedCarKeepFraction: 0.6,
+    sceneryKeepFraction: 1,
   },
   low: {
     targetFps: 30,
@@ -46,7 +69,41 @@ export const QUALITY_TIERS = {
     shadowMapSize: 0,
     dprCap: 1.5,
     particleCap: 160,
+    trafficDensityModifier: 0.67,
+    parkedCarKeepFraction: 0.25,
+    sceneryKeepFraction: 0.3,
   },
 } as const satisfies Record<string, QualityTierDef>;
 
 export type QualityTier = keyof typeof QUALITY_TIERS;
+
+// Tiers ordered lowest → highest capability; the FPS probe (core/quality.ts) walks this to
+// "drop one tier". Kept in sync with QUALITY_TIERS by the config test.
+export const QUALITY_TIER_ORDER = ['low', 'med', 'high'] as const satisfies readonly QualityTier[];
+
+// ===========================================================================================
+// Pure per-tier budget resolvers (unit-tested; no side effects). Each consumer reads its own
+// row through one of these so the budget table stays the single source of truth (CLAUDE.md).
+// ===========================================================================================
+
+/**
+ * Effective dynamic-prop pool cap for a tier (world/propDynamics.ts). The configured base pool
+ * (PROPS.dynamicPoolCap, authored as the high-tier count) is scaled by the tier's share of the
+ * high-tier active-dynamic-body budget, so lower tiers hold fewer airborne props and the total
+ * live dynamic-body count stays within each tier's `maxDynamicBodies`. Never exceeds `baseCap`
+ * (high == baseCap) and never drops below 1. Resolved (base 60): high 60, med 45, low 30.
+ */
+export function dynamicPropPoolCap(baseCap: number, tier: QualityTier): number {
+  const hi = QUALITY_TIERS.high.maxDynamicBodies;
+  const scaled = Math.round((baseCap * QUALITY_TIERS[tier].maxDynamicBodies) / hi);
+  return Math.max(1, Math.min(baseCap, scaled));
+}
+
+/**
+ * Effective civilian-traffic active-car target for a tier (ai/traffic.ts): `baseTarget` scaled
+ * by the tier's `trafficDensityModifier`, rounded, floored at 0. Resolved (base 24): high 24,
+ * med 20, low 16.
+ */
+export function trafficActiveTarget(baseTarget: number, tier: QualityTier): number {
+  return Math.max(0, Math.round(baseTarget * QUALITY_TIERS[tier].trafficDensityModifier));
+}

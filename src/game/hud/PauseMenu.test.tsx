@@ -63,4 +63,29 @@ describe('PauseMenu', () => {
     render(<PauseMenu />);
     expect(screen.getByTestId('pause-menu')).toHaveStyle({ pointerEvents: 'auto' });
   });
+
+  it('renders a Quality selector with the current tier highlighted (Phase 18)', () => {
+    render(<PauseMenu />); // default settings → 'high'
+    expect(screen.getByTestId('pause-quality-high')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('pause-quality-med')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('pause-quality-low')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('choosing a quality tier updates the store and marks it a user pick', () => {
+    render(<PauseMenu />);
+    fireEvent.click(screen.getByTestId('pause-quality-low'));
+    expect(getGameState().settings.quality).toBe('low');
+    expect(getGameState().settings.qualitySource).toBe('user');
+    // The highlight follows the new selection.
+    expect(screen.getByTestId('pause-quality-low')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('reflects and toggles the reduced-camera-shake preference', () => {
+    render(<PauseMenu />);
+    const box = screen.getByTestId('pause-reduced-shake');
+    expect(box).not.toBeChecked();
+    fireEvent.click(box);
+    expect(getGameState().settings.reducedShake).toBe(true);
+    expect(screen.getByTestId('pause-reduced-shake')).toBeChecked();
+  });
 });

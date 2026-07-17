@@ -1,0 +1,49 @@
+/* Touch controls overlay (hud/touch/TouchControls.tsx). Interaction-hygiene properties
+   that inline style objects can't (cleanly) express — vendor prefixes, `:active` press
+   feedback — plus the shared button-chrome reset live here; layout/color/typography for
+   each zone stay inline in the component, same "game/ uses inline styles, .css only for
+   what can't be" split as Hud.css / PauseMenu.css. */
+
+/* No text selection, no iOS callout menu, no mobile Safari tap-highlight flash, and no
+   browser gestures (scroll/pinch/double-tap-zoom) hijacking a press — task brief points
+   "touch-action: none, no text selection/callouts". Applied to the whole subtree since
+   nothing non-interactive lives inside it. */
+.touch-controls,
+.touch-controls * {
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.touch-zone {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.touch-zone__glyph {
+  transition:
+    background 80ms ease,
+    border-color 80ms ease;
+}
+
+/* Press feedback: the visible glyph chip brightens while its zone is actively held —
+   `:active` isn't expressible as a React inline style object, so it's the one thing this
+   class needs beyond the shared reset above. */
+.touch-zone:active .touch-zone__glyph {
+  background: rgba(245, 158, 11, 0.4);
+  border-color: rgba(245, 158, 11, 0.85);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .touch-zone__glyph {
+    transition: none;
+  }
+}

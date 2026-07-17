@@ -16,7 +16,7 @@
 // Not wired into game/index.tsx here — the phase orchestrator integrates it (keyed on
 // seed for full-remount regeneration) in place of TestPlane.
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { CuboidCollider, RigidBody } from '@react-three/rapier';
 import {
@@ -26,8 +26,9 @@ import {
   Object3D,
   type InstancedMesh,
 } from 'three';
-import { BOUNDARY, WORLD, interactionGroups } from '../config';
+import { BOUNDARY, QUALITY_TIERS, WORLD, interactionGroups } from '../config';
 import { gameEvents } from '../state/events';
+import { useGameStore } from '../state/store';
 import { playerVehicle } from '../vehicles/playerRef';
 import { BlueHourRig } from './BlueHourRig';
 import { CityArchetypes } from './CityArchetypes';
@@ -174,11 +175,27 @@ export function CityScape({ world }: CityScapeProps) {
   );
   useEffect(() => () => overlayGeometry.dispose(), [overlayGeometry]);
 
+  // Phase 18 tri-trim: the parked-car + scenery keep-fractions for the CURRENT quality tier,
+  // captured ONCE at mount via a lazy useState initializer (NOT a reactive subscription — a
+  // mid-run quality change must not rebuild the whole city + colliders; density applies on
+  // the next keyed remount, per core/quality.ts). Stable across renders, so the memo below
+  // stays honest.
+  const [{ parkedCarKeepFraction, sceneryKeepFraction }] = useState(() => {
+    const tier = QUALITY_TIERS[useGameStore.getState().settings.quality];
+    return {
+      parkedCarKeepFraction: tier.parkedCarKeepFraction,
+      sceneryKeepFraction: tier.sceneryKeepFraction,
+    };
+  });
+
   // Instanced archetypes (Phase 5): buildings + street props via the palette/instancing
   // layer. Assembled ONCE per world — the sorted sets feed both the renderer below and
   // (once mounted) the collider layer, keeping instanceId agreement (see CityArchetypes'
   // header invariant).
-  const instanceSets = useMemo(() => buildCityInstanceSets(world), [world]);
+  const instanceSets = useMemo(
+    () => buildCityInstanceSets(world, { parkedCarKeepFraction, sceneryKeepFraction }),
+    [world, parkedCarKeepFraction, sceneryKeepFraction],
+  );
 
   // Boundary barriers: visual-only InstancedMesh (3 instances); physics colliders are
   // separate fixed RigidBodies below, decoupled from the visual mesh (draw-call budget
