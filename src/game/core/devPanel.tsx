@@ -21,6 +21,7 @@ import { loadProgress, resetProgress } from '../state/persistence';
 import { trafficRef } from '../ai/trafficTypes';
 import { unitsRef, type UnitSlot } from '../ai/pursuitTypes';
 import { forceBustedGameOver } from './debugBridge';
+import { startChaosBench } from '../ai/chaosBench';
 import { ARCHETYPES, EMISSIVE_ARCHETYPES } from '../world/archetypes';
 import { DISTRICT_COUNT, setDistrictColor, setDistrictEmissive } from '../world/instancing';
 import { derivePlacements } from '../world/propPlacements';
@@ -354,6 +355,8 @@ export default function DevPanel() {
       // buttons a headless script can drive without touching leva's own DOM controls.
       schema['force tier 2'] = button(() => grantHeatToTier(2));
       schema['force tier 3'] = button(() => grantHeatToTier(3));
+      // Phase 12 Task 3: same seam, ★5 (tanks) verification.
+      schema['force tier 5'] = button(() => grantHeatToTier(5));
 
       // Live run score (state/store.ts) vs. persisted meta-progression
       // (state/persistence.ts, written on `runEnded`) — the monitors below make the
@@ -381,6 +384,12 @@ export default function DevPanel() {
       });
       schema['force spawn swat'] = button(() => {
         unitsRef.current?.forceSpawn('swat');
+      });
+      // Phase 12 Task 3: same seam, ★5 tank. ai/units/tank.ts (Task 2, concurrent sibling)
+      // registers its factory on its own schedule — until then this is a safe no-op, same
+      // as the armored/swat buttons above were before Phase 10 Task 2 landed.
+      schema['force spawn tank'] = button(() => {
+        unitsRef.current?.forceSpawn('tank');
       });
       schema['pursuit units'] = monitor(() => unitsRef.current?.activeCount() ?? 0, {
         interval: 250,
@@ -423,6 +432,33 @@ export default function DevPanel() {
       // for real (gameEvents + store.transition, the same seams runLoop itself uses) — a
       // screen/flow verification shortcut, not a fake detector.
       schema['force BUSTED (debug)'] = button(() => forceBustedGameOver());
+
+      // Phase 12 Task 3: tank-shell/explosion FX verification. Both call the real bridge
+      // fns Task 1 owns (core/debugBridge.ts's window.__smashy.blastHere/fireShellAt —
+      // combat/projectiles.ts's projectilesRef under the hood), not a re-implementation
+      // here — see this task's brief ("do NOT duplicate Task 1's bridge fns"). Optional
+      // chaining: safe no-op if debugBridge.ts's DEV-only dynamic import hasn't resolved
+      // yet (a startup-order edge case, not a steady-state one — both modules load
+      // together under import.meta.env.DEV).
+      schema['blast here (debug)'] = button(() => {
+        window.__smashy?.blastHere();
+      });
+      schema['fire shell at player (debug)'] = button(() => {
+        window.__smashy?.fireShellAt();
+      });
+
+      // Phase 12 Task 4: standing perf-regression harness (ai/chaosBench.ts) — forces ★5,
+      // fills the pursuit roster, auto-drives a ~60 s road-graph circuit, and prints a
+      // budget report to the console (console.info, inside startChaosBench itself). This
+      // button is just the trigger; the promise settles in the background (leva buttons
+      // are synchronous onClick handlers) — a console.error surfaces any failure (e.g. no
+      // world generated yet) since a leva button has nowhere else to show it.
+      schema['chaos bench (★5, ~60s)'] = button(() => {
+        console.info('[chaosBench] starting — ~60s, watch the console for the report…');
+        startChaosBench().catch((err: unknown) => {
+          console.error('[chaosBench] failed:', err);
+        });
+      });
 
       return schema as unknown as LevaSchema;
     },

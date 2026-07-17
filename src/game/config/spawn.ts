@@ -12,7 +12,10 @@ export const SPAWN = {
   // lingering as trophies is excluded — see SPAWN.wreckLingerSec). Length also fixes the
   // director's pool size (max = caps[5] = 10).
   caps: [0, 4, 6, 8, 9, 10],
-  // TDD §5.5: ★5 caps tanks at 2 even though the total cap is 10.
+  // TDD §5.5: ★5 caps tanks at 2 even though the total cap is 10. Phase 12 unified this onto the
+  // generic per-kind concurrency mechanism (SPAWN_COMPOSITION.maxOfKind[5]) — the director never
+  // had a dedicated maxTanks input, so this field is now purely the NAMED VALUE SOURCE that the
+  // ★5 maxOfKind entry references (`{ kind: 'tank', max: SPAWN.maxTanks }`). Retune here.
   maxTanks: 2,
   // Spawn ring around the player, off-screen. TDD §5.6.
   ringMin: 60,
@@ -98,7 +101,7 @@ export interface SpawnComposition {
  *
  * This shape is the extension point for all of Part 4: an escalation phase adds its unit by
  * APPENDING an entry to the tiers where it appears — e.g. ★5 gains `{ kind: 'tank', … }`
- * (concurrent tanks separately capped by SPAWN.maxTanks in the director). No director code
+ * (concurrent tanks capped via `maxOfKind[5]`, sourced from SPAWN.maxTanks). No director code
  * changes: it reads this table generically and looks each kind up in the factory registry.
  * Weights are relative — only their ratios within a tier matter. A kind whose factory isn't
  * registered yet (e.g. mid-build, before its unit module's mesh mount imports and registers
@@ -128,7 +131,14 @@ export const SPAWN_COMPOSITION = {
       { kind: 'swat', weight: 2 },
       { kind: 'gunTruck', weight: 3 },
     ], // ★4 — gun trucks join (Phase 11); cap stays SPAWN.caps[4] (9), gun trucks maxOfKind-capped
-    [{ kind: 'police', weight: 1 }], // ★5 — Part 4: + { kind: 'tank', … } (maxTanks capped)
+    [
+      { kind: 'police', weight: 3 },
+      { kind: 'armored', weight: 2 },
+      { kind: 'swat', weight: 2 },
+      { kind: 'gunTruck', weight: 2 },
+      { kind: 'tank', weight: 2 },
+    ], // ★5 — full roster + tanks (Phase 12); cap stays SPAWN.caps[5] (10). tank + gunTruck are
+    // maxOfKind-capped at 2 each below; minPreferred guarantees ≥1 tank actually shows up.
   ],
   minPreferred: [
     [], // ★0
@@ -137,7 +147,7 @@ export const SPAWN_COMPOSITION = {
     [{ kind: 'swat', count: 2 }], // ★3 — squad.ts's flank slots need bodies to claim them;
     // without a floor, an unlucky weighted roll could leave ★3 with zero SWAT for a while.
     [{ kind: 'gunTruck', count: 1 }], // ★4 — guarantee at least one truck standing off (capped at 2)
-    [], // ★5
+    [{ kind: 'tank', count: 1 }], // ★5 — guarantee at least one tank on the ground (capped at 2 below)
   ],
   maxOfKind: [
     [], // ★0
@@ -145,7 +155,13 @@ export const SPAWN_COMPOSITION = {
     [], // ★2
     [], // ★3
     [{ kind: 'gunTruck', max: 2 }], // ★4 — at most two gun trucks at once (TDD §5.6 / plan: ≤2)
-    [], // ★5 — tanks stay on the dedicated SPAWN.maxTanks path for now
+    [
+      // ★5 — the generic maxOfKind path now enforces the ★5 tank cap (Phase 12 unification), so the
+      // bespoke SPAWN.maxTanks field is retired as a director input and lives on ONLY as the named
+      // value source referenced here (TDD §5.5 "max 2 tanks"). Gun trucks stay capped at 2 as at ★4.
+      { kind: 'tank', max: SPAWN.maxTanks },
+      { kind: 'gunTruck', max: 2 },
+    ],
   ],
 } as const satisfies SpawnComposition;
 

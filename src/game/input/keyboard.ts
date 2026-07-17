@@ -32,9 +32,35 @@ function zeroDrivingInput(): void {
   drivingInput.handbrake = false;
 }
 
+// Scripted-driver override (Phase 12 Task 4, ai/chaosBench.ts). Unconditional — no DEV
+// gate — on purpose: this module already ships in every build (real keyboard input needs
+// it there), and the hook itself is a single nullable reference with no extra dependency
+// weight, so gating it would only complicate this file for no size benefit. The only thing
+// that keeps it dev-tool-only in practice is that its sole caller, ai/chaosBench.ts, is
+// itself never statically imported outside the DEV-gated bridge/dev-panel chunks (see that
+// file's header) — nothing about keyboard.ts enforces that; it's just true today.
+//
+// When set, getDrivingInput() returns the override VERBATIM instead of the live keyboard
+// state below, so a scripted driver (the chaos bench today; any future scripted/replay
+// driver later) feeds input through the exact same seam PlayerVehicle already reads —
+// nothing downstream needs a second code path. Deliberately independent of the "leaving
+// PLAYING zeroes driving input" store subscription further down: that subscription only
+// touches `drivingInput`/`pressedKeys` (the real keyboard state), never this override, so a
+// scripted driver's own caller is responsible for clearing it (chaosBench always does, in a
+// `finally`-equivalent path, once its run ends) — physics is paused outside PLAYING anyway
+// (game/index.tsx's `<Physics paused={machine !== 'PLAYING'}>`), so a lingering override
+// while not PLAYING has no effect until a real run resumes.
+let drivingInputOverride: DrivingInput | null = null;
+
+/** Set a synthetic DrivingInput that getDrivingInput() returns instead of live keyboard
+ * state; pass `null` to restore normal keyboard-driven input. See the doc comment above. */
+export function setDrivingInputOverride(inputs: DrivingInput | null): void {
+  drivingInputOverride = inputs;
+}
+
 /** Live driving intent. Consumers must treat it as read-only. */
 export function getDrivingInput(): Readonly<DrivingInput> {
-  return drivingInput;
+  return drivingInputOverride ?? drivingInput;
 }
 
 // --- Keymap (TDD §5.2) ---------------------------------------------------------------

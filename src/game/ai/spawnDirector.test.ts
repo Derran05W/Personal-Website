@@ -200,13 +200,20 @@ describe('thinkPhase / shouldThink (10 Hz stagger)', () => {
 });
 
 describe('pickCompositionKind', () => {
-  it('★0 spawns nothing; the still-single-kind tiers (★1/★5) always pick police', () => {
+  it('★0 spawns nothing; ★1 is the only single-kind (police) row', () => {
     expect(pickCompositionKind(SPAWN_COMPOSITION.tiers[0], () => 0.5)).toBeNull();
-    // ★4 gained gun trucks (Phase 11), so only ★1/★5 remain single-kind police rows.
-    for (const t of [1, 5]) {
-      expect(pickCompositionKind(SPAWN_COMPOSITION.tiers[t], () => 0)).toBe('police');
-      expect(pickCompositionKind(SPAWN_COMPOSITION.tiers[t], () => 0.999)).toBe('police');
-    }
+    // ★4 gained gun trucks (Phase 11) and ★5 gained tanks (Phase 12), so ★1 is the only
+    // remaining single-kind police row.
+    expect(pickCompositionKind(SPAWN_COMPOSITION.tiers[1], () => 0)).toBe('police');
+    expect(pickCompositionKind(SPAWN_COMPOSITION.tiers[1], () => 0.999)).toBe('police');
+  });
+
+  it('★5 is the full roster + tanks (Phase 12): police at the low roll, tank at the high roll', () => {
+    expect(pickCompositionKind(SPAWN_COMPOSITION.tiers[5], () => 0)).toBe('police');
+    expect(pickCompositionKind(SPAWN_COMPOSITION.tiers[5], () => 0.999)).toBe('tank');
+    // The mix carries every escalation kind so ★5 fields the whole force.
+    const kinds = new Set(SPAWN_COMPOSITION.tiers[5].map((e) => e.kind));
+    expect(kinds).toEqual(new Set(['police', 'armored', 'swat', 'gunTruck', 'tank']));
   });
 
   it('rolls proportional to weight across multiple kinds (Phase 10 shape)', () => {

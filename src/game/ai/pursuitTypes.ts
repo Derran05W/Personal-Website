@@ -4,7 +4,7 @@
 // read through `unitsRef`. Part 4's armored/SWAT/gun-truck/tank units extend UnitKind and
 // register their own factories — the director never hardcodes a unit type.
 
-export type UnitKind = 'police' | 'armored' | 'swat' | 'gunTruck'; // Phase 12 appends: 'tank'
+export type UnitKind = 'police' | 'armored' | 'swat' | 'gunTruck' | 'tank';
 
 export type UnitState = 'pursuing' | 'wrecked';
 

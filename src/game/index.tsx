@@ -36,6 +36,7 @@ import { PoliceMesh } from './ai/units/PoliceMesh';
 import { ArmoredMesh } from './ai/units/ArmoredMesh';
 import { SwatMesh } from './ai/units/SwatMesh';
 import { GunTruckMesh } from './ai/units/GunTruckMesh';
+import { ProjectilesMount } from './combat/ProjectilesMount';
 import { Tracers } from './fx/Tracers';
 import GameOver from './hud/GameOver';
 import { SirensSystem } from './audio/SirensSystem';
@@ -227,6 +228,9 @@ export default function Game() {
             <ArmoredMesh key={`armored-${worldKey}`} />
             <SwatMesh key={`swat-${worldKey}`} />
             <GunTruckMesh key={`guntruck-${worldKey}`} />
+            {/* Tank-shell system (Phase 12): pure-point shell pool + explosion resolver.
+                Keyed like the other systems so a regenerate/retry drops in-flight shells. */}
+            <ProjectilesMount key={`projectiles-${worldKey}`} />
             <Tracers key={`tracers-${worldKey}`} />
             <SpawnDirector key={`director-${worldKey}`} world={world} seed={seed} />
             {/* SWAT-squad flank coordinator (Phase 10): publishes flank-slot claims SWAT units

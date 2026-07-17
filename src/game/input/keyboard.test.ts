@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { createElement, StrictMode, type ReactNode } from 'react';
-import { getDrivingInput, useInputSystem } from './index';
+import { getDrivingInput, setDrivingInputOverride, useInputSystem } from './index';
 import { useGameStore } from '../state/store';
 
 // Snapshot of the store's state at module-evaluation time — same reset pattern as
@@ -21,6 +21,11 @@ afterEach(() => {
   // Global cleanup() from src/vitest-setup.ts unmounts every renderHook() result after
   // each test, which runs useInputSystem's effect cleanup (detach + hardReset) — that's
   // what keeps window/document listeners from leaking between tests in this file.
+  // Defensive: a test that sets the scripted-driver override and fails before clearing it
+  // would otherwise leak that override into every later test in this file (it's module
+  // scope, not touched by attachInputSystem/detachInputSystem — see keyboard.ts's doc
+  // comment on why it's deliberately independent of that lifecycle).
+  setDrivingInputOverride(null);
 });
 
 function strictWrapper({ children }: { children: ReactNode }) {

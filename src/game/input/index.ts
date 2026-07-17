@@ -5,4 +5,4 @@
 // ./keyboard, kept separate so it can own its module-scope state and be unit-tested
 // directly; this file just re-exports the same signatures the stub originally pinned.
 export type { DrivingInput } from './keyboard';
-export { getDrivingInput, useInputSystem } from './keyboard';
+export { getDrivingInput, useInputSystem, setDrivingInputOverride } from './keyboard';

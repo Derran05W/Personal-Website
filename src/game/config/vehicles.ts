@@ -276,6 +276,33 @@ export const GUN_TRUCK = {
   },
 } as const;
 
+// Tank turret + fire-cycle tunables (Phase 12 Task 2; TDD §5.6 tank row). The tank REUSES
+// combat/turret.ts (world-space aim slew) exactly like the gun truck, and reads its shell /
+// cadence numbers from config/tank.ts's TANK (shellSpeed, fireCooldown, telegraphSec,
+// turretYawDegPerSec — shared with combat's shell + explosion, so they stay one source of
+// truth). What lives HERE is the unit-side aim geometry + gating the gun truck keeps in
+// GUN_TRUCK.turret: the tiny velocity lead, the max engagement range, and the muzzle geometry.
+export const TANK_UNIT = {
+  // Aim = playerPos + leadTimeSec × playerVel. Deliberately TINY (0.2 s): the 60°/s turret cap
+  // (TANK.turretYawDegPerSec) is the real balancer, and a small lead keeps a crossing player
+  // able to out-run the shell — shell travel time (≈1 s at 45 m/s over 45 m) ≫ the lead, so a
+  // perpendicular juke during the 0.8 s telegraph clears the impact point (the dodgeability bar).
+  leadTimeSec: 0.2,
+  // Hold fire when the player is farther than this (m). No LOS gate — a shell hitting a building
+  // is fine/fun (TDD) — this is only a max engagement distance so a distant tank doesn't lob
+  // blind shells across the whole map. Larger than the gun truck's 35 m: the tank is a siege gun.
+  engagementRangeM: 60,
+  // Muzzle geometry (fed to combat/turret.ts turretMuzzle): the turret pivot rides heightM above
+  // the chassis CENTER and the barrel tip (shell spawn + telegraph laser origin) sits
+  // muzzleForwardM ahead of the pivot along the WORLD aim yaw. These MUST track TankMesh's turret
+  // deck height + barrel length (TURRET_DECK_Y + BARREL_CENTER_Y, BARREL_TIP_Z) so the shell and
+  // the laser dot leave the visible barrel tip. Keep the two in sync if either is retuned.
+  turret: {
+    heightM: 0.92,
+    muzzleForwardM: 3.2,
+  },
+} as const;
+
 // Pursuit steering-behavior tunables (TDD §5.6 "AI implementation": seek/pursue with velocity
 // lead, ram commitment, 3-ray obstacle avoidance, stuck recovery). Consumed by the PURE math
 // in ai/aiSteering.ts (decisions cached at SPAWN.aiTickHz, forces applied every physics step)

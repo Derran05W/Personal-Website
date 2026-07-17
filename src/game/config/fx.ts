@@ -75,3 +75,84 @@ export const TRACER = {
     hitSpark: '#ffb454',
   },
 } as const;
+
+// Tank-shell explosion FX (Phase 12 Task 3; TDD §5.6 tank row). combat/explosion.ts
+// (Task 1) pushes one ExplosionRecord per detonation into combat/explosionFeed.ts's ring
+// buffer; fx/Explosions.tsx polls it and renders four independently age-faded elements —
+// an expanding flash billboard, a brief pooled point-light punch (max 2 concurrent, real
+// lights are budgeted), a handful of rising smoke-puff billboards, and a long-lived
+// ground scorch decal — plus one big camera-shake hit per blast. Flash/smoke share
+// Tracers.tsx's additive "fade toward black" trick (colour × intensity, additive +
+// depth-write-off — a black quad contributes nothing under additive blending); scorch
+// reuses fx/SkidMarks.tsx's opaque "fade toward the ground colour" trick instead (no
+// transparency, so overlapping decals cost nothing extra) — see fx/Explosions.tsx's file
+// header for the exact pooling/draw-call layout.
+export const EXPLOSION = {
+  // Expanding flash billboard: additive, fades to black over this span (ms).
+  flash: {
+    maxAgeMs: 250,
+    sizeStart: 1.5, // m, at spawn
+    sizeEnd: 7, // m, at maxAgeMs — roughly TANK.blast.radius, so the flash silhouette
+    // reads as "this is why everything nearby just flew".
+  },
+  // Pooled point light: a brief warm punch, hard-capped at 2 concurrent (perf budget —
+  // real dynamic lights, not billboards). Unused pool slots park at y=parkY, intensity 0.
+  light: {
+    maxConcurrent: 2,
+    maxAgeMs: 300,
+    intensity: 30,
+    distance: 20,
+    color: '#ffb454',
+    parkY: -100,
+  },
+  // Smoke puffs: a few additive billboards per blast, drifting upward and fading out well
+  // after the flash (stylized "hot dust" puff, not physically-shaded smoke — same additive
+  // fade-to-black trick as the flash/Tracers, so it stays a single draw call with the
+  // flash pool; see file-header rationale in fx/Explosions.tsx).
+  smoke: {
+    puffsPerBlast: 3,
+    maxAgeMs: 1200,
+    riseSpeed: 1.4, // m/s upward drift
+    sizeStart: 1.5,
+    sizeEnd: 4.5,
+    spreadM: 1.8, // max horizontal drift radius by maxAgeMs
+    color: '#cfcac2',
+  },
+  // Scorch decal: pooled opaque ground quads, cap 24, oldest-recycled ring buffer (same
+  // write-cursor model as fx/SkidMarks.tsx's SKID.poolSize). yOffset sits just above
+  // SkidMarks' own marks (SKID.yOffset = 0.03) so the two decal layers never z-fight where
+  // a blast lands on a skid trail.
+  scorch: {
+    poolSize: 24,
+    yOffset: 0.035,
+    sizeScale: 0.9, // decal size = clamp(radiusM * sizeScale, sizeMin, sizeMax)
+    sizeMin: 3,
+    sizeMax: 7,
+    fadeSeconds: 25,
+    color: '#141210',
+  },
+  // Camera shake per blast (fx/cameraRig.addShake strength, m of peak jitter). Deliberately
+  // at/above CAMERA.shake.maxAmplitude (0.5) so a single blast saturates the trauma cap
+  // immediately — "BIG shake", not a graded response to blast size.
+  shakeStrength: 0.6,
+  colors: {
+    flash: '#fff2c2',
+  },
+} as const;
+
+// Tank turret telegraph FX (Phase 12 Task 3; TDD §5.6 tank row "barrel glow + laser dot").
+// ai/units/tank.ts (Task 2) owns the real telegraph state (progress01, barrel tip, aim
+// point) behind an exported getTankTelegraph(slotId) — mirrors ai/units/gunTruck.ts's
+// getGunTruckTurretYaw(slotId) publication pattern. This block only holds the ground-laser
+// presentation numbers (fx/TankTelegraph.tsx) — the barrel GLOW itself lives on
+// ai/units/TankMesh.tsx's own per-instance emissive attribute (that module's real hook, not
+// a billboard fallback here — see fx/TankTelegraph.tsx's file header), and gameplay timing
+// (TANK.telegraphSec) stays in config/tank.ts.
+export const TANK_TELEGRAPH = {
+  // Laser line + aim dot fade in over the telegraph so the "about to fire" read ramps
+  // with progress01 rather than popping at full brightness immediately.
+  lineColor: '#ff2f2f',
+  dotColor: '#ff6a4a',
+  dotSize: 0.6,
+  maxLines: 2, // safety margin above SPAWN.maxTanks (2) — mirrors GunTruckAimViz's MAX_LINES pattern
+} as const;

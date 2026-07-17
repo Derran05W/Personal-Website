@@ -16,7 +16,8 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "smoke": "playwright test",
-    "check:shell": "node scripts/check-shell-size.mjs"
+    "check:shell": "node scripts/check-shell-size.mjs",
+    "bench:chaos": "node scripts/bench-chaos.mjs"
   },
   "dependencies": {
     "@react-three/drei": "10.7.7",

@@ -79,7 +79,7 @@ Status: `[ ]` todo · `[~]` in progress · `[!]` blocked / awaiting user · `[x]
 ### Part 4 — Escalation (`.planning/part-4-escalation.md`)
 - [x] **Phase 10 — ★2 Armored + ★3 SWAT flanking** (M5a) — 2026-07-16: squad coordinator (flank slots, hysteresis, drivable clamp), armored (real 1920 kg + shove) + blacked-out SWAT (ram ×1.5) on the P9 chassis, ★2/★3 composition w/ minPreferred, press-in fix (cops crowd-and-hold); ★3 battery: both SWAT flanking live, 3-min chaos soak flat-heap 0-error; 688 tests; organic-BUSTED + unit-prop-launch debts → P11 (see phase-10-notes.md).
 - [x] **Phase 11 — ★4 Gun trucks: standoff + turret fire** (M5b) — 2026-07-16: orbit/standoff steering w/ ram-switch, world-damped turret + LOS gate, sim-time hitscan bursts (measured 3×100 ms / 2.5 s cd, 3 dmg, shove-never-flips), bullets launch props via new swapFromExternalHit (P12 explosion entry), tracer FX + damage vignette, ★4 composition w/ maxOfKind ≤2; chaos soak flat-heap 0-error; 742 tests; no-navmesh navigation theme consolidated for P12/P16 (see phase-11-notes.md).
-- [ ] **Phase 12 — ★5 Tanks, shells, explosions + chaos bench** (M5c)
+- [x] **Phase 12 — ★5 Tanks, shells, explosions + chaos bench** (M5c) — 2026-07-16: pure-point no-tunnel shells, faction-free 8 m blasts (friendly fire proven live, player can't helicopter), 6×-mass tank w/ 0.8 s telegraph + dodgeable-by-construction shells, ★5 composition (2 tanks max), chaos bench standing harness (3× runs: 71/150 calls, 211k/300k tris, heapΔ 0.0 MB, exit 0); 799 tests; M5/Part 4 COMPLETE (see phase-12-notes.md).
 
 ### Part 5 — Signature & Juice (`.planning/part-5-signature-and-juice.md`)
 - [ ] **Phase 13 — Power grid & district blackouts** (M6)

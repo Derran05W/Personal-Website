@@ -16,8 +16,11 @@ import { getImpactCount, onImpact } from '../combat/contacts';
 import { trafficRef } from '../ai/trafficTypes';
 import { gameEvents } from '../state/events';
 import { unitsRef, type UnitKind } from '../ai/pursuitTypes';
+import { tankDebugSnapshot } from '../ai/units/tank';
+import { projectilesRef } from '../combat/projectiles';
 import { setDevToggle } from './devToggles';
 import { getSirenDebugSnapshot, type SirenDebugVoice } from '../audio/sirens';
+import { startChaosBench, type BenchReport } from '../ai/chaosBench';
 
 // Phase 7 traffic verification: exactly-once event proof. The civHit/civWrecked emitter
 // payloads are empty, so scripted checks can't scrape them from the DOM — count them here
@@ -66,7 +69,7 @@ const TINT_COLOR = new Color('#ff2222');
 // window (Playwright's page.evaluate can't pass a typed literal) needs a real value to
 // validate against rather than an unsafe cast. Kept in lockstep with UnitKind by hand — the
 // same discipline Part 4's own unit modules already follow when they extend that union.
-const KNOWN_UNIT_KINDS: readonly UnitKind[] = ['police', 'armored', 'swat', 'gunTruck'];
+const KNOWN_UNIT_KINDS: readonly UnitKind[] = ['police', 'armored', 'swat', 'gunTruck', 'tank'];
 
 function isUnitKind(kind: string): kind is UnitKind {
   return (KNOWN_UNIT_KINDS as readonly string[]).includes(kind);
@@ -203,6 +206,35 @@ declare global {
         readonly contextState: AudioContextState | null;
         readonly voices: readonly SirenDebugVoice[];
       };
+      /** Phase 12 Task 4: runs the ★5 chaos bench (ai/chaosBench.ts) — forces max heat,
+       * fills the pursuit roster, auto-drives the player around a road-graph circuit for
+       * ~60 s while sampling perf, and resolves with the printed budget report. Idempotent
+       * while already running (returns the in-flight run's promise rather than overlapping
+       * a second one) — see that module's doc comment for the full design. */
+      runChaosBench: () => Promise<BenchReport>;
+      /** Phase 12 Task 1 debug: detonate a tank-shell explosion (combat/explosion.ts) directly
+       * at the player's position — the fastest way to observe a blast (car launched + recovers,
+       * nearby props/cars fly, a force-spawned cop in range wrecks by friendly fire). No-op if
+       * no run is live. Returns false if the projectiles system hasn't mounted. */
+      blastHere: () => boolean;
+      /** Phase 12 Task 1 debug: fire a real tank shell FROM an elevated point ~22 m off the
+       * player TOWARD the player (no firer, so nothing is excluded) — exercises the full
+       * pure-point shell → sweep → detonate path, not just the explosion. Returns false if the
+       * projectiles system hasn't mounted or no run is live. */
+      fireShellAt: () => boolean;
+      /** Phase 12 Task 1 proof: shells currently in flight (0 when the pool is idle). Lets a
+       * scripted soak confirm the pool always drains back to 0 (no leaked/stuck shells). */
+      shellCount: () => number;
+      /** Phase 12 Task 2 proof: per-live-tank fire-cycle snapshot (id / phase / telegraph
+       * progress01 / shotsFired) — lets a scripted check confirm the idle → telegraph → fire
+       * cycle runs on its ~5 s cadence without watching pixels. Empty when no tanks are live. */
+      tankTelegraphs: () => {
+        id: number;
+        phase: 'idle' | 'telegraph';
+        progress01: number;
+        shotsFired: number;
+        turretYaw: number;
+      }[];
     };
   }
 }
@@ -277,4 +309,29 @@ window.__smashy = {
   setInvincible: (value) => setDevToggle('invincible', value),
   forceBustedGameOver,
   sirenSnapshot: () => getSirenDebugSnapshot(),
+  runChaosBench: () => startChaosBench(),
+  blastHere: () => {
+    const api = projectilesRef.current;
+    const state = playerVehicle.current?.readState();
+    if (api === null || !state) return false;
+    const p = state.rawPose.position;
+    api.blastAt(p.x, p.y, p.z);
+    return true;
+  },
+  fireShellAt: () => {
+    const api = projectilesRef.current;
+    const state = playerVehicle.current?.readState();
+    if (api === null || !state) return false;
+    const p = state.rawPose.position;
+    // Spawn NE of and ABOVE the player, aimed DOWN at the chassis — a mild descent so the
+    // flat-trajectory shell reliably meets the low car (and, on a near-miss, the ground right
+    // beside it) instead of sailing over the roof. Debug-only framing; the tank's own muzzle
+    // fires far flatter.
+    const origin = { x: p.x + 16, y: 3.2, z: p.z + 16 };
+    const dir = { x: p.x - origin.x, y: p.y + 0.4 - origin.y, z: p.z - origin.z };
+    api.spawn(-1, origin, dir);
+    return true;
+  },
+  shellCount: () => projectilesRef.current?.activeCount() ?? 0,
+  tankTelegraphs: () => tankDebugSnapshot(),
 };
