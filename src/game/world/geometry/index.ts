@@ -7,3 +7,4 @@ export * from './buildings';
 export * from './streetProps';
 export * from './parkedCar';
 export * from './helicopter';
+export * from './landmarks';

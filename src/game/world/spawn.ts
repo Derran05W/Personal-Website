@@ -34,22 +34,23 @@ function poseAt(col: number, row: number, isRoadAt: IsRoadAt): VehiclePose {
 }
 
 /**
- * The road tile nearest the map's center, found by an expanding square-ring (Chebyshev)
- * search outward from the center tile. Deterministic scan order within each ring (top row
- * left→right, then sides top→bottom, then bottom row left→right) makes the chosen tile
- * reproducible for a given seed — WorldData.tiles never changes shape between calls.
+ * The tile (col,row) of the road tile nearest the map's center, found by an expanding
+ * square-ring (Chebyshev) search outward from the center tile. Deterministic scan order
+ * within each ring (top row left→right, then sides top→bottom, then bottom row left→right)
+ * makes the chosen tile reproducible — the road skeleton never changes between calls for a
+ * seed. `isRoadAt` is supplied by the caller (out-of-bounds must return false), so this is
+ * pure and reusable: getSpawnPose() passes a WorldData-backed predicate, and world/generate.ts
+ * reuses it (over its in-flight `type` array) to compute the spawn district WITHOUT
+ * duplicating this search — the two can never drift.
  */
-export function getSpawnPose(world: WorldData): VehiclePose {
+export function findSpawnTile(
+  isRoadAt: (col: number, row: number) => boolean,
+): { col: number; row: number } {
   const n = WORLD.tiles;
   const centerCol = Math.floor((n - 1) / 2);
   const centerRow = Math.floor((n - 1) / 2);
 
-  const isRoadAt = (col: number, row: number): boolean => {
-    if (col < 0 || row < 0 || col >= n || row >= n) return false;
-    return world.tiles[tileIndex(col, row)].type === 'road';
-  };
-
-  if (isRoadAt(centerCol, centerRow)) return poseAt(centerCol, centerRow, isRoadAt);
+  if (isRoadAt(centerCol, centerRow)) return { col: centerCol, row: centerRow };
 
   for (let radius = 1; radius < n; radius++) {
     const top = centerRow - radius;
@@ -58,21 +59,33 @@ export function getSpawnPose(world: WorldData): VehiclePose {
     const right = centerCol + radius;
 
     for (let col = left; col <= right; col++) {
-      if (isRoadAt(col, top)) return poseAt(col, top, isRoadAt);
+      if (isRoadAt(col, top)) return { col, row: top };
     }
     for (let row = top + 1; row < bottom; row++) {
-      if (isRoadAt(left, row)) return poseAt(left, row, isRoadAt);
-      if (isRoadAt(right, row)) return poseAt(right, row, isRoadAt);
+      if (isRoadAt(left, row)) return { col: left, row };
+      if (isRoadAt(right, row)) return { col: right, row };
     }
     for (let col = left; col <= right; col++) {
-      if (isRoadAt(col, bottom)) return poseAt(col, bottom, isRoadAt);
+      if (isRoadAt(col, bottom)) return { col, row: bottom };
     }
   }
 
   // Unreachable given the generator's guaranteed ring road (world/generate.ts always
-  // stamps col/row 0 and N-1 as road), but a defensive throw beats silently spawning at
-  // a bogus position if that invariant is ever broken.
-  throw new Error('getSpawnPose: world has no road tiles');
+  // stamps col/row 0 and N-1 as road), but a defensive throw beats silently returning a
+  // bogus tile if that invariant is ever broken.
+  throw new Error('findSpawnTile: no road tiles');
+}
+
+/** The player's spawn pose: sitting on the center-nearest road tile (see findSpawnTile),
+ * yawed to face along the local road. */
+export function getSpawnPose(world: WorldData): VehiclePose {
+  const n = WORLD.tiles;
+  const isRoadAt = (col: number, row: number): boolean => {
+    if (col < 0 || row < 0 || col >= n || row >= n) return false;
+    return world.tiles[tileIndex(col, row)].type === 'road';
+  };
+  const { col, row } = findSpawnTile(isRoadAt);
+  return poseAt(col, row, isRoadAt);
 }
 
 /** Module-scope handle to the current run's spawn pose, mirroring vehicles/playerRef.ts's

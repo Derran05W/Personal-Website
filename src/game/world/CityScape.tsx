@@ -23,17 +23,21 @@ import {
   BufferGeometry,
   Color,
   Float32BufferAttribute,
+  MeshStandardMaterial,
   Object3D,
   type InstancedMesh,
+  type WebGLProgramParametersWithUniforms,
 } from 'three';
-import { BOUNDARY, QUALITY_TIERS, WORLD, interactionGroups } from '../config';
+import { BOUNDARY, QUALITY_TIERS, RENDERING, WORLD, interactionGroups } from '../config';
 import { gameEvents } from '../state/events';
 import { useGameStore } from '../state/store';
 import { playerVehicle } from '../vehicles/playerRef';
+import { applyKensingtonBoost } from '../powergrid/emitters';
 import { BlueHourRig } from './BlueHourRig';
 import { CityArchetypes } from './CityArchetypes';
 import { WorldColliders } from './CityColliders';
 import { buildCityInstanceSets } from './cityInstances';
+import { DISTRICT_COUNT } from './instancing';
 import { getSpawnPose, spawnPoseRef } from './spawn';
 import { type Tile, type WorldData } from './types';
 import { worldRef } from './worldRef';
@@ -135,6 +139,121 @@ function buildTileQuadGeometry(
   return geometry;
 }
 
+// --- Lake shimmer material (Phase 19, TDD §8/§13) -----------------------------------------
+// The south lakefront plane gets a cheap onBeforeCompile pass on a MeshStandardMaterial: a
+// slow sinusoidal shimmer + a warm specular streak toward the south horizon glow (echoing the
+// sky's lake afterglow). No reflections, no render targets, no extra draw call — one plane,
+// one material. All tunables are RENDERING.water (leva-live, re-read each frame). The streak
+// runs toward the FAR (south, +Z) edge — the same direction the sky glow sits.
+const LAKE_CENTER_Z = HALF_MAP_M + BOUNDARY.waterLengthM / 2;
+const LAKE_HALF_LEN = BOUNDARY.waterLengthM / 2;
+
+interface WaterUniforms {
+  uTime: { value: number };
+  uShimmerAmp: { value: number };
+  uShimmerScale: { value: number };
+  uStreakIntensity: { value: number };
+  uStreakFalloff: { value: number };
+  uStreakColor: { value: Color };
+  uCenterZ: { value: number };
+  uHalfLen: { value: number };
+}
+
+function LakeWater() {
+  // Shared uniform objects held in a ref (the mutable escape hatch): assigned into the
+  // compiled shader in onBeforeCompile and mutated live by the useFrame below (three reads
+  // uniform.value at upload each frame). Lazily built once — the ref is stable across renders.
+  const uniformsRef = useRef<WaterUniforms | null>(null);
+  if (uniformsRef.current === null) {
+    uniformsRef.current = {
+      uTime: { value: 0 },
+      uShimmerAmp: { value: RENDERING.water.shimmerAmplitude },
+      uShimmerScale: { value: RENDERING.water.shimmerScale },
+      uStreakIntensity: { value: RENDERING.water.streakIntensity },
+      uStreakFalloff: { value: RENDERING.water.streakFalloff },
+      uStreakColor: { value: new Color(RENDERING.water.streakColor) },
+      uCenterZ: { value: LAKE_CENTER_Z },
+      uHalfLen: { value: LAKE_HALF_LEN },
+    };
+  }
+
+  const material = useMemo(() => {
+    const m = new MeshStandardMaterial({ color: WATER_COLOR });
+    m.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms): void => {
+      if (uniformsRef.current) Object.assign(shader.uniforms, uniformsRef.current);
+      // Carry world position to the fragment stage (MeshStandard doesn't expose one by default).
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\n        varying vec3 vWorldPosW;')
+        .replace(
+          '#include <begin_vertex>',
+          '#include <begin_vertex>\n        vWorldPosW = (modelMatrix * vec4(transformed, 1.0)).xyz;',
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+        uniform float uTime;
+        uniform float uShimmerAmp;
+        uniform float uShimmerScale;
+        uniform float uStreakIntensity;
+        uniform float uStreakFalloff;
+        uniform vec3 uStreakColor;
+        uniform float uCenterZ;
+        uniform float uHalfLen;
+        varying vec3 vWorldPosW;`,
+        )
+        .replace(
+          '#include <emissivemap_fragment>',
+          `#include <emissivemap_fragment>
+        float wave = sin(vWorldPosW.x * uShimmerScale + uTime)
+                   * sin(vWorldPosW.z * uShimmerScale * 1.3 - uTime * 0.7);
+        float glint = uShimmerAmp * wave;
+        float southness = clamp((vWorldPosW.z - uCenterZ) / uHalfLen * 0.5 + 0.5, 0.0, 1.0);
+        float streak = pow(southness, uStreakFalloff) * uStreakIntensity;
+        totalEmissiveRadiance += uStreakColor * (streak + glint);`,
+        );
+    };
+    m.customProgramCacheKey = (): string => 'lake-shimmer-v1';
+    return m;
+  }, []);
+
+  useEffect(() => () => material.dispose(), [material]);
+
+  // Advance the shimmer clock + re-read the leva-live tunables (cheap; keeps sliders honest).
+  useFrame((_, dt) => {
+    const u = uniformsRef.current;
+    if (!u) return;
+    u.uTime.value += dt * RENDERING.water.shimmerSpeed;
+    u.uShimmerAmp.value = RENDERING.water.shimmerAmplitude;
+    u.uShimmerScale.value = RENDERING.water.shimmerScale;
+    u.uStreakIntensity.value = RENDERING.water.streakIntensity;
+    u.uStreakFalloff.value = RENDERING.water.streakFalloff;
+  });
+
+  return (
+    <mesh
+      position={[0, WATER_VISUAL_Y, 0]}
+      rotation={[-Math.PI / 2, 0, 0]}
+      frustumCulled={false}
+      material={material}
+    >
+      <planeGeometry args={[BOUNDARY.waterWidthM, BOUNDARY.waterLengthM]} />
+    </mesh>
+  );
+}
+
+/** Defensive read of the (Phase 19 Task 1) Kensington district id from WorldData. That seam
+ * isn't typed on WorldData yet (Task 1 adds `world.landmarks`), so read it structurally and
+ * validate — returns undefined until the generator publishes it, so the boost is a safe no-op
+ * pre-landmarks. */
+function readKensingtonDistrictId(world: WorldData): number | undefined {
+  const landmarks = (world as { landmarks?: { kensingtonDistrictId?: unknown } }).landmarks;
+  const id = landmarks?.kensingtonDistrictId;
+  return typeof id === 'number' && Number.isInteger(id) && id >= 0 && id < DISTRICT_COUNT
+    ? id
+    : undefined;
+}
+
 export function CityScape({ world }: CityScapeProps) {
   // City root: publishes the live WorldData + this run's spawn pose to the module-scope
   // refs debug tooling (hud/Minimap.tsx, world/GraphViz.tsx) and the orchestrator's
@@ -144,6 +263,18 @@ export function CityScape({ world }: CityScapeProps) {
   useEffect(() => {
     worldRef.current = world;
     spawnPoseRef.current = getSpawnPose(world);
+  }, [world]);
+
+  // Kensington market-block emissive boost (Phase 19, TDD §13): once the generator publishes a
+  // Kensington district (Task 1's world.landmarks.kensingtonDistrictId), brighten its lit
+  // windows/props so the market block reads denser/warmer — the "money clip" a Kensington
+  // blackout then snuffs out. Runs AFTER CityArchetypes' child effect has registered the
+  // archetype handles (React fires child effects before parent effects), so the boost lands on
+  // built meshes. A market-prop mount that lands later re-invokes applyKensingtonBoost itself
+  // (idempotent) to cover its own string-light archetype. No-op until landmarks land.
+  useEffect(() => {
+    const kensington = readKensingtonDistrictId(world);
+    if (kensington !== undefined) applyKensingtonBoost(kensington);
   }, [world]);
 
   // Fell-out-of-world safety net (see BOUNDARY.fellOutResetY's comment for the two ways a
@@ -292,10 +423,9 @@ export function CityScape({ world }: CityScapeProps) {
           sensor
           onIntersectionEnter={handleWaterEnter}
         />
-        <mesh position={[0, WATER_VISUAL_Y, 0]} rotation={[-Math.PI / 2, 0, 0]} frustumCulled={false}>
-          <planeGeometry args={[BOUNDARY.waterWidthM, BOUNDARY.waterLengthM]} />
-          <meshStandardMaterial color={WATER_COLOR} />
-        </mesh>
+        {/* Lakefront shimmer plane (Phase 19): slow shimmer + warm streak toward the horizon
+            glow, sharing this RigidBody's transform (world position feeds the streak). */}
+        <LakeWater />
       </RigidBody>
     </>
   );

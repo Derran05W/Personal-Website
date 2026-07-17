@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { BufferGeometry, InstancedBufferAttribute, InstancedMesh, MeshBasicMaterial } from 'three';
-import { POWER_GRID } from '../config';
+import { POWER_GRID, RENDERING } from '../config';
 import { EMISSIVE_ARCHETYPES, type ArchetypeName } from '../world/archetypes';
 import {
   DISTRICT_COUNT,
   clearArchetypeRegistry,
+  getArchetypeHandles,
   registerArchetypeHandles,
   type ArchetypeHandles,
   type DistrictRange,
@@ -13,13 +14,18 @@ import {
 import { createRng } from '../world/rng';
 import {
   FlickerRunner,
+  __resetEmissiveArchetypesForTest,
   activeFlickerCount,
+  applyDistrictEmissiveScale,
+  applyKensingtonBoost,
   blackoutDistrict,
   buildFlickerSchedule,
   clearFlickers,
+  emissiveArchetypeNames,
   findRangeBookkeepingViolations,
   isDistrictDark,
   isDistrictFlickering,
+  registerEmissiveArchetype,
   relightDistrict,
   setDistrictDark,
   tickFlickers,
@@ -57,6 +63,7 @@ function runToCompletion(schedule: FlickerSchedule): {
 afterEach(() => {
   clearFlickers();
   clearArchetypeRegistry();
+  __resetEmissiveArchetypesForTest();
 });
 
 // --- buildFlickerSchedule -----------------------------------------------------------------
@@ -322,5 +329,61 @@ describe('findRangeBookkeepingViolations — Σ ranges === mesh count', () => {
     // ever touch EMISSIVE_ARCHETYPES.
     registerArchetypeHandles('tree', makeHandles('tree', 'default', [2], 9));
     expect(findRangeBookkeepingViolations()).toEqual([]);
+  });
+});
+
+// --- Phase 19: extra emissive archetypes (market string-light seam) + Kensington boost -----
+
+describe('extra emissive archetypes (Phase 19 market seam)', () => {
+  it('emissiveArchetypeNames defaults to exactly EMISSIVE_ARCHETYPES (same ref, zero-alloc)', () => {
+    expect(emissiveArchetypeNames()).toBe(EMISSIVE_ARCHETYPES);
+  });
+
+  it('registers extras after the core set, dedup + idempotent', () => {
+    registerEmissiveArchetype('tree'); // stand-in for a future market string-light archetype
+    registerEmissiveArchetype('tree'); // idempotent
+    registerEmissiveArchetype('streetlight'); // a core name → never duplicated
+    const names = emissiveArchetypeNames();
+    expect(names.slice(0, EMISSIVE_ARCHETYPES.length)).toEqual([...EMISSIVE_ARCHETYPES]);
+    expect(names.filter((n) => n === 'tree')).toHaveLength(1);
+    expect(names.filter((n) => n === 'streetlight')).toHaveLength(1);
+  });
+
+  it('the permanent-OFF batch (finalize) darkens registered extras too — the money clip', () => {
+    registerEmissiveArchetype('tree');
+    const schedule = buildFlickerSchedule(2, createRng(11).fork('blackout-2'));
+    const { calls } = runToCompletion(schedule);
+    const names = emissiveArchetypeNames();
+    // finalize writes one authoritative OFF per participant (core + extras).
+    const tail = calls.slice(-names.length);
+    expect(tail.every((c) => c.on === 0)).toBe(true);
+    expect(new Set(tail.map((c) => c.archetype))).toEqual(new Set(names));
+    // …but the extra was never part of the (core-only, deterministic) flicker schedule.
+    expect(schedule.writes.some((w) => EMISSIVE_ARCHETYPES[w.archetypeIndex] === 'tree')).toBe(false);
+  });
+
+  it('findRangeBookkeepingViolations now covers registered extras', () => {
+    registerEmissiveArchetype('tree');
+    // 'tree' ranges (sum 3) don't tile its mesh (5) → flagged, because it's now a participant.
+    registerArchetypeHandles('tree', makeHandles('tree', 'default', [3], 5));
+    expect(findRangeBookkeepingViolations().some((v) => v.archetype === 'tree')).toBe(true);
+  });
+});
+
+describe('Kensington emissive boost (Phase 19)', () => {
+  it('applyKensingtonBoost scales exactly the district slice by the configured factor', () => {
+    // buildingSmall handles: d0 ×2, d1 ×3, d2 ×1 → sorted d1 slice = [2,5).
+    registerArchetypeHandles('buildingSmall', makeHandles('buildingSmall', 'v', [2, 3, 1], 6));
+    applyKensingtonBoost(1);
+    const [h] = getArchetypeHandles('buildingSmall');
+    // makeHandles fills the emissive buffer with 0; the boost writes the scale into d1's slice.
+    // Round-trip the config value through float32 (the buffer is a Float32Array).
+    const boost = Math.fround(RENDERING.kensingtonEmissiveScale);
+    expect(Array.from(h.emissiveAttr.array)).toEqual([0, 0, boost, boost, boost, 0]);
+  });
+
+  it('applyDistrictEmissiveScale validates the district id', () => {
+    expect(() => applyDistrictEmissiveScale(-1, 1.4)).toThrow(RangeError);
+    expect(() => applyDistrictEmissiveScale(DISTRICT_COUNT, 1.4)).toThrow(RangeError);
   });
 });

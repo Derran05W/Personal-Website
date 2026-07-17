@@ -198,6 +198,8 @@ export const AUDIO_MIX = {
     stingerWrecked: 10,
     stingerBusted: 10,
     uiTick: 1,
+    // Phase 19 Task 2: raccoon-hit squeak — a light one-shot, same priority tier as impact.
+    squeak: 1,
   },
 } as const;
 

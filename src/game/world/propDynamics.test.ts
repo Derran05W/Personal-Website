@@ -183,3 +183,22 @@ describe('swapFromExternalHit (no live controller)', () => {
     expect(swapFromExternalHit(9999, POINT, 600)).toBe(false);
   });
 });
+
+// --- Config completeness (Phase 19 Task 2): every new market/critter archetype must have both
+// a mass and a force threshold — "knockable light prop" per the phase-19 plan means BOTH are
+// required (resolveSwapTarget gates on forceThresholds; propDynamics.ts's body-spawn step reads
+// masses, falling back to DEFAULT_MASS_KG only for an archetype that's missing one by mistake).
+describe('PROPS.masses / PROPS.forceThresholds — Phase 19 market + alley archetypes', () => {
+  const NEW_ARCHETYPES = ['awning', 'crate', 'produceStand', 'garbageCanTipped', 'raccoon'] as const;
+
+  it.each(NEW_ARCHETYPES)('%s has both a configured mass and force threshold', (archetype) => {
+    expect(PROPS.masses[archetype]).toBeGreaterThan(0);
+    expect(PROPS.forceThresholds[archetype]).toBeGreaterThan(0);
+  });
+
+  it('every mass key also has a force-threshold key and vice versa (no orphaned entries)', () => {
+    const massKeys = Object.keys(PROPS.masses).sort();
+    const thresholdKeys = Object.keys(PROPS.forceThresholds).sort();
+    expect(massKeys).toEqual(thresholdKeys);
+  });
+});

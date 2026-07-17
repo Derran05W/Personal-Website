@@ -40,6 +40,9 @@ import { heliDebugRef } from '../ai/helicopter';
 import { heliRef, type HeliLivery } from '../ai/heliTypes';
 import { getParticleStats, type ParticleStats } from '../fx/particles';
 import { getDrivingInput, isCoarsePointer, isTouchModeActive } from '../input';
+import { landmarkTeleportPoints } from '../world/landmarkGen';
+import { streetcarRef } from '../ai/streetcarTypes';
+import { worldRef } from '../world/worldRef';
 import { getReducedShake } from '../state/store';
 
 // Phase 7 traffic verification: exactly-once event proof. The civHit/civWrecked emitter
@@ -509,6 +512,12 @@ declare global {
       /** Phase 18: live touch-input state — scripted mobile-emulation checks read these
        * instead of poking at module internals. */
       touchState: () => { coarse: boolean; touchModeActive: boolean; input: { steer: number; throttle: number; brake: number; handbrake: boolean } };
+      /** Phase 19: landmark teleport points ({id,x,z}[]) off the LIVE world — scripted
+       * postcard batteries + the devPanel teleport buttons read the same helper. */
+      landmarks: () => readonly { id: string; x: number; z: number }[];
+      /** Phase 19: live streetcar roster snapshot (state/pose per slot) — scripted proof the
+       * avenue loop runs without watching pixels. Empty when no mount/roster is live. */
+      streetcarSlots: () => { state: string | null; x: number; z: number }[];
     };
   }
 }
@@ -627,6 +636,9 @@ window.__smashy = {
   heliSlots,
   particleStats: getParticleStats,
   touchState: () => ({ coarse: isCoarsePointer(), touchModeActive: isTouchModeActive(), input: { ...getDrivingInput() } }),
+  landmarks: () => (worldRef.current ? landmarkTeleportPoints(worldRef.current) : []),
+  streetcarSlots: () =>
+    (streetcarRef.current?.slots ?? []).map((s) => ({ state: s.state, x: s.x, z: s.z })),
   setReducedShake: (value) => getGameState().setReducedShake(value),
   getReducedShake,
 };

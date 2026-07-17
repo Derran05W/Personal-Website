@@ -6,6 +6,11 @@ export const HEAT = {
     // (damage resolver), not a config concern.
     lightPost: 1,
     trafficLight: 2,
+    // Phase 19 Task 2: raccoon + tipped garbage can each get their own dedicated +1 row
+    // (same value as lightPost, kept separate per the phase-19 plan's explicit ask rather
+    // than folded into that row) — see state/heat.ts's PROP_HEAT_DELTA for the wiring.
+    raccoon: 1,
+    garbageCanTipped: 1,
     civHit: 5,
     civWreck: 8,
     transformer: 12,

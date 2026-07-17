@@ -159,6 +159,34 @@ export function propColliderBox(archetype: ArchetypeName): ColliderBox {
       const halfLengthM = d.bodyLengthM / 2 + d.bumperDepthM;
       return { halfExtents: [d.bodyWidthM / 2, topM / 2, halfLengthM], centerY: topM / 2 };
     }
+    // --- Phase 19 Task 2: market + alley props (small, light, knockable) -------------------
+    case 'awning': {
+      const d = PROP_DIMS.awning;
+      return { halfExtents: [d.canopyWidthM / 2, d.poleHeightM / 2, d.canopyDepthM / 2], centerY: d.poleHeightM / 2 };
+    }
+    case 'crate': {
+      const d = PROP_DIMS.crate;
+      return { halfExtents: [d.widthM / 2, d.heightM / 2, d.depthM / 2], centerY: d.heightM / 2 };
+    }
+    case 'produceStand': {
+      const d = PROP_DIMS.produceStand;
+      const topM = d.tableHeightM + d.produceSizeM;
+      return { halfExtents: [d.tableWidthM / 2, topM / 2, d.tableDepthM / 2], centerY: topM / 2 };
+    }
+    case 'garbageCanTipped': {
+      const d = PROP_DIMS.garbageCanTipped;
+      // Lying on its side: the collider's "height" is the tube's diameter, its "length" runs
+      // along X (world/geometry/streetProps.ts's addHorizontalTube axis) — over-covers the
+      // lid/spill slightly, same "never under-cover" spirit as every other prop box here.
+      const topM = d.bodyRadiusM * 2;
+      const halfLengthM = d.bodyLengthM / 2 + d.lidRadiusM;
+      return { halfExtents: [halfLengthM, topM / 2, d.bodyRadiusM], centerY: topM / 2 };
+    }
+    case 'raccoon': {
+      const d = PROP_DIMS.raccoon;
+      const topM = d.legHeightM + d.bodyHeightM;
+      return { halfExtents: [d.bodyWidthM / 2, topM / 2, d.bodyLengthM / 2 + d.headSizeM], centerY: topM / 2 };
+    }
     case 'buildingSmall':
     case 'buildingTower':
       throw new Error(`propColliderBox: ${archetype} is a building archetype, not a street prop`);

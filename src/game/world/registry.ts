@@ -11,8 +11,9 @@
 // Writers (current + planned): world colliders (buildings/props/ground/water/barriers,
 // Phase 5), prop dynamics pool (Phase 6), civilian traffic (Phase 7), player + pursuit
 // vehicles (Phases 3/9 — PlayerVehicle registers in Phase 6 when the contact spine lands),
-// projectiles (Phase 11). Readers: contact spine + damage resolver (Phase 6), heat/score
-// (Phase 8), powergrid (Phase 13).
+// projectiles (Phase 11), streetcar traffic (Phase 19, ai/streetcarTraffic.ts — a sibling of
+// civilian traffic, see EntityEntry.isStreetcar below). Readers: contact spine + damage
+// resolver (Phase 6), heat/score (Phase 8), powergrid (Phase 13).
 
 import type { ArchetypeName } from './archetypes';
 // Type-only import of the ai-owned pursuit-unit-kind seam (erased at compile time — no
@@ -51,6 +52,17 @@ export interface EntityEntry {
    * undefined for every non-pursuit entry, and always undefined for entities that predate
    * this field. */
   readonly unitKind?: UnitKind;
+  /** Phase 19 seam: true for a civilian entry that is specifically a STREETCAR (heavy avenue
+   * traffic, ai/streetcarTraffic.ts) rather than a regular car (ai/traffic.ts) — both register
+   * `kind: 'civilian'` with no `archetype` (see traffic.ts's header for why civilians carry
+   * none), so this is the marker that lets block-ray/registry/debug consumers tell them apart
+   * without a new EntityKind. Mirrors the unitKind seam above (a sub-kind flag alongside a
+   * shared coarse `kind`). Always undefined for a regular civilian entry or any entity that
+   * predates this field. NOT read by combat/damage.ts's massFactorOf() — a streetcar entry
+   * still falls through to the same factor-1 "civilian units — not modeled yet" default every
+   * other civilian gets (see that file's own doc comment); this field is deliberately NOT
+   * wired into the damage formula, only into identification. */
+  readonly isStreetcar?: boolean;
 }
 
 const entries = new Map<number, EntityEntry>();

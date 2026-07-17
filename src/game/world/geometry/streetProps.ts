@@ -16,7 +16,17 @@
 import { BufferGeometry } from 'three';
 import { PROP_DIMS } from '../../config';
 import { PaletteCell } from '../archetypes';
-import { addBox, addPrismFrustum, addQuad, createBuilder, toBufferGeometry } from './kit';
+import {
+  addBox,
+  addPrismFrustum,
+  addQuad,
+  addQuadAuto,
+  addTri,
+  createBuilder,
+  toBufferGeometry,
+  type GeometryBuilder,
+  type Vec3,
+} from './kit';
 
 // --- Streetlight ---------------------------------------------------------------------------
 // Pole + arm reaching +Z + head hanging off the arm's end, emissive on its underside (the
@@ -405,6 +415,343 @@ export function buildTransformerBox(): BufferGeometry {
       capTop: true,
       offsetX: kx,
     });
+  }
+
+  return toBufferGeometry(b);
+}
+
+// ============================================================================================
+// Phase 19 Task 2: market + alley props (Kensington-only market stalls; sparse map-wide alley
+// critters). Same "one canonical geometry, parameterless" contract as every builder above —
+// per-instance variety comes from world/propPlacements.ts's position/rotation, not geometry
+// variants. All new archetypes are wired into PROP_DIMS/PROPS.masses/PROPS.forceThresholds
+// (config/world.ts) and world/archetypes.ts's ARCHETYPES list.
+// ============================================================================================
+
+// --- Awning (market stall canopy) -----------------------------------------------------------
+// Two front support poles + a two-band, three-stripe canopy — a STEPPED droop (back band
+// higher, front band lower) rather than a tilted quad, staying axis-aligned like every other
+// builder in this file. Local +Z is "faces the sidewalk" (the low/front edge); rotationY at
+// placement aims it at the road, matching edgePropPlacements' free-rotation convention.
+export function buildAwning(): BufferGeometry {
+  const d = PROP_DIMS.awning;
+  const b = createBuilder();
+  const dark = PaletteCell.metalDark;
+  const stripeCells: readonly number[] = [PaletteCell.liveryRed, PaletteCell.liveryWhite];
+
+  const poleX = d.canopyWidthM / 2 - 0.15;
+  const poleZ = d.canopyDepthM / 2 - 0.1;
+  const frontY = d.poleHeightM - d.canopyDropM;
+  for (const sign of [-1, 1] as const) {
+    addPrismFrustum(b, d.poleSides, 0, frontY, d.poleRadiusM, d.poleRadiusM, dark, {
+      offsetX: sign * poleX,
+      offsetZ: poleZ,
+    });
+  }
+
+  const halfW = d.canopyWidthM / 2;
+  const stripeW = d.canopyWidthM / d.stripeCount;
+  const addBand = (y0: number, y1: number, z0: number, z1: number): void => {
+    for (let i = 0; i < d.stripeCount; i++) {
+      const x0 = -halfW + i * stripeW;
+      const cell = stripeCells[i % stripeCells.length];
+      addBox(
+        b,
+        { minX: x0, maxX: x0 + stripeW, minY: y0, maxY: y1, minZ: z0, maxZ: z1 },
+        {
+          px: { albedo: cell },
+          nx: { albedo: cell },
+          py: { albedo: cell },
+          pz: { albedo: cell },
+          nz: { albedo: cell },
+        },
+      );
+    }
+  };
+  const backZ0 = -d.canopyDepthM / 2;
+  const midZ = 0;
+  addBand(d.poleHeightM - d.canopyThicknessM, d.poleHeightM, backZ0, midZ); // back band (higher)
+  addBand(frontY - d.canopyThicknessM, frontY, midZ, d.canopyDepthM / 2); // front band (lower)
+
+  return toBufferGeometry(b);
+}
+
+// --- Crate (market stall) -------------------------------------------------------------------
+// A plain crate + two strap bands — reuses buildFenceSegment's "frame reads fine" spirit.
+export function buildCrate(): BufferGeometry {
+  const d = PROP_DIMS.crate;
+  const b = createBuilder();
+  const wood = PaletteCell.wallD;
+  const strap = PaletteCell.metalDark;
+  const halfW = d.widthM / 2;
+  const halfD = d.depthM / 2;
+
+  addBox(
+    b,
+    { minX: -halfW, maxX: halfW, minY: 0, maxY: d.heightM, minZ: -halfD, maxZ: halfD },
+    {
+      px: { albedo: wood },
+      nx: { albedo: wood },
+      py: { albedo: wood },
+      pz: { albedo: wood },
+      nz: { albedo: wood },
+    },
+  );
+
+  for (const t of [0.3, 0.7]) {
+    const y = d.heightM * t;
+    addBox(
+      b,
+      {
+        minX: -halfW - 0.01,
+        maxX: halfW + 0.01,
+        minY: y - d.strapThicknessM / 2,
+        maxY: y + d.strapThicknessM / 2,
+        minZ: -halfD - 0.01,
+        maxZ: halfD + 0.01,
+      },
+      { px: { albedo: strap }, nx: { albedo: strap }, pz: { albedo: strap }, nz: { albedo: strap } },
+    );
+  }
+
+  return toBufferGeometry(b);
+}
+
+// --- Produce stand (market stall) -----------------------------------------------------------
+// A table (4 legs + top) with a small deterministic scatter of colour-coded produce boxes on
+// top — no rng (one canonical geometry, TDD §8.3 spirit; per-instance variety is position/
+// rotation only, same as every other street prop).
+const PRODUCE_CELLS: readonly number[] = [
+  PaletteCell.wallE,
+  PaletteCell.foliage,
+  PaletteCell.wallD,
+  PaletteCell.wallC,
+];
+
+export function buildProduceStand(): BufferGeometry {
+  const d = PROP_DIMS.produceStand;
+  const b = createBuilder();
+  const wood = PaletteCell.wallD;
+  const halfW = d.tableWidthM / 2;
+  const halfD = d.tableDepthM / 2;
+  const topY0 = d.tableHeightM - d.tableThicknessM;
+
+  addBox(
+    b,
+    { minX: -halfW, maxX: halfW, minY: topY0, maxY: d.tableHeightM, minZ: -halfD, maxZ: halfD },
+    {
+      px: { albedo: wood },
+      nx: { albedo: wood },
+      py: { albedo: wood },
+      pz: { albedo: wood },
+      nz: { albedo: wood },
+    },
+  );
+
+  for (const sx of [-1, 1] as const) {
+    for (const sz of [-1, 1] as const) {
+      const cx = sx * (halfW - d.legThicknessM / 2);
+      const cz = sz * (halfD - d.legThicknessM / 2);
+      addBox(
+        b,
+        {
+          minX: cx - d.legThicknessM / 2,
+          maxX: cx + d.legThicknessM / 2,
+          minY: 0,
+          maxY: topY0,
+          minZ: cz - d.legThicknessM / 2,
+          maxZ: cz + d.legThicknessM / 2,
+        },
+        { px: { albedo: wood }, nx: { albedo: wood }, pz: { albedo: wood }, nz: { albedo: wood } },
+      );
+    }
+  }
+
+  const s = d.produceSizeM;
+  const produceCount: number = d.produceCount; // widen from PROP_DIMS's literal type (as const)
+  for (let i = 0; i < produceCount; i++) {
+    const t = produceCount === 1 ? 0 : i / (produceCount - 1) - 0.5;
+    const cx = t * (d.tableWidthM - s) * 0.8;
+    const cz = (i % 2 === 0 ? -1 : 1) * d.tableDepthM * 0.15;
+    const cell = PRODUCE_CELLS[i % PRODUCE_CELLS.length];
+    addBox(
+      b,
+      { minX: cx - s / 2, maxX: cx + s / 2, minY: d.tableHeightM, maxY: d.tableHeightM + s, minZ: cz - s / 2, maxZ: cz + s / 2 },
+      {
+        px: { albedo: cell },
+        nx: { albedo: cell },
+        py: { albedo: cell },
+        pz: { albedo: cell },
+        nz: { albedo: cell },
+      },
+    );
+  }
+
+  return toBufferGeometry(b);
+}
+
+// --- Tipped garbage can (alley prop) ---------------------------------------------------------
+// A knocked-over can LYING ON ITS SIDE, baked directly into the geometry — world/cityInstances.
+// ts's composeMatrix only ever applies a Y-axis yaw (every prop's placement is yaw-only), so
+// "tipped over" has to be authored in local space, not achieved via instance rotation. Local
+// +X is the tube's axis; the lid + spill sit past the +X ("open mouth") end. rotationY at
+// placement is free (the tipped-can silhouette reads fine from any yaw).
+function addHorizontalTube(
+  b: GeometryBuilder,
+  sides: number,
+  x0: number,
+  x1: number,
+  radius: number,
+  yCenter: number,
+  cell: number,
+): void {
+  const step = (Math.PI * 2) / sides;
+  const ringAt = (x: number, i: number): Vec3 => {
+    const a = i * step;
+    return [x, yCenter + radius * Math.sin(a), radius * Math.cos(a)];
+  };
+  for (let i = 0; i < sides; i++) {
+    addQuadAuto(b, [ringAt(x0, i), ringAt(x1, i), ringAt(x1, i + 1), ringAt(x0, i + 1)], cell);
+  }
+  // End caps (winding hand-derived via kit.ts's own cross-product convention — see the
+  // sibling geometry test for the outward-normal proof): x0's cap points -X, x1's points +X.
+  const c0: Vec3 = [x0, yCenter, 0];
+  const c1: Vec3 = [x1, yCenter, 0];
+  for (let i = 0; i < sides; i++) {
+    addTri(b, c0, ringAt(x0, i), ringAt(x0, i + 1), [-1, 0, 0], cell);
+    addTri(b, c1, ringAt(x1, i + 1), ringAt(x1, i), [1, 0, 0], cell);
+  }
+}
+
+export function buildGarbageCanTipped(): BufferGeometry {
+  const d = PROP_DIMS.garbageCanTipped;
+  const b = createBuilder();
+  const metal = PaletteCell.metal;
+  const dark = PaletteCell.metalDark;
+
+  addHorizontalTube(b, d.bodySides, 0, d.bodyLengthM, d.bodyRadiusM, d.bodyRadiusM, metal);
+
+  // Lid: fallen flat just past the open end, off to one side (never overlapping the body,
+  // which spans |z| <= bodyRadiusM).
+  addPrismFrustum(b, 8, 0, d.lidThicknessM, d.lidRadiusM, d.lidRadiusM, dark, {
+    capTop: true,
+    offsetX: d.bodyLengthM + d.lidRadiusM * 0.6,
+    offsetZ: d.bodyRadiusM * 1.4,
+  });
+
+  // Spill: a few small tumbled debris boxes fanning out past the open end.
+  for (let i = 0; i < d.spillBlobCount; i++) {
+    const s = d.spillBlobSizeM * (1 - i * 0.15);
+    const cx = d.bodyLengthM + s + i * s * 1.6;
+    const cz = (i % 2 === 0 ? -1 : 1) * s * (1 + i * 0.4);
+    addBox(
+      b,
+      { minX: cx - s / 2, maxX: cx + s / 2, minY: 0, maxY: s, minZ: cz - s / 2, maxZ: cz + s / 2 },
+      {
+        px: { albedo: dark },
+        nx: { albedo: dark },
+        py: { albedo: dark },
+        pz: { albedo: dark },
+        nz: { albedo: dark },
+      },
+    );
+  }
+
+  return toBufferGeometry(b);
+}
+
+// --- Raccoon (alley critter) ------------------------------------------------------------------
+// A chunky low-poly critter: grey body, a dark "mask" (the head's OUTWARD faces coloured
+// darker — the ai/HeliMesh.tsx/world/geometry/helicopter.ts livery trick of tinting a whole
+// part instead of adding overlay geometry, applied here as a baked second cell rather than an
+// instance tint since every raccoon shares one look), and a striped tail. A knockable light
+// prop through the same pipeline as every other street prop (PROPS.masses/forceThresholds) —
+// not a live AI creature in v1 (phase-19-plan.md: "fleeing = recorded stretch").
+export function buildRaccoon(): BufferGeometry {
+  const d = PROP_DIMS.raccoon;
+  const b = createBuilder();
+  const fur = PaletteCell.metal;
+  const mask = PaletteCell.metalDark;
+
+  const bodyTop = d.legHeightM + d.bodyHeightM;
+  addBox(
+    b,
+    {
+      minX: -d.bodyWidthM / 2,
+      maxX: d.bodyWidthM / 2,
+      minY: d.legHeightM,
+      maxY: bodyTop,
+      minZ: -d.bodyLengthM / 2,
+      maxZ: d.bodyLengthM / 2,
+    },
+    {
+      px: { albedo: fur },
+      nx: { albedo: fur },
+      py: { albedo: fur },
+      pz: { albedo: fur },
+      nz: { albedo: fur },
+    },
+  );
+
+  // Head: outward side/front faces are the mask; the crown stays the lighter fur tone. Back
+  // face omitted (flush against the body, never seen).
+  const headZ0 = d.bodyLengthM / 2;
+  const headZ1 = headZ0 + d.headSizeM;
+  const headY0 = bodyTop - d.headSizeM * 0.8;
+  const headY1 = headY0 + d.headSizeM;
+  addBox(
+    b,
+    { minX: -d.headSizeM / 2, maxX: d.headSizeM / 2, minY: headY0, maxY: headY1, minZ: headZ0, maxZ: headZ1 },
+    { px: { albedo: mask }, nx: { albedo: mask }, py: { albedo: fur }, pz: { albedo: mask } },
+  );
+
+  // Ears: two small dark stubs on the crown.
+  const earY0 = headY1;
+  const earY1 = earY0 + d.earSizeM;
+  for (const sign of [-1, 1] as const) {
+    const cx = sign * d.headSizeM * 0.25;
+    const ez0 = headZ0 + d.headSizeM * 0.2;
+    addBox(
+      b,
+      { minX: cx - d.earSizeM / 2, maxX: cx + d.earSizeM / 2, minY: earY0, maxY: earY1, minZ: ez0, maxZ: ez0 + d.earSizeM },
+      { px: { albedo: mask }, nx: { albedo: mask }, py: { albedo: mask } },
+    );
+  }
+
+  // Legs: four short stubs (top+bottom omitted — flush under the body / touching ground).
+  for (const sx of [-1, 1] as const) {
+    for (const sz of [-1, 1] as const) {
+      const cx = sx * (d.bodyWidthM / 2 - d.legThicknessM / 2);
+      const cz = sz * (d.bodyLengthM / 2 - d.legThicknessM * 1.5);
+      addBox(
+        b,
+        {
+          minX: cx - d.legThicknessM / 2,
+          maxX: cx + d.legThicknessM / 2,
+          minY: 0,
+          maxY: d.legHeightM,
+          minZ: cz - d.legThicknessM / 2,
+          maxZ: cz + d.legThicknessM / 2,
+        },
+        { px: { albedo: fur }, nx: { albedo: fur }, pz: { albedo: fur }, nz: { albedo: fur } },
+      );
+    }
+  }
+
+  // Tail: alternating fur/mask stripe segments, curling gently upward off the body's rear
+  // (-Z). Faces flush against the next/previous segment are omitted.
+  let segZ = -d.bodyLengthM / 2;
+  let segY = d.legHeightM + d.bodyHeightM * 0.5;
+  for (let i = 0; i < d.tailSegments; i++) {
+    const cell = i % 2 === 0 ? fur : mask;
+    const z0 = segZ - d.tailSegmentLengthM;
+    addBox(
+      b,
+      { minX: -d.tailThicknessM / 2, maxX: d.tailThicknessM / 2, minY: segY, maxY: segY + d.tailThicknessM, minZ: z0, maxZ: segZ },
+      { px: { albedo: cell }, nx: { albedo: cell }, py: { albedo: cell }, nz: { albedo: cell } },
+    );
+    segZ = z0;
+    segY += d.tailThicknessM * 0.4; // curls gently upward toward the tip
   }
 
   return toBufferGeometry(b);

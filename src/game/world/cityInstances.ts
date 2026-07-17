@@ -19,12 +19,17 @@ import { createRng } from './rng';
 import { derivePlacements, type PropPlacement } from './propPlacements';
 import { sortByDistrict, type DistrictRanges, type InstanceSource } from './instancing';
 import {
+  buildAwning,
   buildBench,
   buildBuildingVariant,
+  buildCrate,
   buildFenceSegment,
+  buildGarbageCanTipped,
   buildHydrant,
   buildMailbox,
   buildParkedCar,
+  buildProduceStand,
+  buildRaccoon,
   buildStreetlight,
   buildTrafficLight,
   buildTransformerBox,
@@ -48,6 +53,23 @@ const PARKED_CAR_TINTS: readonly Color[] = [
   new Color('#2f3b2f'), // muted olive
   new Color('#4a3626'), // rust brown
   new Color('#dcded9'), // off-white
+];
+
+// Phase 19 Kensington: a district of narrow, MISMATCHED, colourful low-rise. Its buildings
+// (forced 1×1 low in generate.ts) share the ordinary small-building variant meshes, so we give
+// each Kensington instance a vivid per-instance tint (the same instanceColor path parked cars
+// use) — a distinct, saturated colour roll that reads as the market-district palette until
+// Task 2 lands real Kensington archetype visuals + market props (both keyed off
+// world.landmarks.kensingtonDistrictId, which this selection also consumes).
+const KENSINGTON_TINTS: readonly Color[] = [
+  new Color('#d94f4f'), // tomato red
+  new Color('#e0a53a'), // mustard
+  new Color('#3fa39a'), // teal
+  new Color('#5a8fd6'), // sky blue
+  new Color('#c76bd0'), // orchid
+  new Color('#7bbf5a'), // lime
+  new Color('#e08a4c'), // pumpkin
+  new Color('#d0d4cf'), // bone white
 ];
 
 const HALF_MAP_M = (WORLD.tiles * WORLD.tileSize) / 2;
@@ -95,6 +117,12 @@ const PROP_BUILDERS: ReadonlyArray<[ArchetypeName, () => BufferGeometry]> = [
   ['fenceSegment', buildFenceSegment],
   ['transformerBox', buildTransformerBox],
   ['parkedCar', buildParkedCar],
+  // Phase 19 Task 2: market + alley props.
+  ['awning', buildAwning],
+  ['crate', buildCrate],
+  ['produceStand', buildProduceStand],
+  ['garbageCanTipped', buildGarbageCanTipped],
+  ['raccoon', buildRaccoon],
 ];
 
 type TaggedSource = InstanceSource & {
@@ -150,8 +178,22 @@ export interface BuildCityInstancesOptions {
   readonly sceneryKeepFraction?: number;
 }
 
-/** The archetypes sceneryKeepFraction thins — see its doc comment for the exclusions. */
-const SCENERY_ARCHETYPES = ['tree', 'mailbox', 'bench', 'hydrant'] as const;
+/** The archetypes sceneryKeepFraction thins — see its doc comment for the exclusions. Phase
+ * 19 Task 2: market/critter props ride the same low-tier density gate (the CN Tower/stadium/
+ * flatiron landmarks are NOT here — they render at all tiers, wayfinding/identity per the
+ * phase-19 plan; they aren't instanced archetypes at all, so this list doesn't apply to them
+ * regardless). */
+const SCENERY_ARCHETYPES = [
+  'tree',
+  'mailbox',
+  'bench',
+  'hydrant',
+  'awning',
+  'crate',
+  'produceStand',
+  'garbageCanTipped',
+  'raccoon',
+] as const;
 
 /**
  * Assemble every archetype's sorted instance set for one world. Pure and deterministic —
@@ -224,6 +266,11 @@ export function buildCityInstanceSets(
     if (list) list.push(b);
     else byVariant.set(key, [b]);
   }
+  // Phase 19 Kensington colourful tint (see KENSINGTON_TINTS): a dedicated rng stream forked
+  // off the world seed, consumed in (sorted-variant × list) order so a seed always paints the
+  // district the same. Buildings outside Kensington carry no color and stay palette-pure.
+  const kensingtonDistrictId = world.landmarks?.kensingtonDistrictId ?? -1;
+  const kensingtonTintRng = createRng(world.seed).fork('kensingtonTint');
   // Deterministic variant order (Map preserves insertion order, which follows
   // world.buildings order — deterministic per seed, but sort keys anyway so unrelated
   // generator reorderings can't shuffle draw order).
@@ -241,7 +288,14 @@ export function buildCityInstanceSets(
     };
     const tagged: TaggedSource[] = list.map((building) => {
       const { x, z } = footprintCenter(building.col, building.row, building.w, building.h);
-      return { districtId: building.districtId, matrix: composeMatrix(x, z, 0), building };
+      return {
+        districtId: building.districtId,
+        matrix: composeMatrix(x, z, 0),
+        building,
+        ...(building.districtId === kensingtonDistrictId
+          ? { color: kensingtonTintRng.pick(KENSINGTON_TINTS) }
+          : {}),
+      };
     });
     const { sorted, ranges } = sortByDistrict(tagged);
     sets.push({

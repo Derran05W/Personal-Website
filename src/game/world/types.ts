@@ -5,7 +5,9 @@
 //   Phase 7 civilian traffic (graph followers),
 //   Phase 9 spawn director (road tiles in the spawn ring),
 //   Phase 13 powergrid (districts + transformer lots),
-//   Phase 19 landmarks (reserved slots).
+//   Phase 19 landmarks (Toronto landmark layer — WorldData.landmarks, the reserved
+//            CN-Tower/stadium/flatiron lots, Kensington/midtown district picks, and the
+//            two streetcar avenues; see LandmarkData).
 // Everything here is pure data — zero three/rapier imports, fully serializable, and
 // deterministic for a given seed (test-proven in world/generate.test.ts).
 //
@@ -17,7 +19,11 @@
 
 import { WORLD } from '../config';
 
-export type TileType = 'road' | 'building' | 'park' | 'parkingLot' | 'transformerLot';
+// 'landmark' (Phase 19): a tile reserved for a Toronto set-piece (CN Tower / stadium /
+// flatiron). Cleared like a lot — no building footprint packs onto it and no street prop
+// derives on it (propPlacements.ts filters by the other types, so 'landmark' is skipped
+// everywhere by construction) — leaving the ground bare for Task 2's standalone mesh to mount.
+export type TileType = 'road' | 'building' | 'park' | 'parkingLot' | 'transformerLot' | 'landmark';
 
 /** One 10 m map tile. `grid[tileIndex(col,row)]`. */
 export interface Tile {
@@ -95,14 +101,75 @@ export interface TrafficGraph {
   readonly outEdges: readonly (readonly number[])[];
 }
 
-/** Reserved Toronto-landmark placement (Phase 19). Always empty in v1 generation —
- * typed now so consumers handle the field from day one. */
+/** Reserved Toronto-landmark placement (Phase 4 stub). SUPERSEDED by `LandmarkData` /
+ * `WorldData.landmarks` (Phase 19); `landmarkSlots` is retained as an always-empty field only
+ * to keep older WorldData literals (test mocks) compiling — new code reads `landmarks`. */
 export interface LandmarkSlot {
   readonly id: string;
   readonly col: number;
   readonly row: number;
   readonly w: number;
   readonly h: number;
+}
+
+// --- Toronto landmark layer (Phase 19, TDD §13) ------------------------------------------
+// generate() reserves a handful of landmark lots (retyping their tiles to 'landmark' and
+// clearing any building/prop that would collide), tags two districts with a "personality",
+// and picks two streetcar avenues — all seeded, so the same seed yields identical landmarks.
+
+/** A world-space point on the flat ground plane (y implied 0). */
+export interface LandmarkPoint {
+  readonly x: number;
+  readonly z: number;
+}
+
+/** CN Tower slot: a single reserved 'landmark' tile near the south-center lakefront. Task 2
+ * renders the stylized tower (base-cylinder collider only) centered at {x,z}. */
+export interface CnTowerLandmark extends LandmarkPoint {
+  readonly col: number;
+  readonly row: number;
+}
+
+/** Stadium slot: a reserved w×h 'landmark' footprint on the lakefront beside the CN Tower.
+ * {x,z} is the footprint CENTER; col/row is the NW (min-col, min-row) anchor tile. */
+export interface StadiumLandmark extends LandmarkPoint {
+  readonly col: number;
+  readonly row: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+/** Flatiron slot: a single reserved 'landmark' corner tile at an (orthogonal) arterial
+ * intersection. `rot` is the Y-yaw in radians (world +Z-is-forward convention,
+ * `atan2(dx, dz)`) that points the wedge's sharp end toward the intersection corner. */
+export interface FlatironLandmark extends LandmarkPoint {
+  readonly col: number;
+  readonly row: number;
+  readonly rot: number;
+}
+
+/** One streetcar avenue: an ordered MEDIAN centerline polyline — tile-center {x,z} points (NOT
+ * the lane-offset traffic-graph nodes; streetcars ride the middle of the road) spanning a full
+ * arterial line from one ring-road end to the other. Task 3 (ai/streetcarTraffic.ts) consumes
+ * each avenue DIRECTLY as this point array (it validates length ≥ 2 and finite x/z, then builds
+ * a there-and-back kinematic loop), so the shape is deliberately a bare polyline, not an object.
+ * The generator's selection rule (two longest arterials, tie-break lower road id) is documented
+ * in world/landmarkGen.ts — it isn't carried on the seam because no consumer needs it. */
+export type LanePath = readonly LandmarkPoint[];
+
+/** The whole Phase 19 landmark layer for one world. Optional on WorldData so mocks and older
+ * consumers read it defensively (`world.landmarks?.…`); ALWAYS populated by generate(). */
+export interface LandmarkData {
+  readonly cnTower: CnTowerLandmark;
+  readonly stadium: StadiumLandmark;
+  readonly flatiron: FlatironLandmark;
+  /** District whose buildings render narrow, colorful and low-rise (Kensington). */
+  readonly kensingtonDistrictId: number;
+  /** District biased to the tallest tower variants — density/height reads as midtown. */
+  readonly midtownDistrictId: number;
+  /** The two longest arterials (tie-break: lower road id), each a median centerline polyline
+   * (see LanePath). Length 2 for a real world. */
+  readonly streetcarAvenues: readonly LanePath[];
 }
 
 /** The whole generated city. Pure data; deterministic per seed. */
@@ -117,6 +184,10 @@ export interface WorldData {
   /** Length 16, sorted by id. */
   readonly districts: readonly District[];
   readonly graph: TrafficGraph;
+  /** Phase 19 Toronto landmark layer. Optional in the type (read defensively — see
+   * LandmarkData) but always present on a generate()'d world. */
+  readonly landmarks?: LandmarkData;
+  /** @deprecated Phase 4 stub, always []. Use `landmarks`. Kept only for mock compatibility. */
   readonly landmarkSlots: readonly LandmarkSlot[];
 }
 

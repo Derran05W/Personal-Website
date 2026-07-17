@@ -196,6 +196,32 @@ export function setEmissiveRange(
   emissiveAttr.needsUpdate = true;
 }
 
+/**
+ * Like setEmissiveRange but writes an arbitrary per-instance emissive SCALE (not just 0|1) to
+ * one district's slice. The shader term is `emissiveTexel · aEmissiveOn · uEmissiveIntensity`
+ * (world/palette.ts), so a value >1 makes that district's lit windows/props glow denser — the
+ * Phase 19 Kensington market boost writes RENDERING.kensingtonEmissiveScale here. A subsequent
+ * blackout write (setEmissiveRange → 0) overrides it wholesale, so the boost never survives a
+ * district going dark. Same accumulate-don't-clear GPU-upload contract as setEmissiveRange.
+ */
+export function setEmissiveRangeValue(
+  emissiveAttr: EmissiveAttribute,
+  ranges: DistrictRanges,
+  districtId: number,
+  value: number,
+): void {
+  const range = ranges[districtId];
+  if (range === undefined || range.districtId !== districtId) {
+    throw new RangeError(`setEmissiveRangeValue: no range for district ${districtId}`);
+  }
+  const { start, count } = range;
+  if (count === 0) return;
+  const { array } = emissiveAttr;
+  for (let i = start; i < start + count; i++) array[i] = value;
+  emissiveAttr.addUpdateRange(start, count);
+  emissiveAttr.needsUpdate = true;
+}
+
 // --- Module-scope archetype handle registry -----------------------------------------------
 // The Phase 13 blackout entry point and the Task 5 debug-tint hook. Keyed by archetype name;
 // value is the list of variant meshes registered under it (one for most archetypes, several
@@ -226,6 +252,17 @@ export function setDistrictEmissive(name: ArchetypeName, districtId: number, on:
   const handles = registry.get(name);
   if (handles === undefined) return;
   for (const h of handles) setEmissiveRange(h.emissiveAttr, h.ranges, districtId, on);
+}
+
+/**
+ * Registry-driven arbitrary emissive-scale write (Phase 19 Kensington boost): set every mesh
+ * of `name` to per-instance emissive `value` for one district's slice. No-op for an archetype
+ * that wasn't built this run (e.g. a market archetype whose mount hasn't landed yet).
+ */
+export function setDistrictEmissiveValue(name: ArchetypeName, districtId: number, value: number): void {
+  const handles = registry.get(name);
+  if (handles === undefined) return;
+  for (const h of handles) setEmissiveRangeValue(h.emissiveAttr, h.ranges, districtId, value);
 }
 
 /**

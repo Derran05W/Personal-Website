@@ -106,6 +106,8 @@ const GROUP: Record<SoundName, VoiceGroup> = {
   stingerWrecked: 'stinger',
   stingerBusted: 'stinger',
   uiTick: 'ui',
+  // Phase 19 Task 2: raccoon-hit squeak — a light one-shot, same pool group as impact.
+  squeak: 'impact',
 };
 
 // Bus routing mirrors manager.ts's own doc comment: sfx (one-shots + stingers), engine (the
@@ -130,6 +132,7 @@ const BUS: Record<SoundName, AudioBusName> = {
   stingerWrecked: 'sfx',
   stingerBusted: 'sfx',
   uiTick: 'sfx',
+  squeak: 'sfx',
 };
 
 /** Sound names whose lifecycle is a start/stop loop rather than a fire-and-forget one-shot —
@@ -411,7 +414,7 @@ export const EVENT_SOUND_DOC: Record<keyof GameEventMap, string> = {
   unitWrecked: 'impact (a satisfying crunch for taking out a pursuer — not in the task brief\'s explicit list, added since a silent enemy kill reads as a bug, not a choice; cheap reuse of the existing impact mapping)',
   civHit: 'impact (light velocity trim)',
   civWrecked: 'impact (heavier velocity trim)',
-  propDestroyed: 'impact (heavier velocity trim)',
+  propDestroyed: 'impact (heavier velocity trim) — EXCEPT archetype "raccoon", which plays the dedicated squeak one-shot instead (Phase 19 Task 2)',
   playerDamaged: 'no-op — no distinct per-hit sound in this pass (fires on every hit, including sustained fire; playerWrecked already covers the death beat). Good Phase 16 (FX & juice) follow-up if a hit-taken cue is wanted.',
   playerWrecked: 'stingerWrecked',
   busted: 'stingerBusted',
@@ -500,7 +503,18 @@ export function initEventMap(): () => void {
       duckSfxBus();
     }),
   );
-  offs.push(gameEvents.on('propDestroyed', () => playImpact(0.7)));
+  offs.push(
+    gameEvents.on('propDestroyed', ({ archetype }) => {
+      // Phase 19 Task 2: raccoon hits get the dedicated squeak instead of a generic impact
+      // thud — filtered here rather than a new gameEvents catalog entry (does not bypass the
+      // event catalog: propDestroyed is the correct, already-emitted event for this).
+      if (archetype === 'raccoon') {
+        playEvent('squeak');
+        return;
+      }
+      playImpact(0.7);
+    }),
+  );
   offs.push(gameEvents.on('civHit', () => playImpact(0.4)));
   offs.push(gameEvents.on('civWrecked', () => playImpact(0.7)));
   offs.push(gameEvents.on('unitWrecked', () => playImpact(0.8)));

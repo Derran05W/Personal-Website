@@ -9,19 +9,28 @@
 //   Phase 7  civilian traffic     — the traffic graph (stubbed here; Task 2 fills it),
 //   Phase 9  spawn director       — road tiles inside the spawn ring,
 //   Phase 13 power grid           — districts + one transformer lot each,
-//   Phase 19 landmarks            — reserved (always-empty in v1) landmark slots.
+//   Phase 19 landmarks            — reserved 'landmark' lots (CN Tower / stadium / flatiron),
+//                                   Kensington/midtown district picks, streetcar avenues.
 //
 // Pipeline (order matters — later steps read what earlier ones stamped):
 //   1. road skeleton  → outer ring road + seeded arterials on both axes
 //   2. tiles          → type + district for every cell
 //   3. blocks         → flood-fill contiguous non-road regions (4-neighbour)
 //   4. districts      → the 4×4 blackout grid (TDD §5.8)
-//   5. transformers   → exactly one fenced corner lot per district
-//   6. block fill     → per-block kind + non-overlapping building footprints
-//   7. graph          → buildTrafficGraph() (Phase 4 stub)
+//   5. landmarks      → reserve CN Tower/stadium/flatiron lots + pick Kensington/midtown
+//   6. transformers   → exactly one fenced corner lot per district (skips landmark tiles)
+//   7. block fill     → per-block kind + footprints (midtown→towers, Kensington→narrow smalls)
+//   8. graph + avenues→ buildTrafficGraph() + two streetcar avenues, assemble landmarks
 
 import { WORLD, WORLD_GEN } from '../config';
 import { createRng, type Rng } from './rng';
+import { findSpawnTile } from './spawn';
+import {
+  assembleLandmarks,
+  buildStreetcarAvenues,
+  pickPersonalityDistricts,
+  reserveLandmarkLots,
+} from './landmarkGen';
 import { buildTrafficGraph } from './trafficGraph';
 import {
   districtIdAt,
@@ -34,6 +43,13 @@ import {
   type TransformerLot,
   type WorldData,
 } from './types';
+
+/** The two district ids that carry a Phase 19 "personality" (or -1). Passed into fillBlock so
+ * midtown gets its tallest towers and Kensington its narrow low-rise footprints. */
+interface Personality {
+  readonly midtownDistrictId: number;
+  readonly kensingtonDistrictId: number;
+}
 
 /** The kind rolled per block during fill — the keys of WORLD_GEN.blockKindWeights. */
 type BlockKind = keyof typeof WORLD_GEN.blockKindWeights;
@@ -102,11 +118,42 @@ export function generate(seed: number): WorldData {
     districts.push({ id, dCol, dRow, col0: dCol * perDistrict, row0: dRow * perDistrict });
   }
 
-  // --- 5. Transformer lots: exactly one per district ------------------------------------
-  // `reserved` tiles are removed from footprint packing so a building never lands on the
-  // fenced transformer lot.
-  const transformers: TransformerLot[] = [];
+  // --- 5. Landmark lots + district personality (Phase 19, TDD §13) -----------------------
+  // Reserve the Toronto set-pieces BEFORE transformers and block fill: reserveLandmarkLots
+  // retypes each chosen tile to 'landmark' and adds it to `reserved`, so neither transformer
+  // placement nor footprint packing lands on them (they stay bare for Task 2's meshes). See
+  // world/landmarkGen.ts.
   const reserved = new Set<number>();
+  const lots = reserveLandmarkLots(N, type, reserved, layout.fork('landmarks'));
+
+  // Kensington + midtown district picks. Exclude the spawn district (don't drop the player
+  // into a themed district), the lakefront district row (mostly water/edge + it holds the
+  // landmark set-pieces), and any district containing a reserved landmark tile. Spawn tile is
+  // resolved from the road skeleton, which is final by now (block fill only retypes non-road
+  // tiles), reusing spawn.ts's exact center-nearest-road search so the two never drift.
+  const spawnTile = findSpawnTile(
+    (col, row) => col >= 0 && row >= 0 && col < N && row < N && type[tileIndex(col, row)] === 'road',
+  );
+  const excluded = new Set<number>([districtIdAt(spawnTile.col, spawnTile.row)]);
+  for (const d of districts) if (d.dRow === WORLD.districts - 1) excluded.add(d.id);
+  excluded.add(districtIdAt(lots.cnTower.col, lots.cnTower.row));
+  excluded.add(districtIdAt(lots.flatiron.col, lots.flatiron.row));
+  for (let dr = 0; dr < lots.stadium.h; dr++) {
+    for (let dc = 0; dc < lots.stadium.w; dc++) {
+      excluded.add(districtIdAt(lots.stadium.col + dc, lots.stadium.row + dr));
+    }
+  }
+  const eligibleDistricts = districts.map((d) => d.id).filter((id) => !excluded.has(id));
+  const { kensingtonDistrictId, midtownDistrictId } = pickPersonalityDistricts(
+    eligibleDistricts,
+    layout.fork('personality'),
+  );
+  const personality: Personality = { midtownDistrictId, kensingtonDistrictId };
+
+  // --- 6. Transformer lots: exactly one per district ------------------------------------
+  // `reserved` (transformer + landmark) tiles are removed from footprint packing so a building
+  // never lands on the fenced transformer lot or a set-piece.
+  const transformers: TransformerLot[] = [];
   for (const d of districts) {
     const idx = pickTransformerTile(d, perDistrict, type, layout.fork(`transformer:${d.id}`));
     type[idx] = 'transformerLot';
@@ -114,11 +161,16 @@ export function generate(seed: number): WorldData {
     transformers.push({ districtId: d.id, col: idx % N, row: Math.floor(idx / N) });
   }
 
-  // --- 6. Block fill: kind per block + footprint packing --------------------------------
+  // --- 7. Block fill: kind per block + footprint packing --------------------------------
   const buildings: BuildingFootprint[] = [];
   const kindEntries = Object.entries(WORLD_GEN.blockKindWeights) as [BlockKind, number][];
   for (const block of blocks) {
-    const kind = weightedPick(layout.fork(`kind:${block.id}`), kindEntries, (e) => e[1])[0];
+    let kind = weightedPick(layout.fork(`kind:${block.id}`), kindEntries, (e) => e[1])[0];
+    // Phase 19 personality overrides (roll still consumed above so unrelated blocks are
+    // unperturbed): midtown blocks force towers (higher tower density reads as midtown),
+    // Kensington blocks force low-rise smalls (footprints forced 1×1 in fillBlock).
+    if (block.districtId === midtownDistrictId) kind = 'tower';
+    else if (block.districtId === kensingtonDistrictId) kind = 'smallBuildings';
     fillBlock(
       block,
       kind,
@@ -128,10 +180,11 @@ export function generate(seed: number): WorldData {
       buildings,
       layout.fork(`pack:${block.id}`),
       cosmetic.fork(`height:${block.id}`),
+      personality,
     );
   }
 
-  // --- 7. Freeze tiles + build the (stubbed) traffic graph ------------------------------
+  // --- 8. Freeze tiles + build the traffic graph + assemble landmarks -------------------
   const tiles: Tile[] = new Array<Tile>(N * N);
   for (let row = 0; row < N; row++) {
     for (let col = 0; col < N; col++) {
@@ -146,8 +199,12 @@ export function generate(seed: number): WorldData {
     }
   }
   const graph = buildTrafficGraph(tiles);
+  // Streetcar avenues = the two longest interior arterials (world/landmarkGen.ts documents the
+  // tie-break). arterialCols/arterialRows are the interior arterials from step 1 (no ring).
+  const streetcarAvenues = buildStreetcarAvenues(arterialCols, arterialRows, N);
+  const landmarks = assembleLandmarks(lots, kensingtonDistrictId, midtownDistrictId, streetcarAvenues);
 
-  return { seed, tiles, blocks, buildings, transformers, districts, graph, landmarkSlots: [] };
+  return { seed, tiles, blocks, buildings, transformers, districts, graph, landmarks, landmarkSlots: [] };
 }
 
 // --- Road skeleton helpers ---------------------------------------------------------------
@@ -236,8 +293,9 @@ function pickTransformerTile(
   for (let row = d.row0; row < d.row0 + perDistrict; row++) {
     for (let col = d.col0; col < d.col0 + perDistrict; col++) {
       const idx = tileIndex(col, row);
+      // Skip roads AND reserved landmark tiles — a transformer must never claim a set-piece lot.
+      if (type[idx] === 'road' || type[idx] === 'landmark') continue;
       all.push(idx);
-      if (type[idx] === 'road') continue;
       // Non-road tiles never touch the perimeter ring, so all four neighbours are in bounds.
       const roadV =
         type[tileIndex(col, row - 1)] === 'road' || type[tileIndex(col, row + 1)] === 'road';
@@ -272,6 +330,10 @@ function pickTransformerTile(
  * car) skims over roofs instead of ending up inside a roadside tower. Tower blocks
  * therefore MIX: interior towers + street-front smalls. A block with no valid interior
  * tower anchor degrades to all-smallBuildings so it never renders empty.
+ *
+ * PHASE 19 PERSONALITY: a midtown block's towers render at the tallest height bucket; a
+ * Kensington block's footprints are forced to narrow 1×1 low-rise (the colourful tint is
+ * applied downstream at instancing, keyed off the tile's districtId — see cityInstances.ts).
  */
 function fillBlock(
   block: Block,
@@ -282,6 +344,7 @@ function fillBlock(
   buildings: BuildingFootprint[],
   packRng: Rng,
   heightRng: Rng,
+  personality: Personality,
 ): void {
   if (kind === 'park' || kind === 'parkingLot') {
     const t: TileType = kind === 'park' ? 'park' : 'parkingLot';
@@ -290,6 +353,11 @@ function fillBlock(
     }
     return;
   }
+
+  const isKensington =
+    personality.kensingtonDistrictId >= 0 && block.districtId === personality.kensingtonDistrictId;
+  const isMidtown =
+    personality.midtownDistrictId >= 0 && block.districtId === personality.midtownDistrictId;
 
   // Building blocks. blockSet bounds every footprint to this block; occupied starts with
   // the reserved (transformer) tiles so packing skips them and never double-covers a tile.
@@ -315,6 +383,11 @@ function fillBlock(
       fpKind = 'tower';
       w = 2;
       h = 2;
+    } else if (isKensington) {
+      // Kensington: narrow 1×1 low-rise, one per free tile (no shape roll — a dense mismatched
+      // grain). effective is always 'smallBuildings' here (forced upstream), so fpKind='small'.
+      w = 1;
+      h = 1;
     } else {
       const shape = weightedPick(packRng, WORLD_GEN.footprintSizes, (s) => s.weight);
       w = shape.w;
@@ -337,7 +410,10 @@ function fillBlock(
       fpKind === 'small' && footprintTouchesRoad(col, row, w, h, N, type)
         ? minH + (fullMaxH - minH) / 3
         : fullMaxH;
-    const heightM = Math.round((minH + heightRng.next() * (maxH - minH)) * 100) / 100;
+    // Roll height (stream consumed regardless so unrelated blocks are unperturbed); midtown
+    // towers are then pinned to the top of their range so they bucket to the tallest variant.
+    let heightM = Math.round((minH + heightRng.next() * (maxH - minH)) * 100) / 100;
+    if (isMidtown && fpKind === 'tower') heightM = fullMaxH;
     buildings.push({ col, row, w, h, kind: fpKind, heightM, districtId: districtIdAt(col, row) });
   }
 }

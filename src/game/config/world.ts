@@ -298,6 +298,116 @@ export const PROP_DIMS = {
     frontZM: 1.5,
     rearZM: -1.55,
   },
+  // --- Phase 19 Task 2: Toronto landmark geometry (world/geometry/landmarks.ts) ---------------
+  // Standalone one-off objects (never instanced, never blackout-linked) — see that file's
+  // header for the fog:false material + separate-beacon-mesh rationale. Origin at ground
+  // level (y=0), matching every other world/geometry/*.ts builder's convention.
+  cnTower: {
+    // Stacked height budget (m), summing to the ~160 m target: base -> shaft -> pod (flare
+    // out then back in) -> upper shaft -> antenna mast. Radii kept SLIM (base fits inside
+    // world/landmarks.ts's single reserved 10 m tile, ~0.5 m clearance to each edge) — the
+    // real CN Tower reads as a slender needle relative to its height, not a wide base, so
+    // this is both a fit constraint and the more accurate silhouette.
+    baseHeightM: 40,
+    baseRadiusM: 4.5,
+    baseTopRadiusM: 3.5,
+    baseSides: 10,
+    shaftHeightM: 78,
+    shaftTopRadiusM: 2.2,
+    shaftSides: 10,
+    podLowerHeightM: 6,
+    podUpperHeightM: 6,
+    podRadiusM: 7,
+    podSides: 12,
+    upperShaftHeightM: 20,
+    upperShaftTopRadiusM: 1.2,
+    upperShaftSides: 8,
+    antennaHeightM: 10,
+    antennaTopRadiusM: 0.25,
+    antennaSides: 6,
+    // Beacon: a separate small pulsing mesh (NOT baked into the body geometry) sitting at
+    // the antenna tip — see landmarks.ts's file header.
+    beaconRadiusM: 0.6,
+  },
+  stadium: {
+    // Stepped-skirt podium -> straight wall shell -> flared rim, all hollow tubes (no
+    // top/bottom caps except the rim's, which closes the silhouette from above). RADII are
+    // NOT fixed here — world/landmarks.ts's reserved stadium lot varies 3x3..5x4 tiles by
+    // seed, so world/geometry/landmarks.ts's stadiumRadii() derives podium/wall/rim radii
+    // from the actual reserved footprint (w,h) via the ratios below, keeping the bowl
+    // inside its cleared lot on every seed.
+    podiumHeightM: 4,
+    wallHeightM: 14,
+    rimHeightM: 3,
+    sides: 24,
+    // Outer (rim) radius = this fraction of half the lot's SMALLER side in metres, leaving
+    // clearance inside the cleared footprint.
+    outerRadiusFillFraction: 0.82,
+    wallRadiusRatio: 0.9, // of the outer (rim) radius
+    podiumBaseRadiusRatio: 0.96, // of the outer (rim) radius
+  },
+  flatiron: {
+    // A 3-sided prism ("cylinder" with sides=3 — kit.ts's addPrismFrustum) — a true wedge,
+    // convex by construction. `bandCount` alternating wall/window-tone stacked straight
+    // segments approximate a window-band facade without a full per-floor window grid.
+    // radiusM kept SLIM (world/landmarks.ts reserves a single 10 m corner tile for the
+    // flatiron, same fit constraint as cnTower.baseRadiusM above).
+    radiusM: 4.8,
+    heightM: 30,
+    bandCount: 6,
+    parapetHeightM: 1,
+    // Two-cuboid collider approximation (CLAUDE.md convex-primitives-only rule; a true
+    // triangular prism collider isn't in the sanctioned shape set) — see Flatiron.tsx.
+    colliderHalfLengthM: 4.3, // radiusM * 0.9
+    colliderHalfThicknessM: 2.4, // radiusM * 0.5
+  },
+  // --- Phase 19 Task 2: market + alley props (world/geometry/streetProps.ts) ------------------
+  awning: {
+    poleHeightM: 2.4,
+    poleRadiusM: 0.06,
+    poleSides: 6,
+    canopyWidthM: 2.2,
+    canopyDepthM: 1.1,
+    canopyThicknessM: 0.08,
+    canopyDropM: 0.35, // front edge droops this far below the back edge (tilt read)
+    stripeCount: 3,
+  },
+  crate: {
+    widthM: 0.6,
+    depthM: 0.6,
+    heightM: 0.5,
+    strapThicknessM: 0.04,
+  },
+  produceStand: {
+    tableWidthM: 1.4,
+    tableDepthM: 0.7,
+    tableHeightM: 0.75,
+    tableThicknessM: 0.07,
+    legThicknessM: 0.07,
+    produceCount: 4,
+    produceSizeM: 0.22,
+  },
+  garbageCanTipped: {
+    bodyRadiusM: 0.18,
+    bodyLengthM: 0.55,
+    bodySides: 10,
+    lidRadiusM: 0.2,
+    lidThicknessM: 0.02,
+    spillBlobCount: 3,
+    spillBlobSizeM: 0.14,
+  },
+  raccoon: {
+    bodyWidthM: 0.22,
+    bodyHeightM: 0.2,
+    bodyLengthM: 0.34,
+    headSizeM: 0.16,
+    legHeightM: 0.12,
+    legThicknessM: 0.07,
+    earSizeM: 0.05,
+    tailSegments: 3,
+    tailSegmentLengthM: 0.14,
+    tailThicknessM: 0.09,
+  },
 } as const;
 
 export const PROPS = {
@@ -334,6 +444,13 @@ export const PROPS = {
     trafficLight: 150,
     tree: 200,
     parkedCar: 1200,
+    // Phase 19 Task 2: market/alley props — light, easily-knocked scenery. raccoon lightest
+    // of all (a small live-scaled critter, not a heavy fixture).
+    crate: 15,
+    garbageCanTipped: 20,
+    produceStand: 35,
+    raccoon: 12,
+    awning: 45,
   },
   // Per-archetype contact-force magnitude (N) an impact must REACH to swap the prop to
   // dynamic; below it the prop stays nailed down (love-taps are free — TDD §5.10). An
@@ -349,6 +466,13 @@ export const PROPS = {
     trafficLight: 600,
     tree: 800,
     parkedCar: 1500,
+    // Phase 19 Task 2: market/alley props — deliberately LOW thresholds ("light props —
+    // knockable" per the phase-19 plan): a love-tap sends a crate or a raccoon flying.
+    raccoon: 100,
+    crate: 120,
+    garbageCanTipped: 150,
+    produceStand: 200,
+    awning: 250,
   },
   // Launch feel once swapped. The impulse applied at the contact point (so the prop tumbles):
   //   dir     = normalize(propPos − impactPoint), then dir.y += launchUpKick
@@ -407,6 +531,17 @@ export const PROP_PLACEMENT = {
   parkingLotCarsRange: [1, 3] as readonly [number, number],
   parkingLotJitterM: 0.4,
   parkingLotRotationJitterRad: 0.15,
+  // Market props (awning/crate/produceStand): Kensington-only (world.landmarks?.
+  // kensingtonDistrictId), sidewalk-facing building tiles, same "stride over qualifying
+  // tiles" shape as edgePropSampleEvery but denser — one small colourful market district
+  // should read as busy, not sparse like the rest of the city's edge props.
+  marketPropSampleEvery: [2, 4] as readonly [number, number],
+  marketPropOffsetM: 3,
+  // Raccoons + tipped garbage cans: sparse, map-wide, near park tiles (TDD/plan: "a
+  // dozen-ish" total). Probability per qualifying park tile, tuned against the default
+  // seed's park-tile count (propPlacements.test.ts pins the resulting range).
+  critterParkProbability: 0.035,
+  critterEdgeMarginM: 1.2,
 } as const;
 
 // Civilian traffic tunables (Phase 7, ai/traffic.ts). TDD §5.4 traffic network + §7

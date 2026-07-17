@@ -19,6 +19,7 @@
 
 import { PROP_DIMS, PROP_PLACEMENT, WORLD } from '../config';
 import type { ArchetypeName } from './archetypes';
+import { getLandmarks } from './landmarks/landmarksData';
 import { createRng, type Rng } from './rng';
 import { tileCenter, tileIndex, type WorldData } from './types';
 
@@ -360,11 +361,83 @@ function parkingLotPlacements(world: WorldData, rng: Rng): PropPlacement[] {
   return out;
 }
 
+// --- Market props (Phase 19 Task 2) -----------------------------------------------------------
+// Kensington-only (world.landmarks?.kensingtonDistrictId): a sidewalk/lot pattern on
+// road-adjacent building tiles within that one district, same "stride over qualifying tiles"
+// shape as edgePropPlacements above but denser (MARKET_ARCHETYPES.sampleEvery < edge props'),
+// since one small colourful market district should read as busy. Empty array (no placements)
+// whenever landmarks data isn't available yet — see landmarksData.ts's file header.
+const MARKET_ARCHETYPES: readonly ArchetypeName[] = ['awning', 'crate', 'produceStand'];
+
+function marketPropPlacements(world: WorldData, rng: Rng): PropPlacement[] {
+  const kensingtonDistrictId = getLandmarks(world)?.kensingtonDistrictId;
+  if (kensingtonDistrictId === undefined) return [];
+  const out: PropPlacement[] = [];
+  const N = WORLD.tiles;
+  const [minGap, maxGap] = PROP_PLACEMENT.marketPropSampleEvery;
+  let untilNext = rng.int(minGap, maxGap);
+  for (let row = 0; row < N; row++) {
+    for (let col = 0; col < N; col++) {
+      const idx = tileIndex(col, row);
+      const tile = world.tiles[idx];
+      if (tile.type !== 'building') continue;
+      if (tile.districtId !== kensingtonDistrictId) continue;
+      const dirs = roadDirs(world, col, row);
+      if (dirs.length === 0) continue;
+      untilNext--;
+      if (untilNext > 0) continue;
+      untilNext = rng.int(minGap, maxGap);
+      const dir = rng.pick(dirs);
+      const center = tileCenter(col, row);
+      const off = PROP_PLACEMENT.marketPropOffsetM;
+      out.push({
+        archetype: rng.pick(MARKET_ARCHETYPES),
+        x: center.x + dir.dc * off,
+        z: center.z + dir.dr * off,
+        rotationY: yawToward(-dir.dc, -dir.dr), // faces back toward the sidewalk/road
+        districtId: tile.districtId,
+        tileIndex: idx,
+      });
+    }
+  }
+  return out;
+}
+
+// --- Critters (Phase 19 Task 2: raccoon + tipped garbage can) ----------------------------------
+// Sparse, map-wide, near park tiles ("near parks/alleys" — this generator has no dedicated
+// alley tile type, so park tiles stand in for both). A low per-tile probability, tuned (and
+// pinned by propPlacements.test.ts) to land in the "a dozen-ish" range for the default seed.
+const CRITTER_ARCHETYPES: readonly ArchetypeName[] = ['raccoon', 'garbageCanTipped'];
+
+function critterPlacements(world: WorldData, rng: Rng): PropPlacement[] {
+  const out: PropPlacement[] = [];
+  const N = WORLD.tiles;
+  const half = WORLD.tileSize / 2 - PROP_PLACEMENT.critterEdgeMarginM;
+  for (let row = 0; row < N; row++) {
+    for (let col = 0; col < N; col++) {
+      const idx = tileIndex(col, row);
+      const tile = world.tiles[idx];
+      if (tile.type !== 'park') continue;
+      if (rng.next() >= PROP_PLACEMENT.critterParkProbability) continue;
+      const center = tileCenter(col, row);
+      out.push({
+        archetype: rng.pick(CRITTER_ARCHETYPES),
+        x: center.x + jitter(rng, half),
+        z: center.z + jitter(rng, half),
+        rotationY: rng.next() * Math.PI * 2, // bilateral-enough shapes — free rotation is fine
+        districtId: tile.districtId,
+        tileIndex: idx,
+      });
+    }
+  }
+  return out;
+}
+
 /**
  * Derive every street-prop placement for `world`. Pure and deterministic — see the file
  * header. Order is stable (streetlights, traffic lights, park furniture, edge props,
- * transformer lots, parking lots) but callers should never depend on it beyond that
- * stability.
+ * transformer lots, parking lots, market props, critters) but callers should never depend on
+ * it beyond that stability.
  */
 export function derivePlacements(world: WorldData): PropPlacement[] {
   const rng = createRng(world.seed).fork('props');
@@ -379,5 +452,10 @@ export function derivePlacements(world: WorldData): PropPlacement[] {
     // never perturb any of the categories above (verified by propPlacements.test.ts's
     // determinism suite, which runs unchanged against the full output including this).
     ...parkingLotPlacements(world, rng.fork('parkingLot')),
+    // Phase 19 Task 2: same "new independent fork label" guarantee — appending these can
+    // never perturb any category above, including generate.ts's own golden hash (this module
+    // only ever forks off the 'props' child stream, never the root).
+    ...marketPropPlacements(world, rng.fork('market')),
+    ...critterPlacements(world, rng.fork('critter')),
   ];
 }

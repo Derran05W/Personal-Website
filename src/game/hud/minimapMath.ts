@@ -20,6 +20,7 @@ export const TILE_COLORS: Record<TileType, string> = {
   park: '#3fae7d',
   parkingLot: '#9aa0a6',
   transformerLot: '#e0c93d',
+  landmark: '#e35c5c', // Phase 19 reserved landmark lot (CN Tower / stadium / flatiron)
 };
 
 /**

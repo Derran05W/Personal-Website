@@ -12,10 +12,15 @@ import {
 } from './buildings';
 import { addBox, addPrismFrustum, addQuad, createBuilder, toBufferGeometry, triCount } from './kit';
 import {
+  buildAwning,
   buildBench,
+  buildCrate,
   buildFenceSegment,
+  buildGarbageCanTipped,
   buildHydrant,
   buildMailbox,
+  buildProduceStand,
+  buildRaccoon,
   buildStreetlight,
   buildTrafficLight,
   buildTransformerBox,
@@ -305,6 +310,12 @@ describe('street props — one canonical geometry each, valid + within budget', 
     ['mailbox', buildMailbox, 80],
     ['fenceSegment', buildFenceSegment, 100],
     ['transformerBox', buildTransformerBox, 120],
+    // Phase 19 Task 2: market + alley props.
+    ['awning', buildAwning, 120],
+    ['crate', buildCrate, 60],
+    ['produceStand', buildProduceStand, 120],
+    ['garbageCanTipped', buildGarbageCanTipped, 120],
+    ['raccoon', buildRaccoon, 130], // "~80-tri" target (phase-19 plan) — generous ceiling, not a hard cap
   ];
 
   for (const [name, build, ceiling] of builders) {

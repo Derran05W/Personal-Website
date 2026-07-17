@@ -30,6 +30,9 @@ import { DamageSystem } from './combat/damage';
 import { onImpact } from './combat/contacts';
 import { Traffic } from './ai/TrafficMount';
 import { TrafficMesh } from './ai/TrafficMesh';
+import { StreetcarTraffic } from './ai/StreetcarMount';
+import { StreetcarMesh } from './ai/StreetcarMesh';
+import { CnTower, Stadium, Flatiron } from './world/landmarks';
 import { RunLoopSystem } from './combat/runLoop';
 import { SpawnDirector } from './ai/SpawnDirectorMount';
 import { HeliMount } from './ai/HeliMount';
@@ -266,6 +269,13 @@ export default function Game() {
                 Same seed-keyed remount contract as the city/pool systems. */}
             <Traffic key={`traffic-${worldKey}`} graph={world.graph} seed={seed} source={onImpact} />
             <TrafficMesh key={`traffic-mesh-${worldKey}`} />
+            {/* Toronto layer (Phase 19): landmark buildings (defensive — render nothing if
+                world.landmarks is absent) + streetcars looping the two longest arterials. */}
+            <CnTower world={world} />
+            <Stadium world={world} />
+            <Flatiron world={world} />
+            <StreetcarTraffic key={`streetcar-${worldKey}`} world={world} seed={seed} source={onImpact} />
+            <StreetcarMesh key={`streetcar-mesh-${worldKey}`} />
             {/* Pursuit (Phase 9): PoliceMesh registers the unit factory + drives the
                 per-step tick list; the director owns spawn/despawn/caps. Run-loop owns
                 WRECKED/BUSTED/water → GAMEOVER. All keyed on the retry nonce. */}

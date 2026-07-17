@@ -5,7 +5,9 @@ import {
   DISTRICT_COUNT,
   sortByDistrict,
   setEmissiveRange,
+  setEmissiveRangeValue,
   setDistrictEmissive,
+  setDistrictEmissiveValue,
   setDistrictColor,
   registerArchetypeHandles,
   getArchetypeHandles,
@@ -209,6 +211,41 @@ describe('registry — setDistrictEmissive across variant meshes', () => {
     registerArchetypeHandles('buildingSmall', makeHandles('a', [src(0, 0)]));
     clearArchetypeRegistry();
     expect(getArchetypeHandles('buildingSmall')).toHaveLength(0);
+  });
+});
+
+describe('setEmissiveRangeValue — arbitrary emissive scale write (Phase 19)', () => {
+  it('writes an arbitrary float to exactly one district slice + records the update range', () => {
+    // sources: d0 ×1, d2 ×3 → sorted ranges d0=[0,1), d2=[1,4). (1.5 is exact in float32.)
+    const { ranges } = sortByDistrict([src(0, 0), src(2, 1), src(2, 2), src(2, 3)]);
+    const attr = fakeEmissiveAttr(4);
+    setEmissiveRangeValue(attr, ranges, 2, 1.5);
+    expect(Array.from(attr.array)).toEqual([1, 1.5, 1.5, 1.5]);
+    expect(attr.updateRanges).toEqual([{ start: 1, count: 3 }]);
+    expect(attr.needsUpdate).toBe(true);
+  });
+
+  it('is a no-op for an empty district (count 0)', () => {
+    const { ranges } = sortByDistrict([src(0, 0)]);
+    const attr = fakeEmissiveAttr(1);
+    setEmissiveRangeValue(attr, ranges, 1, 1.5); // district 1 has no instances
+    expect(Array.from(attr.array)).toEqual([1]);
+    expect(attr.updateRanges).toEqual([]);
+  });
+});
+
+describe('registry — setDistrictEmissiveValue across variant meshes (Phase 19)', () => {
+  beforeEach(() => clearArchetypeRegistry());
+
+  it('scales exactly the district slice on every variant mesh', () => {
+    const a = makeHandles('a', [src(0, 0), src(3, 1), src(3, 2)]); // sorted d3 = [1,3)
+    registerArchetypeHandles('buildingSmall', a);
+    setDistrictEmissiveValue('buildingSmall', 3, 1.5);
+    expect(Array.from(a.emissiveAttr.array)).toEqual([1, 1.5, 1.5]);
+  });
+
+  it('is a no-op for an archetype that was never registered', () => {
+    expect(() => setDistrictEmissiveValue('trafficLight', 4, 1.5)).not.toThrow();
   });
 });
 

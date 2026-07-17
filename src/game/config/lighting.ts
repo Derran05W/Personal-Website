@@ -47,6 +47,13 @@ export const LIGHTING = {
   },
 
   // --- Gradient sky (CanvasTexture on scene.background) ---------------------------------
+  // A 2D screen-space gradient painted into world/BlueHourRig.tsx's sky CanvasTexture: a
+  // vertical blue-hour ramp (deep blue zenith → warm horizon band → ground-ward tint) PLUS a
+  // directional "lake glow" lobe (below). Screen-space is legitimate here because the follow
+  // camera is FIXED-YAW (config/camera.ts) — screen X/Y map to a constant compass bearing, so
+  // the warm afterglow can be baked to sit over the lake without a world-space sky dome (0
+  // extra draw calls; TDD §8.2 "cheapest that reads"). Colour leaves are hex strings, so the
+  // leva auto-schema skips them; retune in code + HMR.
   sky: {
     top: '#0d1a33', // deep evening blue overhead
     horizon: '#dd8b55', // warm horizon band (== fog colour, == where the sun set)
@@ -54,11 +61,19 @@ export const LIGHTING = {
     // Fraction of screen height (0 = top, 1 = bottom) where the warm horizon band centres.
     // The camera looks down, so the real horizon sits high — bias the band above mid-screen.
     horizonStop: 0.46,
+    // Directional lake afterglow (Phase 19, TDD §13): a soft radial warm lobe added over the
+    // vertical ramp so the amber-pink band reads STRONGEST toward the south/lake. The rig
+    // looks WNW-and-down, so the southward side of the visible horizon falls to the lower-LEFT
+    // of frame — hence a left-of-centre lobe. strength is the peak added warmth (0..1); the
+    // numeric leaves are leva-live for framing, the colour is code-only.
+    glow: {
+      color: '#f0a878', // amber-pink afterglow — brighter/pinker than the plain horizon band
+      strength: 0.55,
+      centerX: 0.36, // lobe centre, screen-x fraction (lake/south side ≈ left)
+      centerY: 0.52, // lobe centre, screen-y fraction (≈ the horizon band)
+      radius: 0.55, // lobe radius as a fraction of the canvas diagonal
+    },
   },
-
-  // ACES-filmic exposure (renderer.toneMappingExposure). Leva-live: the single strongest
-  // overall-brightness knob for the look check.
-  exposure: 1.5,
 
   // --- Shadow frustum (TDD §8.2: "tight ~60 m shadow frustum following the player") -----
   // Orthographic box side length (m), centred on the player and texel-quantized each frame

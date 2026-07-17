@@ -236,3 +236,76 @@ describe('derivePlacements — cross-seed structural invariants', () => {
     });
   }
 });
+
+// --- Phase 19 Task 2: market props (Kensington-only) + critters (sparse, map-wide) -----------
+const MARKET_ARCHETYPES = new Set(['awning', 'crate', 'produceStand']);
+const CRITTER_ARCHETYPES = new Set(['raccoon', 'garbageCanTipped']);
+
+describe('derivePlacements — market props (Phase 19 Task 2)', () => {
+  for (const seed of SEEDS) {
+    it(`seed ${seed}: every market prop sits only in world.landmarks.kensingtonDistrictId`, () => {
+      const world = generate(seed);
+      const placements = derivePlacements(world);
+      const marketProps = placements.filter((p) => MARKET_ARCHETYPES.has(p.archetype));
+      const kensingtonDistrictId = world.landmarks?.kensingtonDistrictId;
+      if (kensingtonDistrictId === undefined) {
+        // Defensive branch (landmarksData.ts's contract): no landmarks data -> no market props.
+        expect(marketProps).toHaveLength(0);
+        return;
+      }
+      expect(marketProps.length).toBeGreaterThan(0);
+      for (const p of marketProps) {
+        expect(p.districtId).toBe(kensingtonDistrictId);
+        expect(world.tiles[p.tileIndex].type).toBe('building');
+      }
+    });
+
+    it(`seed ${seed}: market props only sit on road-adjacent building tiles`, () => {
+      const world = generate(seed);
+      const placements = derivePlacements(world);
+      const marketProps = placements.filter((p) => MARKET_ARCHETYPES.has(p.archetype));
+      const N = WORLD.tiles;
+      for (const p of marketProps) {
+        const tile = world.tiles[p.tileIndex];
+        const roadNeighbour = [
+          [tile.col, tile.row - 1],
+          [tile.col, tile.row + 1],
+          [tile.col - 1, tile.row],
+          [tile.col + 1, tile.row],
+        ].some(
+          ([c, r]) =>
+            c >= 0 && c < N && r >= 0 && r < N && world.tiles[tileIndex(c, r)].type === 'road',
+        );
+        expect(roadNeighbour).toBe(true);
+      }
+    });
+  }
+
+  it('retuning PROP_PLACEMENT.marketPropSampleEvery never perturbs generate.ts golden hash inputs (own fork stream)', () => {
+    const world1 = generate(416);
+    derivePlacements(world1);
+    const world2 = generate(416);
+    expect(world1).toEqual(world2);
+  });
+});
+
+describe('derivePlacements — critters (raccoon + garbageCanTipped, Phase 19 Task 2)', () => {
+  for (const seed of SEEDS) {
+    it(`seed ${seed}: critters only sit on park tiles`, () => {
+      const world = generate(seed);
+      const placements = derivePlacements(world);
+      const critters = placements.filter((p) => CRITTER_ARCHETYPES.has(p.archetype));
+      for (const p of critters) {
+        expect(world.tiles[p.tileIndex].type).toBe('park');
+      }
+    });
+
+    it(`seed ${seed}: critters are sparse — a dozen-ish, map-wide (not zero, not a swarm)`, () => {
+      const world = generate(seed);
+      const placements = derivePlacements(world);
+      const critters = placements.filter((p) => CRITTER_ARCHETYPES.has(p.archetype));
+      expect(critters.length).toBeGreaterThan(0);
+      expect(critters.length).toBeLessThan(60);
+    });
+  }
+});

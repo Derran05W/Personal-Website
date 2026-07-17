@@ -39,6 +39,13 @@ describe('initHeatSystem — event → heat delta mapping', () => {
     // Locked plan decision (phase-08-plan.md): parked cars are civilian property, so they
     // bill at civHit (+5), NOT a dedicated "parkedCar" row (there isn't one in config/heat.ts).
     ['parkedCar', HEAT.events.civHit],
+    // Phase 19 Task 2: market props share the existing lightPost row; raccoon/garbageCanTipped
+    // get their own dedicated config values (see state/heat.ts's PROP_HEAT_DELTA header).
+    ['awning', HEAT.events.lightPost],
+    ['crate', HEAT.events.lightPost],
+    ['produceStand', HEAT.events.lightPost],
+    ['raccoon', HEAT.events.raccoon],
+    ['garbageCanTipped', HEAT.events.garbageCanTipped],
   ] as const)('propDestroyed{archetype: %s} adds %d heat', (archetype, expected) => {
     const off = initHeatSystem();
     gameEvents.emit('propDestroyed', { archetype });

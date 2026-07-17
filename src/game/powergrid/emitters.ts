@@ -19,9 +19,14 @@
 // forkable Rng (world/rng.ts), so a given seed blacks a given district out identically on every
 // machine — same guarantee the seeded city generation carries (TDD §5.4).
 
-import { POWER_GRID } from '../config';
+import { POWER_GRID, RENDERING } from '../config';
 import { EMISSIVE_ARCHETYPES, type ArchetypeName } from '../world/archetypes';
-import { DISTRICT_COUNT, getArchetypeHandles, setDistrictEmissive } from '../world/instancing';
+import {
+  DISTRICT_COUNT,
+  getArchetypeHandles,
+  setDistrictEmissive,
+  setDistrictEmissiveValue,
+} from '../world/instancing';
 import { createRng, type Rng } from '../world/rng';
 import { getGameState } from '../state/store';
 
@@ -126,6 +131,43 @@ export type EmissiveWriteFn = (
 const realWrite: EmissiveWriteFn = (name, districtId, on) =>
   setDistrictEmissive(name, districtId, on);
 
+// --- Extra emissive archetypes (Phase 19 seam for Task 2's market string lights) -----------
+// EMISSIVE_ARCHETYPES (world/archetypes.ts) is the compile-time set of blackout participants.
+// Phase 19's Kensington market props (awning / produce-stand string lights, Task 2) are built
+// as their OWN archetypes but must ALSO go dark when their district blacks out — the "money
+// clip". Rather than edit archetypes.ts, a market mount registers its emissive archetype name
+// here at build time; the permanent-OFF paths (finalize / setDistrictDark / relight), the
+// Kensington boost, and the range-bookkeeping guard all iterate EMISSIVE_ARCHETYPES ∪ extras.
+// The FLICKER schedule stays on the core set only (deterministic + golden-safe — see
+// buildFlickerSchedule), so extras don't stutter through the flicker; they cut with the
+// district at finalize (~flickerSec later), which reads as "the market's circuit dies last".
+const extraEmissiveArchetypes = new Set<ArchetypeName>();
+
+/**
+ * Register an archetype (beyond EMISSIVE_ARCHETYPES) as a district-blackout participant.
+ * THE Phase 19 hookup: Task 2's market string-light mount calls this ONCE at build so a
+ * Kensington blackout snuffs the market glow. Idempotent; the archetype must also be BUILT
+ * (world/instancing.ts buildInstancedArchetype) for the writes to actually land — an unbuilt
+ * name is a harmless no-op until its mesh exists.
+ */
+export function registerEmissiveArchetype(name: ArchetypeName): void {
+  extraEmissiveArchetypes.add(name);
+}
+
+/** The full blackout-participant set: core EMISSIVE_ARCHETYPES first, then any registered
+ * extras (dedup'd against the core), in registration order. Returns the shared core array
+ * unchanged when nothing extra is registered (the common case — zero allocation). */
+export function emissiveArchetypeNames(): readonly ArchetypeName[] {
+  if (extraEmissiveArchetypes.size === 0) return EMISSIVE_ARCHETYPES;
+  const extras = [...extraEmissiveArchetypes].filter((n) => !EMISSIVE_ARCHETYPES.includes(n));
+  return extras.length === 0 ? EMISSIVE_ARCHETYPES : [...EMISSIVE_ARCHETYPES, ...extras];
+}
+
+/** Test-only: drop registered extras so one test's registration can't leak into the next. */
+export function __resetEmissiveArchetypesForTest(): void {
+  extraEmissiveArchetypes.clear();
+}
+
 // One-shot DEV timing of the "full-district write set" (all EMISSIVE_ARCHETYPES flipped in a
 // single pass). TDD/plan acceptance: < 1 ms. Logged once; the boolean guards the whole thing.
 let timingLogged = false;
@@ -137,17 +179,18 @@ let timingLogged = false;
  * batch); the timed batch is the finalize / instant-dark / relight path.
  */
 function timedFullWrite(districtId: number, on: 0 | 1, write: EmissiveWriteFn): void {
+  const names = emissiveArchetypeNames();
   if (import.meta.env.DEV && !timingLogged) {
     timingLogged = true;
     const t0 = performance.now();
-    for (const name of EMISSIVE_ARCHETYPES) write(name, districtId, on);
+    for (const name of names) write(name, districtId, on);
     const ms = performance.now() - t0;
     console.info(
-      `[powergrid] full-district emissive write set (${EMISSIVE_ARCHETYPES.length} archetypes, district ${districtId}): ${ms.toFixed(3)} ms`,
+      `[powergrid] full-district emissive write set (${names.length} archetypes, district ${districtId}): ${ms.toFixed(3)} ms`,
     );
     return;
   }
-  for (const name of EMISSIVE_ARCHETYPES) write(name, districtId, on);
+  for (const name of names) write(name, districtId, on);
 }
 
 // --- DEV bookkeeping guard ----------------------------------------------------------------
@@ -168,7 +211,7 @@ export interface RangeBookkeepingViolation {
  * Read-only; returns the violations (empty ⇒ healthy). Exported for the bookkeeping test. */
 export function findRangeBookkeepingViolations(): RangeBookkeepingViolation[] {
   const out: RangeBookkeepingViolation[] = [];
-  for (const name of EMISSIVE_ARCHETYPES) {
+  for (const name of emissiveArchetypeNames()) {
     for (const h of getArchetypeHandles(name)) {
       let rangeSum = 0;
       for (const r of h.ranges) rangeSum += r.count;
@@ -186,7 +229,8 @@ let bookkeepingChecked = false;
  * the registry is empty so it doesn't "pass" before there's anything to check). DEV-only. */
 function maybeAssertRangeBookkeeping(): void {
   if (!import.meta.env.DEV || bookkeepingChecked) return;
-  const anyHandles = EMISSIVE_ARCHETYPES.some((n) => getArchetypeHandles(n).length > 0);
+  const names = emissiveArchetypeNames();
+  const anyHandles = names.some((n) => getArchetypeHandles(n).length > 0);
   if (!anyHandles) return; // city not built yet — retry on the next blackout
   bookkeepingChecked = true;
   const violations = findRangeBookkeepingViolations();
@@ -197,7 +241,7 @@ function maybeAssertRangeBookkeeping(): void {
     );
   } else {
     console.info(
-      `[powergrid] range bookkeeping OK — ${EMISSIVE_ARCHETYPES.length} emissive archetypes tile their instance buffers.`,
+      `[powergrid] range bookkeeping OK — ${names.length} emissive archetypes tile their instance buffers.`,
     );
   }
 }
@@ -345,6 +389,31 @@ export function relightDistrict(districtId: number): void {
   assertDistrict(districtId);
   flickerRunner.cancel(districtId);
   timedFullWrite(districtId, 1, realWrite);
+}
+
+// --- Kensington emissive boost (Phase 19, TDD §13) ----------------------------------------
+
+/**
+ * Scale one district's per-instance emissive VALUE across every blackout-participant archetype
+ * (core EMISSIVE_ARCHETYPES + registered extras). scale>1 brightens (the Kensington market
+ * "money clip"); a subsequent blackout write (0) overrides it wholesale, so the boost never
+ * outlives the district going dark. No-op for archetypes not built this run. Idempotent —
+ * safe to re-call after a late market mount registers + builds its string-light archetype.
+ */
+export function applyDistrictEmissiveScale(districtId: number, scale: number): void {
+  assertDistrict(districtId);
+  for (const name of emissiveArchetypeNames()) setDistrictEmissiveValue(name, districtId, scale);
+}
+
+/**
+ * Apply the configured Kensington market boost (RENDERING.kensingtonEmissiveScale) to
+ * `districtId`. THE second half of the Phase 19 hookup: the integrator calls this once, after
+ * the city (and any market mounts) have built, with world.landmarks.kensingtonDistrictId.
+ * world/CityScape.tsx already calls it defensively for the buildings/streetlights that always
+ * exist; a market mount that lands later re-invokes it (idempotent) to cover its own lights.
+ */
+export function applyKensingtonBoost(districtId: number): void {
+  applyDistrictEmissiveScale(districtId, RENDERING.kensingtonEmissiveScale);
 }
 
 /** True while `districtId` is mid-flicker (before it settles permanently dark). */

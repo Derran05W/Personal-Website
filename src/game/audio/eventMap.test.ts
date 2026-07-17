@@ -496,6 +496,23 @@ describe('initEventMap: event routing', () => {
     teardown();
   });
 
+  it('propDestroyed{archetype: "raccoon"} plays the dedicated squeak instead of a generic impact (Phase 19 Task 2)', () => {
+    unlockAudioContext();
+    const teardown = initEventMap();
+    const impact = makeFakeSynthBuilder();
+    const squeak = makeFakeSynthBuilder();
+    registerAdapter('impact', impact.build, 'impact', 'sfx', AUDIO_MIX.priority.impact);
+    registerAdapter('squeak', squeak.build, 'impact', 'sfx', AUDIO_MIX.priority.squeak);
+
+    gameEvents.emit('propDestroyed', { archetype: 'raccoon' });
+    gameEvents.emit('propDestroyed', { archetype: 'garbageCanTipped' }); // NOT raccoon — stays a plain impact
+
+    expect(squeak.handles).toHaveLength(1);
+    expect(impact.handles).toHaveLength(1);
+
+    teardown();
+  });
+
   it('tierChanged fires the matching stingerTier{n} and ducks the sfx bus; heatChanged fires nothing', () => {
     useGameStore.setState({ machine: 'PLAYING' });
     unlockAudioContext();

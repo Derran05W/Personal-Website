@@ -19,6 +19,7 @@ export * from './carTuning';
 export * from './specials';
 export * from './unlocks';
 export * from './touch';
+export * from './streetcar';
 
 import { HEAT } from './heat';
 import { SPAWN, HELI } from './spawn';
@@ -38,6 +39,7 @@ import { CAR_TUNING } from './carTuning';
 import { SPECIALS } from './specials';
 import { UNLOCKS } from './unlocks';
 import { TOUCH } from './touch';
+import { TRAFFIC_STREETCAR } from './streetcar';
 
 /**
  * Registry of every tunable config block, keyed by name. The dev tuning panel (leva)
@@ -91,4 +93,5 @@ export const CONFIG = {
   SPECIALS,
   UNLOCKS,
   TOUCH,
+  TRAFFIC_STREETCAR,
 } as const;

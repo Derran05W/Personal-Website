@@ -314,6 +314,7 @@ describe('registration seam', () => {
     'stingerWrecked',
     'stingerBusted',
     'uiTick',
+    'squeak',
   ];
 
   it('exposes every stable registration name', () => {

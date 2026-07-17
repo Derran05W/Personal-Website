@@ -137,6 +137,88 @@ export function computeSunFollow(
   outLight.z = outTarget.z + sunOffset.z;
 }
 
+// --- Blue-hour sky gradient math (Phase 19, TDD §8/§13) -----------------------------------
+// The sky is a 2D CanvasTexture on scene.background (world/BlueHourRig.tsx). Because the
+// follow camera is fixed-yaw (config/camera.ts), a screen-space gradient maps to a constant
+// compass bearing, so the whole look — vertical blue-hour ramp + a warm directional "lake
+// glow" lobe over the south horizon — can be baked with zero extra draw cost. The PAINTING
+// lives in BlueHourRig (needs a canvas); the pure geometry of WHERE the stops/lobe land is
+// here so it unit-tests without a DOM. Colours pass through untouched (no colour math here).
+
+/** Structural view of LIGHTING.sky (kept decoupled from the config const so tests pass
+ * literals). */
+export interface SkyConfig {
+  readonly top: string;
+  readonly horizon: string;
+  readonly bottom: string;
+  readonly horizonStop: number;
+  readonly glow: {
+    readonly color: string;
+    readonly strength: number;
+    readonly centerX: number;
+    readonly centerY: number;
+    readonly radius: number;
+  };
+}
+
+export interface SkyStop {
+  /** Position down the vertical gradient, 0 (top) .. 1 (bottom). */
+  readonly pos: number;
+  readonly color: string;
+}
+
+// The warm band needs room above and below it, so the horizon stop can never sit hard against
+// either end even if a leva drag pushes horizonStop to 0/1.
+const HORIZON_STOP_MIN = 0.05;
+const HORIZON_STOP_MAX = 0.95;
+
+function clamp01(t: number): number {
+  return t < 0 ? 0 : t > 1 ? 1 : t;
+}
+
+/**
+ * The three vertical colour stops of the blue-hour sky ramp: deep-blue zenith at the top,
+ * the warm horizon band at `horizonStop` (clamped into [0.05, 0.95] so it always has room),
+ * ground-ward tint at the bottom. Strictly ascending by construction — ready to feed a
+ * canvas linear gradient top→bottom.
+ */
+export function skyGradientStops(sky: SkyConfig): SkyStop[] {
+  const stop = Math.min(HORIZON_STOP_MAX, Math.max(HORIZON_STOP_MIN, sky.horizonStop));
+  return [
+    { pos: 0, color: sky.top },
+    { pos: stop, color: sky.horizon },
+    { pos: 1, color: sky.bottom },
+  ];
+}
+
+/** A resolved radial glow lobe in CANVAS PIXELS, ready for a canvas radial gradient. */
+export interface SkyGlowLobe {
+  readonly cx: number;
+  readonly cy: number;
+  readonly radius: number;
+  readonly color: string;
+  /** Peak added-warmth alpha at the lobe centre, 0..1. */
+  readonly strength: number;
+}
+
+/**
+ * Place the directional lake-glow lobe on a `width`×`height` canvas: centre from the config's
+ * screen-space fractions (clamped to the canvas), radius as a fraction of the canvas diagonal
+ * (never below 1px), strength clamped to [0,1]. Pure — the painter just draws the returned
+ * radial gradient.
+ */
+export function resolveSkyGlow(sky: SkyConfig, width: number, height: number): SkyGlowLobe {
+  const g = sky.glow;
+  const diag = Math.hypot(width, height);
+  return {
+    cx: clamp01(g.centerX) * width,
+    cy: clamp01(g.centerY) * height,
+    radius: Math.max(1, g.radius * diag),
+    color: g.color,
+    strength: clamp01(g.strength),
+  };
+}
+
 // Precomputed once at load from the (structural) sun angle — see config/lighting.ts on why
 // azimuth/elevation aren't leva-live. sunOffset places the light `distanceM` up its own
 // direction from whatever the shadow target is (= −forward · distance = toSun · distance).

@@ -57,6 +57,16 @@ const PROP_HEAT_DELTA: Partial<Record<ArchetypeName, number>> = {
   tree: HEAT.events.lightPost,
   trafficLight: HEAT.events.trafficLight,
   parkedCar: HEAT.events.civHit,
+  // Phase 19 Task 2: market props (awning/crate/produceStand) are plain street furniture,
+  // same row as the existing lightPost group (mailbox/bench/tree/etc.) — no dedicated
+  // config value for them, same pattern as fenceSegment/tree above. raccoon/garbageCanTipped
+  // DO get dedicated config values (HEAT.events.raccoon/garbageCanTipped) per the phase-19
+  // plan's explicit ask, wired straight through below.
+  awning: HEAT.events.lightPost,
+  crate: HEAT.events.lightPost,
+  produceStand: HEAT.events.lightPost,
+  raccoon: HEAT.events.raccoon,
+  garbageCanTipped: HEAT.events.garbageCanTipped,
 };
 
 // Shape ready for Part 4's armored/swat/gunTruck/tank kinds (M5a/M5b/M5c) — only 'police'

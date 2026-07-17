@@ -19,39 +19,90 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import {
   ACESFilmicToneMapping,
+  AgXToneMapping,
   CanvasTexture,
+  CineonToneMapping,
   Color,
   Fog,
+  LinearToneMapping,
+  NeutralToneMapping,
+  NoToneMapping,
+  ReinhardToneMapping,
   SRGBColorSpace,
   type DirectionalLight,
   type HemisphereLight,
+  type ToneMapping,
 } from 'three';
-import { LIGHTING, QUALITY_TIERS } from '../config';
+import { LIGHTING, QUALITY_TIERS, RENDERING, resolveToneMapping, type ToneMappingMode } from '../config';
 import { useGameStore } from '../state/store';
 import { playerVehicle } from '../vehicles/playerRef';
-import { SUN_BASIS, SUN_OFFSET, computeSunFollow, worldTexelSize, type Vec3 } from './lighting';
+import {
+  SUN_BASIS,
+  SUN_OFFSET,
+  computeSunFollow,
+  resolveSkyGlow,
+  skyGradientStops,
+  worldTexelSize,
+  type Vec3,
+} from './lighting';
+
+// config/rendering.ts's tone-mapping MODE names → the three constant. Kept here (not in
+// config) so config/rendering.ts stays three-free and unit-testable; resolveToneMapping()
+// validates the name against the same TONE_MAPPING_MODES set before we index this.
+const THREE_TONE_MAPPING: Record<ToneMappingMode, ToneMapping> = {
+  ACESFilmic: ACESFilmicToneMapping,
+  AgX: AgXToneMapping,
+  Neutral: NeutralToneMapping,
+  Reinhard: ReinhardToneMapping,
+  Cineon: CineonToneMapping,
+  Linear: LinearToneMapping,
+  None: NoToneMapping,
+};
+
+/** #rgb / #rrggbb → [r,g,b] bytes (0..255) for canvas `rgba(...)` fill strings. */
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace('#', '');
+  const full = h.length === 3 ? h[0] + h[0] + h[1] + h[1] + h[2] + h[2] : h;
+  const n = parseInt(full, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
 
 // Reused hot-path scratch (no per-frame allocation, matching cameraRig's discipline).
 const followCenter: Vec3 = { x: 0, y: 0, z: 0 };
 const followTarget: Vec3 = { x: 0, y: 0, z: 0 };
 const followLight: Vec3 = { x: 0, y: 0, z: 0 };
 
-/** Build the deep-blue-top → warm-horizon → dark-bottom gradient as a tiny CanvasTexture for
- * scene.background. Width 2 (the gradient is purely vertical); tall enough for a smooth band.
- * Canvas row 0 (top) maps to screen top (CanvasTexture flipY), so stop 0 is the sky top. */
+/** Build the blue-hour sky CanvasTexture for scene.background: a vertical deep-blue-top →
+ * warm-horizon → dark-bottom ramp PLUS a directional amber-pink "lake glow" lobe blended
+ * over the horizon band (strongest toward the south/lake — the fixed-yaw rig makes that a
+ * constant screen region; see world/lighting.ts's sky math). Now a 2D canvas (was width-2
+ * vertical-only) so the lobe reads horizontally; the background pass stretches it to the
+ * viewport and tone-maps it with the rest of the frame. Canvas row 0 (top) maps to screen
+ * top (CanvasTexture flipY), so stop 0 is the sky top. */
 function makeSkyTexture(): CanvasTexture {
-  const w = 2;
+  const w = 96;
   const h = 256;
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d');
   if (ctx) {
+    // Vertical blue-hour ramp.
     const grad = ctx.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, LIGHTING.sky.top);
-    grad.addColorStop(LIGHTING.sky.horizonStop, LIGHTING.sky.horizon);
-    grad.addColorStop(1, LIGHTING.sky.bottom);
+    for (const stop of skyGradientStops(LIGHTING.sky)) grad.addColorStop(stop.pos, stop.color);
     ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    // Directional lake-glow lobe: a soft radial warm gradient blended over the ramp so the
+    // horizon reads amber-pink strongest toward the lake. source-over (a tint, not additive)
+    // keeps it from blowing out under the exposure knob.
+    const lobe = resolveSkyGlow(LIGHTING.sky, w, h);
+    const [r, g, b] = hexToRgb(lobe.color);
+    const radial = ctx.createRadialGradient(lobe.cx, lobe.cy, 0, lobe.cx, lobe.cy, lobe.radius);
+    radial.addColorStop(0, `rgba(${r},${g},${b},${lobe.strength})`);
+    radial.addColorStop(0.55, `rgba(${r},${g},${b},${lobe.strength * 0.4})`);
+    radial.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    ctx.fillStyle = radial;
     ctx.fillRect(0, 0, w, h);
   }
   const tex = new CanvasTexture(canvas);
@@ -149,8 +200,12 @@ export function BlueHourRig() {
     // Fog colour == the sky's horizon band so distant geometry dissolves into the horizon
     // cleanly (both go through the same tone mapping, so they stay matched on screen).
     scene.fog = new Fog(new Color(LIGHTING.sky.horizon), LIGHTING.fog.near, LIGHTING.fog.far);
-    gl.toneMapping = ACESFilmicToneMapping;
-    gl.toneMappingExposure = LIGHTING.exposure;
+    // Final tone-mapping/exposure pass (Phase 19): mode + exposure resolved (validated +
+    // clamped) from config/rendering.ts. The background pass tone-maps the sky texture too,
+    // so sky and geometry share one curve.
+    const tm = resolveToneMapping();
+    gl.toneMapping = THREE_TONE_MAPPING[tm.mode];
+    gl.toneMappingExposure = tm.exposure;
 
     return () => {
       scene.background = prevBackground;
@@ -166,7 +221,9 @@ export function BlueHourRig() {
   // them before the render. Colours stay code-only (string leaves the leva schema skips) —
   // retune those in config/lighting.ts + HMR.
   useFrame((state) => {
-    state.gl.toneMappingExposure = LIGHTING.exposure;
+    // Leva-live exposure: direct config read (zero-alloc hot path). The mount-time clamp in
+    // resolveToneMapping() guards the shipped/persisted value; a dev drag stays a dev drag.
+    state.gl.toneMappingExposure = RENDERING.toneMapping.exposure;
     const fog = state.scene.fog;
     if (fog instanceof Fog) {
       fog.near = LIGHTING.fog.near;

@@ -24,6 +24,17 @@
 // (from its own hp≤0 / flip check), never double-firing against the damage resolver. On
 // conversion the kinematic collider handle is retired and the new dynamic handle re-registered
 // carrying the current hp, so an airborne car stays damageable.
+//
+// --- Phase 19 sibling: streetcars ------------------------------------------------------------
+// ai/streetcarTraffic.ts is a SEPARATE small system (own controller, own tiny fixed-size roster,
+// own avenue-polyline path math — it does not follow this module's TrafficGraph at all) that
+// EXTENDS this one rather than forking it: it imports the pure yaw/quat/wreck helpers below
+// (yawTo, quatFromYaw, upDotFromQuat, wrapAngle, stepYaw, tickWreck, convertibleHandle) and the
+// collision-group/ray constants just below (PHYSICS_STEP_SEC, RAY_HEIGHT_M, CIVILIAN_GROUPS,
+// BLOCK_RAY_GROUPS — exported for exactly this reuse) instead of redefining them, so a streetcar
+// and a regular civilian share identical yaw/wreck feel and collide with the SAME groups. See
+// that file's own header for why its path-following and hold logic are new code (a fixed closed
+// avenue loop is a different data shape than this module's branching TrafficGraph).
 
 import {
   CAMERA,
@@ -49,10 +60,12 @@ type RapierNamespace = RapierContext['rapier'];
 
 // Matches <Physics timeStep={1/60}> (game/index.tsx): both physics-step hooks fire once per
 // fixed step, so a constant dt tracks simulation time exactly (and stops while paused).
-const PHYSICS_STEP_SEC = 1 / 60;
+// Exported: ai/streetcarTraffic.ts's controller shares this exact per-step dt (see file header).
+export const PHYSICS_STEP_SEC = 1 / 60;
 // Block-ray origin height (m) — mid-body, clear of the ground slab (whose top is y=0) so a
-// horizontal probe reads car/building/prop boxes rather than grazing the road.
-const RAY_HEIGHT_M = 0.6;
+// horizontal probe reads car/building/prop boxes rather than grazing the road. Exported for
+// ai/streetcarTraffic.ts's own (longer) block ray — same probe height, longer reach.
+export const RAY_HEIGHT_M = 0.6;
 // Safety cap on node transitions consumed in one movement step. At ≤ speedMaxMps a car covers
 // < 0.2 m per 1/60 s and the shortest turn segment is several metres, so one transition per
 // step is the norm; 8 only guards against a pathological huge dt or a degenerate segment.
@@ -63,12 +76,17 @@ const EPS = 1e-4;
 // ground/water/flying debris). Rapier's u32 interaction group: membership CIVILIAN (so every
 // listed target — whose own filter includes VEHICLES — accepts the ray), filter = exactly the
 // four target memberships. The AND-both-ways rule (config/collision.ts) then admits precisely
-// those four. Self is excluded per-cast via filterExcludeRigidBody.
-const BLOCK_RAY_GROUPS =
+// those four. Self is excluded per-cast via filterExcludeRigidBody. Exported: streetcars are
+// ALSO registered under the CIVILIAN collision group (see this file's Phase 19 header note), so
+// their own forward block-ray reuses this exact mask rather than redefining an equivalent one.
+export const BLOCK_RAY_GROUPS =
   (CollisionGroup.CIVILIAN << 16) |
   (CollisionGroup.BUILDING | CollisionGroup.PROP_STATIC | CollisionGroup.CIVILIAN | CollisionGroup.PLAYER);
 
-const CIVILIAN_GROUPS = interactionGroups('CIVILIAN');
+// Exported: ai/streetcarTraffic.ts's kinematic + converted-dynamic colliders join this SAME
+// group (streetcars are civilian traffic — see this file's Phase 19 header note), so a regular
+// car's own block-ray (and everything else that targets CIVILIAN) sees a streetcar for free.
+export const CIVILIAN_GROUPS = interactionGroups('CIVILIAN');
 
 // ===========================================================================================
 // Pure helpers (unit-tested; no Rapier/three side effects)

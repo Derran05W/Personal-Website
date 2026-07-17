@@ -42,6 +42,7 @@ import {
   type SoundName,
 } from '../audio/eventMap';
 import { worldRef } from '../world/worldRef';
+import { landmarkTeleportPoints } from '../world/landmarkGen';
 import { attachFxEmitter, pushFxBurst, type ParticlePreset } from '../fx/particleFeed';
 import { getParticleStats } from '../fx/particles';
 
@@ -78,6 +79,7 @@ const SOUND_PREVIEW_PARAMS: Record<SoundName, Record<string, unknown>> = {
   stingerWrecked: {},
   stingerBusted: {},
   uiTick: { gain: 1 },
+  squeak: {},
 };
 
 /** "spam test (30x mixed)": a hand-picked 10-name pattern repeated 3x so every capped pool
@@ -610,6 +612,28 @@ export default function DevPanel() {
   // `getWorldField` is the folder's generic (path-keyed) getter — used below for both
   // `seed` (regenerate/randomize) and `tintDistrict` (the Task 5 tint/blackout buttons),
   // per the doc comment above on why fields and buttons must live in separate calls.
+  // Phase 19: teleport-to-landmark buttons. Reads the LIVE world (worldRef) each click so
+  // the buttons track regenerations; lifts the car to the standard settle-safe height.
+  useControls(
+    'Landmarks',
+    () => {
+      const schema: Record<string, unknown> = {};
+      const world = worldRef.current;
+      const points = world ? landmarkTeleportPoints(world) : [];
+      for (const p of points) {
+        schema[`→ ${p.id}`] = button(() => {
+          playerVehicle.current?.reset({
+            position: { x: p.x, y: 0.85, z: p.z },
+            rotation: { x: 0, y: 0, z: 0, w: 1 },
+          });
+        });
+      }
+      if (points.length === 0) schema['(no landmark layer)'] = { value: '', disabled: true };
+      return schema as unknown as LevaSchema;
+    },
+    [worldRef.current],
+  );
+
   const [, setSeed, getWorldField] = useControls(
     'World',
     () => ({

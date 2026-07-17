@@ -20,6 +20,13 @@ export const ARCHETYPES = [
   'fenceSegment', // transformer-lot fencing
   'transformerBox', // the destructible prop itself (hp — TDD §5.8)
   'parkedCar', // parking-lot prop (Phase 6): heavy, HP-bearing, shoves/tumbles when hit
+  // Phase 19 Task 2: market + alley props (world/geometry/streetProps.ts). Light, knockable
+  // scenery — none carry an emissive face (see EMISSIVE_ARCHETYPES below).
+  'awning', // Kensington-only market stall canopy
+  'crate', // Kensington-only market stall crate
+  'produceStand', // Kensington-only market stall table + produce
+  'garbageCanTipped', // sparse, map-wide, near parks
+  'raccoon', // sparse, map-wide, near parks — knockable light prop + squeak
 ] as const;
 
 export type ArchetypeName = (typeof ARCHETYPES)[number];

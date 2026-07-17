@@ -232,6 +232,15 @@ export const SYNTH_PARAMS = {
     durMs: 30,
     gain: 0.18,
   },
+  // Phase 19 Task 2: raccoon-hit squeak (audio/eventMap.ts's propDestroyed archetype filter).
+  squeak: {
+    /** A quick upward pitch sweep — the opposite direction of gunshot's pitch-down blip,
+     *  which is exactly what reads as a small critter's "eek!" rather than a mechanical hit. */
+    durMs: 130,
+    startHz: 900,
+    endHz: 2100,
+    gain: 0.32,
+  },
 } as const;
 
 // ============================================================================================
@@ -312,7 +321,8 @@ export type SoundName =
   | 'stingerTier5'
   | 'stingerWrecked'
   | 'stingerBusted'
-  | 'uiTick';
+  | 'uiTick'
+  | 'squeak';
 
 /** Shape of the manager's registration function (Task 1). */
 export type RegisterSound = (name: SoundName, builder: SoundBuilder) => void;
@@ -1419,6 +1429,39 @@ export function buildUiTick(
   return handle;
 }
 
+// --- 12. Squeak (Phase 19 Task 2: raccoon hit) -----------------------------------------------
+// A quick upward-sweeping triangle blip — a tiny "eek!" for a knocked raccoon prop, mapped
+// from audio/eventMap.ts's propDestroyed archetype filter (NOT a new gameplay event).
+export function buildSqueak(ctx: AudioContext, destination: AudioNode): VoiceHandle {
+  const cfg = SYNTH_PARAMS.squeak;
+  const dur = cfg.durMs / 1000;
+
+  const out = ctx.createGain();
+  out.gain.value = EPS;
+  out.connect(destination);
+
+  const osc = ctx.createOscillator();
+  osc.type = 'triangle';
+  osc.connect(out);
+
+  const handle = { onEnded: undefined } as VoiceHandle;
+  const fireEnded = endGuard(handle);
+
+  handle.start = (when = ctx.currentTime) => {
+    osc.frequency.setValueAtTime(cfg.startHz, when);
+    osc.frequency.exponentialRampToValueAtTime(cfg.endHz, when + dur * 0.7);
+    const end = percEnvelope(out.gain, when, cfg.gain, 0.006, 0, dur * 0.8);
+    osc.start(when);
+    safeStop(osc, end);
+    osc.onended = fireEnded;
+  };
+  handle.stop = (when = ctx.currentTime) => {
+    safeStop(osc, when);
+    fireEnded();
+  };
+  return handle;
+}
+
 // ============================================================================================
 // Registration — the manager seam.
 // ============================================================================================
@@ -1445,6 +1488,7 @@ export const SOUND_BUILDERS: Record<SoundName, SoundBuilder> = {
   stingerWrecked: buildStingerWrecked,
   stingerBusted: buildStingerBusted,
   uiTick: buildUiTick,
+  squeak: buildSqueak,
 };
 
 /** Every stable registration name, in registration order. */

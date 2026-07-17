@@ -9,6 +9,9 @@ import {
   worldTexelSize,
   snapToShadowTexel,
   computeSunFollow,
+  skyGradientStops,
+  resolveSkyGlow,
+  type SkyConfig,
   type Vec3,
 } from './lighting';
 
@@ -161,5 +164,65 @@ describe('computeSunFollow', () => {
     const pu = dot(target, BASIS.up) / TEXEL;
     expect(Math.abs(pr - Math.round(pr))).toBeLessThan(1e-6);
     expect(Math.abs(pu - Math.round(pu))).toBeLessThan(1e-6);
+  });
+});
+
+// --- Blue-hour sky gradient math (Phase 19) -----------------------------------------------
+
+const SKY: SkyConfig = {
+  top: '#0d1a33',
+  horizon: '#dd8b55',
+  bottom: '#141d33',
+  horizonStop: 0.46,
+  glow: { color: '#f0a878', strength: 0.55, centerX: 0.36, centerY: 0.52, radius: 0.55 },
+};
+
+describe('skyGradientStops', () => {
+  it('returns exactly three ascending stops anchored at the top (0) and bottom (1)', () => {
+    const stops = skyGradientStops(SKY);
+    expect(stops).toHaveLength(3);
+    expect(stops[0]).toEqual({ pos: 0, color: SKY.top });
+    expect(stops[1]).toEqual({ pos: 0.46, color: SKY.horizon });
+    expect(stops[2]).toEqual({ pos: 1, color: SKY.bottom });
+    for (let i = 1; i < stops.length; i++) {
+      expect(stops[i].pos).toBeGreaterThan(stops[i - 1].pos);
+    }
+  });
+
+  it('clamps a degenerate horizonStop into (0,1) so the warm band always has room', () => {
+    expect(skyGradientStops({ ...SKY, horizonStop: 0 })[1].pos).toBeCloseTo(0.05, 6);
+    expect(skyGradientStops({ ...SKY, horizonStop: 1 })[1].pos).toBeCloseTo(0.95, 6);
+    expect(skyGradientStops({ ...SKY, horizonStop: -5 })[1].pos).toBeCloseTo(0.05, 6);
+    // Endpoints are never moved by the clamp.
+    const s = skyGradientStops({ ...SKY, horizonStop: 2 });
+    expect(s[0].pos).toBe(0);
+    expect(s[2].pos).toBe(1);
+  });
+});
+
+describe('resolveSkyGlow', () => {
+  it('places the lobe centre from the screen-space fractions, biased toward the lake (left)', () => {
+    const lobe = resolveSkyGlow(SKY, 96, 256);
+    expect(lobe.cx).toBeCloseTo(0.36 * 96, 6);
+    expect(lobe.cy).toBeCloseTo(0.52 * 256, 6);
+    // The lake/south side sits left-of-centre for the fixed WNW-looking rig.
+    expect(lobe.cx).toBeLessThan(96 / 2);
+    expect(lobe.color).toBe(SKY.glow.color);
+  });
+
+  it('sizes the radius from the canvas diagonal and never below 1px', () => {
+    const w = 96;
+    const h = 256;
+    const lobe = resolveSkyGlow(SKY, w, h);
+    expect(lobe.radius).toBeCloseTo(0.55 * Math.hypot(w, h), 6);
+    expect(resolveSkyGlow({ ...SKY, glow: { ...SKY.glow, radius: 0 } }, w, h).radius).toBeGreaterThanOrEqual(1);
+  });
+
+  it('clamps strength to [0,1] and the centre fractions to the canvas', () => {
+    expect(resolveSkyGlow({ ...SKY, glow: { ...SKY.glow, strength: 2 } }, 96, 256).strength).toBe(1);
+    expect(resolveSkyGlow({ ...SKY, glow: { ...SKY.glow, strength: -1 } }, 96, 256).strength).toBe(0);
+    const off = resolveSkyGlow({ ...SKY, glow: { ...SKY.glow, centerX: 1.5, centerY: -0.5 } }, 96, 256);
+    expect(off.cx).toBe(96); // clamped to the right edge
+    expect(off.cy).toBe(0); // clamped to the top edge
   });
 });

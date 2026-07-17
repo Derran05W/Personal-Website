@@ -1,11 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import { WORLD } from '../config';
+import { WORLD, WORLD_GEN } from '../config';
 import { generate } from './generate';
+import { derivePlacements } from './propPlacements';
+import { findSpawnTile } from './spawn';
 import { districtIdAt, tileIndex, type TileType, type WorldData } from './types';
 
 const N = WORLD.tiles;
 const [MIN_GAP, MAX_GAP] = WORLD.arterialEvery;
-const VALID_TYPES: readonly TileType[] = ['road', 'building', 'park', 'parkingLot', 'transformerLot'];
+const HALF_MAP = (N * WORLD.tileSize) / 2;
+const VALID_TYPES: readonly TileType[] = [
+  'road',
+  'building',
+  'park',
+  'parkingLot',
+  'transformerLot',
+  'landmark',
+];
+
+/** Tile column/row a world-space point sits on (inverse of tileCenter — points sit on tile
+ * centers). */
+function tileColOf(x: number): number {
+  return Math.round((x + HALF_MAP - WORLD.tileSize / 2) / WORLD.tileSize);
+}
 const SEEDS = [0, 1, 416, 2024, 0xdeadbeef]; // fixed spread for structural checks
 
 /** FNV-1a 32-bit hash of a string → 8-char hex. Stable across platforms (integer ops). */
@@ -65,8 +81,11 @@ describe('generate — determinism', () => {
     // buildTrafficGraph() landed → '6611450f' when Phase 5's camera-occlusion decision
     // retuned WORLD_GEN tower weight/heights → 'a7181498' street-front tower zoning →
     // '71399c6f' street-front small-height cap (road-adjacent smalls roll only the lowest
-    // bucket so the follow camera clears their roofs).
-    expect(stableHash(JSON.stringify(generate(416)))).toBe('71399c6f');
+    // bucket so the follow camera clears their roofs) → 'f573aa88' Phase 19 Toronto landmark
+    // layer (reserved CN-Tower/stadium/flatiron 'landmark' lots clear their tiles, midtown
+    // forces tallest towers, Kensington forces narrow 1×1 smalls, and the `landmarks` seam +
+    // two streetcar avenues join WorldData).
+    expect(stableHash(JSON.stringify(generate(416)))).toBe('f573aa88');
   });
 });
 
@@ -77,7 +96,7 @@ describe('generate — WorldData shape', () => {
     expect(w.tiles).toHaveLength(N * N);
   });
 
-  it('exposes the seed, 16 districts, a populated traffic graph, and no landmark slots', () => {
+  it('exposes the seed, 16 districts, a populated traffic graph, and the landmark layer', () => {
     expect(w.seed).toBe(416);
     expect(w.districts).toHaveLength(WORLD.districts * WORLD.districts);
     w.districts.forEach((d, i) => expect(d.id).toBe(i));
@@ -86,7 +105,8 @@ describe('generate — WorldData shape', () => {
     expect(w.graph.nodes.length).toBeGreaterThan(0);
     expect(w.graph.edges.length).toBeGreaterThan(0);
     expect(w.graph.outEdges).toHaveLength(w.graph.nodes.length);
-    expect(w.landmarkSlots).toEqual([]);
+    expect(w.landmarkSlots).toEqual([]); // deprecated stub, always empty
+    expect(w.landmarks).toBeDefined(); // Phase 19 seam (detailed in the landmarks suite below)
     expect(w.blocks.length).toBeGreaterThan(0);
     expect(w.buildings.length).toBeGreaterThan(0);
   });
@@ -252,6 +272,157 @@ describe('generate — building footprints', () => {
               expect(w.tiles[tileIndex(nc, nr)].type).not.toBe('road');
             }
           }
+        }
+      }
+    }
+  });
+});
+
+describe('generate — landmarks (Phase 19, TDD §13)', () => {
+  const SOUTH_ROW_DISTRICTS = new Set(
+    Array.from({ length: WORLD.districts }, (_, i) => (WORLD.districts - 1) * WORLD.districts + i),
+  );
+
+  const spawnDistrictOf = (w: WorldData): number => {
+    const tile = findSpawnTile(
+      (c, r) => c >= 0 && r >= 0 && c < N && r < N && w.tiles[tileIndex(c, r)].type === 'road',
+    );
+    return districtIdAt(tile.col, tile.row);
+  };
+
+  it('populates the full landmark seam on every seed, deterministically', () => {
+    for (const seed of SEEDS) {
+      const a = generate(seed);
+      const b = generate(seed);
+      expect(a.landmarks).toEqual(b.landmarks); // deterministic incl. landmarks
+      const L = a.landmarks;
+      expect(L).toBeDefined();
+      if (!L) continue;
+      expect(Number.isFinite(L.cnTower.x) && Number.isFinite(L.cnTower.z)).toBe(true);
+      expect(Number.isFinite(L.stadium.x) && Number.isFinite(L.stadium.z)).toBe(true);
+      expect(L.stadium.w).toBeGreaterThanOrEqual(3);
+      expect(L.stadium.h).toBeGreaterThanOrEqual(3);
+      expect(Number.isFinite(L.flatiron.rot)).toBe(true);
+      expect(L.kensingtonDistrictId).toBeGreaterThanOrEqual(0);
+      expect(L.midtownDistrictId).toBeGreaterThanOrEqual(0);
+      expect(L.kensingtonDistrictId).not.toBe(L.midtownDistrictId);
+      expect(L.streetcarAvenues).toHaveLength(2);
+    }
+  });
+
+  it('reserves CN Tower / stadium / flatiron as cleared "landmark" tiles', () => {
+    for (const seed of SEEDS) {
+      const w = generate(seed);
+      const L = w.landmarks!;
+      for (let dr = 0; dr < L.stadium.h; dr++) {
+        for (let dc = 0; dc < L.stadium.w; dc++) {
+          expect(w.tiles[tileIndex(L.stadium.col + dc, L.stadium.row + dr)].type).toBe('landmark');
+        }
+      }
+      expect(w.tiles[tileIndex(L.cnTower.col, L.cnTower.row)].type).toBe('landmark');
+      expect(w.tiles[tileIndex(L.flatiron.col, L.flatiron.row)].type).toBe('landmark');
+    }
+  });
+
+  it('never packs a building or derives a prop onto a landmark tile (lots actually cleared)', () => {
+    for (const seed of SEEDS) {
+      const w = generate(seed);
+      for (const b of w.buildings) {
+        for (let dr = 0; dr < b.h; dr++) {
+          for (let dc = 0; dc < b.w; dc++) {
+            expect(w.tiles[tileIndex(b.col + dc, b.row + dr)].type).not.toBe('landmark');
+          }
+        }
+      }
+      for (const p of derivePlacements(w)) {
+        expect(w.tiles[p.tileIndex].type).not.toBe('landmark');
+      }
+    }
+  });
+
+  it('places the stadium on the south (lakefront) half, near the center column', () => {
+    for (const seed of SEEDS) {
+      const L = generate(seed).landmarks!;
+      const southEdge = L.stadium.row + L.stadium.h - 1;
+      expect(southEdge).toBeGreaterThan(N / 2); // south half of the map
+      const centerCol = L.stadium.col + (L.stadium.w - 1) / 2;
+      expect(Math.abs(centerCol - N / 2)).toBeLessThanOrEqual(12); // roughly center
+    }
+  });
+
+  it('places the flatiron on a real (orthogonal) arterial corner', () => {
+    for (const seed of SEEDS) {
+      const w = generate(seed);
+      const { col, row } = w.landmarks!.flatiron;
+      const roadAt = (c: number, r: number): boolean =>
+        c >= 0 && r >= 0 && c < N && r < N && w.tiles[tileIndex(c, r)].type === 'road';
+      const vertical = roadAt(col, row - 1) || roadAt(col, row + 1);
+      const horizontal = roadAt(col - 1, row) || roadAt(col + 1, row);
+      expect(vertical && horizontal).toBe(true); // road on a vertical AND a horizontal side
+    }
+  });
+
+  it('picks Kensington + midtown clear of the spawn district and the lakefront district row', () => {
+    for (const seed of SEEDS) {
+      const w = generate(seed);
+      const L = w.landmarks!;
+      const spawnDistrict = spawnDistrictOf(w);
+      for (const id of [L.kensingtonDistrictId, L.midtownDistrictId]) {
+        expect(id).not.toBe(spawnDistrict);
+        expect(SOUTH_ROW_DISTRICTS.has(id)).toBe(false);
+      }
+    }
+  });
+
+  it('renders Kensington-block buildings as narrow 1×1 low-rise smalls', () => {
+    for (const seed of SEEDS) {
+      const w = generate(seed);
+      const kId = w.landmarks!.kensingtonDistrictId;
+      let count = 0;
+      for (const b of w.buildings) {
+        const block = w.blocks[w.tiles[tileIndex(b.col, b.row)].blockId];
+        if (!block || block.districtId !== kId) continue; // the forced-narrow blocks
+        count++;
+        expect(b.kind).toBe('small');
+        expect(b.w).toBe(1);
+        expect(b.h).toBe(1);
+      }
+      expect(count).toBeGreaterThan(0);
+    }
+  });
+
+  it('renders midtown-block towers at the tallest height bucket', () => {
+    for (const seed of SEEDS) {
+      const w = generate(seed);
+      const mId = w.landmarks!.midtownDistrictId;
+      let towers = 0;
+      for (const b of w.buildings) {
+        const block = w.blocks[w.tiles[tileIndex(b.col, b.row)].blockId];
+        if (!block || block.districtId !== mId || b.kind !== 'tower') continue;
+        towers++;
+        expect(b.heightM).toBe(WORLD_GEN.towerHeightM[1]); // pinned to the top of the range
+      }
+      expect(towers).toBeGreaterThan(0);
+    }
+  });
+
+  it('routes streetcar avenues down full interior arterial lines (median centerlines)', () => {
+    for (const seed of SEEDS) {
+      const w = generate(seed);
+      for (const avenue of w.landmarks!.streetcarAvenues) {
+        expect(avenue.length).toBe(N); // spans the whole map, ring end to ring end
+        const cols = avenue.map((p) => tileColOf(p.x));
+        const rows = avenue.map((p) => tileColOf(p.z));
+        const allSameCol = cols.every((c) => c === cols[0]);
+        const allSameRow = rows.every((r) => r === rows[0]);
+        expect(allSameCol || allSameRow).toBe(true); // a single straight line
+        const lineIdx = allSameCol ? cols[0] : rows[0];
+        expect(lineIdx).toBeGreaterThan(0); // interior arterial, never the ring road
+        expect(lineIdx).toBeLessThan(N - 1);
+        for (let i = 0; i < N; i++) {
+          const c = allSameCol ? lineIdx : i;
+          const r = allSameCol ? i : lineIdx;
+          expect(w.tiles[tileIndex(c, r)].type).toBe('road'); // full road line
         }
       }
     }
