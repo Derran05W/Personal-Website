@@ -24,6 +24,7 @@
 import { Object3D, Quaternion, Vector3 } from 'three';
 import type { RapierContext, RapierCollider, RapierRigidBody } from '@react-three/rapier';
 import type { IVehicleModel, VehicleInputs, VehiclePose, VehicleState } from './IVehicleModel';
+import type { ControllerParams } from './definitions';
 import { CollisionGroup } from '../config/collision';
 import { STARTER_TOP_SPEED, VEHICLE_TUNING } from '../config/vehicles';
 import { fallThroughCatch, nextSteerAngle, throttleGovernor } from './steering';
@@ -41,6 +42,21 @@ export interface RaycastVehicleDeps {
   readonly body: RapierRigidBody;
   /** three.js group inside the RigidBody — carries the interpolated render transform. */
   readonly object: Object3D;
+  /**
+   * Phase 17: the resolved controller params this instance drives. Defaults to VEHICLE_TUNING
+   * (the signed-off sedan) when omitted — so AI-unit reuse (ai/pursuitVehicle.ts, which passes
+   * no tuning) is byte-for-byte unchanged, and the sedan player (getCarDef('rustySedan') hands
+   * the VEHICLE_TUNING reference in) stays leva-live. The other five player cars inject their
+   * own resolved snapshot (vehicles/definitions.ts). Read FRESH each step, like VEHICLE_TUNING
+   * was, so an injected live reference (the sedan) keeps its dev-panel scrub.
+   */
+  readonly tuning?: ControllerParams;
+  /**
+   * Phase 17: top-speed governor cap (m/s). Defaults to STARTER_TOP_SPEED (the sedan's) when
+   * omitted, so the AI reuse path — which governs to STARTER_TOP_SPEED then applies its own
+   * overdrive on top — is unchanged. Faster/slower player cars pass their SPEED-grade top speed.
+   */
+  readonly topSpeed?: number;
 }
 
 // Wheel index layout. Front wheels steer; rear wheels are driven and take the handbrake.
@@ -120,6 +136,11 @@ export class RaycastVehicle implements IVehicleModel {
   private readonly world: RapierWorld;
   private readonly body: RapierRigidBody;
   private readonly object: Object3D;
+  // Resolved controller params + top-speed cap for THIS instance (Phase 17). Both default to
+  // the signed-off sedan (VEHICLE_TUNING / STARTER_TOP_SPEED) so the AI reuse path and the
+  // sedan player are unchanged. `tuning` is read fresh each step (leva-live for the sedan ref).
+  private readonly tuning: ControllerParams;
+  private readonly topSpeed: number;
 
   private controller: VehicleController | null = null;
   private chassisColliderHandle = -1;
@@ -143,12 +164,14 @@ export class RaycastVehicle implements IVehicleModel {
     this.world = deps.world;
     this.body = deps.body;
     this.object = deps.object;
+    this.tuning = deps.tuning ?? VEHICLE_TUNING;
+    this.topSpeed = deps.topSpeed ?? STARTER_TOP_SPEED;
   }
 
   create(pose: VehiclePose): void {
     if (this.controller) this.destroy(); // idempotent re-create
 
-    const { chassis, suspension, wheels } = VEHICLE_TUNING;
+    const { chassis, suspension, wheels } = this.tuning;
 
     // Place the (React-owned) body authoritatively at the spawn pose, at rest.
     this.body.setTranslation(pose.position, true);
@@ -193,7 +216,7 @@ export class RaycastVehicle implements IVehicleModel {
     const controller = this.controller;
     if (!controller) return;
 
-    const { engine, stability, wheels, safety } = VEHICLE_TUNING;
+    const { engine, stability, wheels, safety } = this.tuning;
 
     // Fall-through safety catch (see steering.fallThroughCatch). Runs first, every physics
     // sub-step: under a main-thread stall @react-three/rapier bursts up to 30 fixed sub-steps
@@ -225,13 +248,13 @@ export class RaycastVehicle implements IVehicleModel {
     // see the config comment). The brakeToReverseSpeed deadband keeps the sign stable
     // around 0 so crawling/stopping never oscillates the steer target.
     const reversing =
-      VEHICLE_TUNING.steering.invertInReverse && forwardSpeed < -engine.brakeToReverseSpeed;
+      this.tuning.steering.invertInReverse && forwardSpeed < -engine.brakeToReverseSpeed;
     this.steerAngle = nextSteerAngle(
       this.steerAngle,
       reversing ? -inputs.steer : inputs.steer,
       speed,
-      STARTER_TOP_SPEED,
-      VEHICLE_TUNING.steering,
+      this.topSpeed,
+      this.tuning.steering,
       dt,
     );
     // Negated: positive steer input means turn right, but positive wheel steering is a +Y
@@ -242,13 +265,13 @@ export class RaycastVehicle implements IVehicleModel {
     let engineForce = 0;
     let brake = 0;
     if (inputs.throttle > 0) {
-      engineForce = engine.maxForce * inputs.throttle * throttleGovernor(forwardSpeed, STARTER_TOP_SPEED);
+      engineForce = engine.maxForce * inputs.throttle * throttleGovernor(forwardSpeed, this.topSpeed);
     }
     if (inputs.brake > 0) {
       if (forwardSpeed > engine.brakeToReverseSpeed) {
         // Still rolling forward → the brake pedal brakes.
         brake = engine.brakeForce * inputs.brake;
-      } else if (-forwardSpeed < STARTER_TOP_SPEED * engine.reverseSpeedCapPct) {
+      } else if (-forwardSpeed < this.topSpeed * engine.reverseSpeedCapPct) {
         // Stopped / already reversing and below the reverse cap → drive backward.
         engineForce = -engine.reverseForce * inputs.brake;
       }
@@ -321,7 +344,7 @@ export class RaycastVehicle implements IVehicleModel {
       const w = s.wheels[i];
       w.steerAngle = controller.wheelSteering(i) ?? 0;
       w.rotationAngle = this.wheelSpin[i];
-      w.suspensionLength = controller.wheelSuspensionLength(i) ?? VEHICLE_TUNING.suspension.restLength;
+      w.suspensionLength = controller.wheelSuspensionLength(i) ?? this.tuning.suspension.restLength;
       w.inContact = controller.wheelIsInContact(i);
     }
 
@@ -357,7 +380,7 @@ export class RaycastVehicle implements IVehicleModel {
 
   /** Chassis-local wheel connection points, ordered [FL, FR, RL, RR]. +X = right. */
   private wheelConnections(): { x: number; y: number; z: number }[] {
-    const { halfTrack, frontZ, rearZ, connectionY } = VEHICLE_TUNING.wheels;
+    const { halfTrack, frontZ, rearZ, connectionY } = this.tuning.wheels;
     return [
       { x: -halfTrack, y: connectionY, z: frontZ }, // front-left
       { x: halfTrack, y: connectionY, z: frontZ }, // front-right
@@ -370,7 +393,7 @@ export class RaycastVehicle implements IVehicleModel {
   private applyLiveWheelParams(handbrake: boolean): void {
     const controller = this.controller;
     if (!controller) return;
-    const { suspension, wheels, engine } = VEHICLE_TUNING;
+    const { suspension, wheels, engine } = this.tuning;
     for (let i = 0; i < WHEEL_COUNT; i++) {
       controller.setWheelSuspensionStiffness(i, suspension.stiffness);
       controller.setWheelSuspensionCompression(i, suspension.compressionDamping);

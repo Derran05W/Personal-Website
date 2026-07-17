@@ -24,6 +24,7 @@ import { TrafficController } from './traffic';
 import { trafficRef } from './trafficTypes';
 import type { TrafficGraph } from '../world/types';
 import type { ImpactHandler } from '../combat/types';
+import { PlayerSpecialsSystem, isMonsterTruckSelected } from '../combat/playerSpecials';
 
 export interface TrafficProps {
   /** Lane graph the civilians follow (world.graph). */
@@ -40,7 +41,10 @@ export function Traffic({ graph, seed, source }: TrafficProps) {
   const controllerRef = useRef<TrafficController | null>(null);
 
   useEffect(() => {
-    const controller = new TrafficController(world, rapier, graph, seed);
+    // The crush predicate is read LIVE (a stable closure), so the civilian system yields
+    // player↔civ conversion to the monster-truck crush path whenever that car is selected —
+    // no dependency on the mount re-running when the car changes (see combat/playerSpecials.ts).
+    const controller = new TrafficController(world, rapier, graph, seed, isMonsterTruckSelected);
     controllerRef.current = controller;
     trafficRef.current = controller.api;
 
@@ -62,5 +66,9 @@ export function Traffic({ graph, seed, source }: TrafficProps) {
     controllerRef.current?.stepAfter();
   });
 
-  return null;
+  // Player car special behaviours (monster-truck crush + heavy-vehicle prop plow) live inside
+  // <Physics> and drive this controller's crush() the frame contacts land, so they share the
+  // civilian system's lifetime. Rendered here (rather than in game/index.tsx, which this task
+  // must not touch) — the integrator may relocate it alongside DamageSystem; it needs no props.
+  return <PlayerSpecialsSystem />;
 }

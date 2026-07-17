@@ -1,0 +1,222 @@
+/* Garage screen (hud/garage/Garage.tsx, rendered via ../../GarageOverlay.tsx). Layout/
+   color/typography largely stay inline in the component (matching hud/Hud.css's
+   established "game/ uses inline styles, CSS only for what inline can't do" split) —
+   this file holds the card grid's per-element chip styling (harder to express cleanly as
+   nested inline objects), the fade-in entrance, and the NEW-badge pulse keyframe. */
+
+.garage-overlay {
+  animation: garage-overlay-fade-in 0.45s ease 0.35s backwards;
+}
+
+@keyframes garage-overlay-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.garage-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  text-align: left;
+  font: inherit;
+  color: #f5f5f5;
+  cursor: pointer;
+  padding: 0.9rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(10, 14, 22, 0.65);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    transform 0.15s ease;
+}
+
+.garage-card:hover {
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.garage-card--selected {
+  border-color: var(--color-accent, #f59e0b);
+  background: rgba(245, 158, 11, 0.14);
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.55) inset, 0 4px 24px rgba(245, 158, 11, 0.2);
+}
+
+.garage-card--locked {
+  cursor: default;
+  opacity: 0.55;
+  filter: grayscale(0.4);
+}
+
+.garage-card--locked:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.garage-card__new {
+  position: absolute;
+  top: -8px;
+  right: -6px;
+  background: var(--color-accent, #f59e0b);
+  color: #1a1206;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  animation: garage-new-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes garage-new-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.6);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 6px rgba(245, 158, 11, 0);
+  }
+}
+
+.garage-card__name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.garage-card__character {
+  font-size: 0.75rem;
+  color: rgba(245, 245, 245, 0.7);
+  min-height: 2.2em;
+}
+
+.garage-card__stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+}
+
+.garage-stat {
+  display: grid;
+  grid-template-columns: 3.6rem 1fr 1.2rem;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.7rem;
+}
+
+.garage-stat__label {
+  color: rgba(245, 245, 245, 0.65);
+}
+
+.garage-stat__track {
+  display: block;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.garage-stat__fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--color-accent, #f59e0b);
+}
+
+.garage-stat__badge {
+  text-align: center;
+  font-weight: 700;
+  color: rgba(245, 245, 245, 0.85);
+}
+
+.garage-card__numbers {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  color: rgba(245, 245, 245, 0.8);
+}
+
+.garage-card__lock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.15rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed rgba(255, 255, 255, 0.15);
+}
+
+.garage-card__lock-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: rgba(245, 245, 245, 0.65);
+}
+
+.garage-card__lock-track {
+  display: block;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.garage-card__lock-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: rgba(245, 245, 245, 0.5);
+}
+
+.garage-card__lock-current {
+  font-size: 0.65rem;
+  color: rgba(245, 245, 245, 0.55);
+}
+
+.garage-btn {
+  padding: 0.6rem 1.3rem;
+  border-radius: 999px;
+  border: none;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.garage-btn--primary {
+  background: rgba(245, 158, 11, 0.92);
+  color: #1a1206;
+}
+
+.garage-btn--ghost {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f5f5f5;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+@media (max-width: 720px) {
+  .garage-overlay [data-testid='garage-grid'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 420px) {
+  .garage-overlay [data-testid='garage-grid'] {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .garage-overlay {
+    animation: none;
+  }
+
+  .garage-card__new {
+    animation: none;
+  }
+}

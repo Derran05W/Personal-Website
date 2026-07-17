@@ -13,19 +13,24 @@ export function formatScore(score: number): string {
   return rounded.toLocaleString('en-US');
 }
 
-/** Clamp `playerHp` to a 0-100 fill percent for the HP silhouette's vertical gauge. Not
- * contract-guaranteed to already be in range (defensive, same reasoning as formatScore). */
-export function hpFillPercent(hp: number): number {
-  if (!Number.isFinite(hp)) return 0;
-  return Math.min(100, Math.max(0, hp));
+/** `playerHp` as a 0-100 fill percent of `maxHp` for the HP silhouette's vertical gauge.
+ * Phase 17: cars have different max HP (racer 60 … streetcar 260), so the percent is
+ * hp/maxHp — a full-health racer shows a FULL bar, not a 60% one. `maxHp` defaults to the
+ * pre-Phase-17 reference 100 (also keeps every existing test's expectations intact).
+ * Defensive about non-finite/nonpositive inputs, same reasoning as formatScore. */
+export function hpFillPercent(hp: number, maxHp = 100): number {
+  if (!Number.isFinite(hp) || !Number.isFinite(maxHp) || maxHp <= 0) return 0;
+  return Math.min(100, Math.max(0, (hp / maxHp) * 100));
 }
 
 /** TDD §9: HP silhouette "fill color shifting green→amber→red under 30%" — red below 30%,
- * amber in the mid band, green otherwise. Presentation-only thresholds (not a gameplay
- * tunable), so they're literals here rather than game/config — same call as
- * minimapMath.ts's TILE_COLORS for the same reason, one level more player-facing. */
-export function hpColor(hp: number): string {
-  const pct = hpFillPercent(hp);
+ * amber in the mid band, green otherwise (thresholds are PERCENT of the car's max, so a
+ * streetcar at 70/260 reads red exactly like a sedan at 27/100). Presentation-only
+ * thresholds (not a gameplay tunable), so they're literals here rather than game/config —
+ * same call as minimapMath.ts's TILE_COLORS for the same reason, one level more
+ * player-facing. */
+export function hpColor(hp: number, maxHp = 100): string {
+  const pct = hpFillPercent(hp, maxHp);
   if (pct < 30) return '#ef4444'; // red-500
   if (pct < 60) return '#f59e0b'; // amber-500 (matches --color-accent)
   return '#4ade80'; // green-400

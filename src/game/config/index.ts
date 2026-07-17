@@ -15,6 +15,9 @@ export * from './rendering';
 export * from './audio';
 export * from './particles';
 export * from './damageVisuals';
+export * from './carTuning';
+export * from './specials';
+export * from './unlocks';
 
 import { HEAT } from './heat';
 import { SPAWN, HELI } from './spawn';
@@ -30,6 +33,9 @@ import { RENDERING } from './rendering';
 import { SIRENS, SIREN_KINDS, AUDIO_BUSES, VOICE_POOL_CAPS, AUDIO_POSITIONAL, AUDIO_MIX } from './audio';
 import { PARTICLES } from './particles';
 import { DAMAGE_VISUALS } from './damageVisuals';
+import { CAR_TUNING } from './carTuning';
+import { SPECIALS } from './specials';
+import { UNLOCKS } from './unlocks';
 
 /**
  * Registry of every tunable config block, keyed by name. The dev tuning panel (leva)
@@ -79,4 +85,7 @@ export const CONFIG = {
   AUDIO_MIX,
   PARTICLES,
   DAMAGE_VISUALS,
+  CAR_TUNING,
+  SPECIALS,
+  UNLOCKS,
 } as const;

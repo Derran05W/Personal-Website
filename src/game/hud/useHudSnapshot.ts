@@ -13,6 +13,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getGameState } from '../state/store';
 import type { GameState } from '../state/machine';
+import type { PlayerCarId } from '../config';
 
 const SAMPLE_MS = 100; // <=10 Hz ceiling -- see file doc comment.
 
@@ -22,12 +23,23 @@ export interface HudSnapshot {
   readonly tier: number;
   readonly score: number;
   readonly playerHp: number;
+  /** Phase 17: the HP silhouette needs the SELECTED car's max hp as its denominator
+   * (racer 60 … streetcar 260) — hp alone can't tell "full racer" from "wounded sedan". */
+  readonly selectedCarId: PlayerCarId;
   readonly seed: number;
 }
 
 function readSnapshot(): HudSnapshot {
   const s = getGameState();
-  return { machine: s.machine, heat: s.heat, tier: s.tier, score: s.score, playerHp: s.playerHp, seed: s.seed };
+  return {
+    machine: s.machine,
+    heat: s.heat,
+    tier: s.tier,
+    score: s.score,
+    playerHp: s.playerHp,
+    selectedCarId: s.selectedCarId,
+    seed: s.seed,
+  };
 }
 
 function snapshotsEqual(a: HudSnapshot, b: HudSnapshot): boolean {
@@ -37,6 +49,7 @@ function snapshotsEqual(a: HudSnapshot, b: HudSnapshot): boolean {
     a.tier === b.tier &&
     a.score === b.score &&
     a.playerHp === b.playerHp &&
+    a.selectedCarId === b.selectedCarId &&
     a.seed === b.seed
   );
 }

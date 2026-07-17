@@ -27,7 +27,9 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import { gameEvents } from '../state/events';
 import { useHudSnapshot } from './useHudSnapshot';
+import { PLAYER_CARS } from '../config';
 import { filledStarCount, formatScore, hpColor, hpFillPercent } from './hudFormat';
+import { PauseMenu } from './PauseMenu';
 import './Hud.css';
 
 const STAR_COUNT = 5;
@@ -235,14 +237,14 @@ function CarShape({ fill }: { fill: string }) {
   );
 }
 
-function HpSilhouette({ hp }: { hp: number }) {
+function HpSilhouette({ hp, maxHp }: { hp: number; maxHp: number }) {
   // useId rather than a string literal clip-path id: keeps this component collision-safe
   // if it's ever rendered twice in the same DOM (tests, Storybook-style previews) — a
   // duplicate `id="hud-hp-clip"` would silently clip against the wrong instance.
   const clipId = useId();
-  const pct = hpFillPercent(hp);
+  const pct = hpFillPercent(hp, maxHp);
   const fillHeight = (pct / 100) * 48;
-  const color = hpColor(hp);
+  const color = hpColor(hp, maxHp);
   // Secondary hit reinforcement (task brief point: "HP silhouette flash (existing color
   // logic + a flash class)") — own event subscription, independent of WantedStars'/
   // DamageVignette's (each hit-feedback consumer owns its own tiny subscription, same
@@ -472,7 +474,7 @@ function SeedReadout({ seed }: { seed: number }) {
 }
 
 export default function Hud() {
-  const { machine, tier, score, playerHp, seed } = useHudSnapshot();
+  const { machine, tier, score, playerHp, selectedCarId, seed } = useHudSnapshot();
   // Subscribed unconditionally, ABOVE the visibility early-return below (React's
   // rules-of-hooks: every hook here must run on every render regardless of what this
   // component ends up returning) — this is deliberate, not an oversight: it's what keeps
@@ -495,13 +497,15 @@ export default function Hud() {
       <WantedStars tier={tier} />
       {allDark ? <DarkCityIndicator /> : null}
       <ScoreDisplay score={score} />
-      <HpSilhouette hp={playerHp} />
+      <HpSilhouette hp={playerHp} maxHp={PLAYER_CARS[selectedCarId].hp} />
       <ControlHints />
       {import.meta.env.DEV ? <SeedReadout seed={seed} /> : null}
       <DarkCityBanner visible={bannerVisible} />
-      {/* Last child: paints above every other HUD element (DOM order, no z-index needed —
-          see Hud.css's .hud-damage-vignette comment). */}
       <DamageVignette />
+      {/* Very last child: the pause menu (Phase 17) paints above absolutely everything
+          else in this tree, including the damage vignette — it's the one surface here
+          that accepts pointer events (PauseMenu.tsx's own backdrop style). */}
+      {machine === 'PAUSED' ? <PauseMenu /> : null}
     </div>
   );
 }

@@ -110,3 +110,18 @@ describe('Hud — DARK CITY banner + persistent indicator', () => {
     expect(screen.getByTestId('hud-darkcity-banner')).toHaveAttribute('aria-hidden', 'false');
   });
 });
+
+describe('Hud — pause menu (Phase 17)', () => {
+  it('is not rendered while PLAYING', () => {
+    useGameStore.setState({ machine: 'PLAYING' });
+    render(<Hud />);
+    expect(screen.queryByTestId('pause-menu')).not.toBeInTheDocument();
+  });
+
+  it('renders the pause menu while PAUSED (Hud itself stays visible/mounted too)', () => {
+    useGameStore.setState({ machine: 'PAUSED' });
+    render(<Hud />);
+    expect(screen.getByTestId('pause-menu')).toBeInTheDocument();
+    expect(screen.getByTestId('hud-root')).toBeInTheDocument();
+  });
+});

@@ -158,7 +158,21 @@ interface PendingGameOver {
 let pendingGameOver: PendingGameOver | null = null;
 let bustedTracker = createBustedTracker(BUSTED);
 
+// Once-per-run guard for beginRun (Phase 17). `${seed}-${runId}` — the same nonce
+// game/index.tsx keys the world on — identifies "a run" exactly; module-scope so it
+// survives RunLoopSystem's keyed remounts (the module itself is never re-evaluated).
+// Needed because initRunLoopSystem's mount-time catch-up below may run for a run that
+// handleMachineChange ALSO began (retry: the old instance's subscription fires beginRun,
+// THEN runReset's runId bump remounts this system — without the nonce the new instance's
+// init would beginRun the same run a second time, double-emitting runStarted).
+let lastBegunNonce: string | null = null;
+
+function runNonce(state: Pick<GameStoreState, 'seed' | 'runId'>): string {
+  return `${state.seed}-${state.runId}`;
+}
+
 function beginRun(seed: number): void {
+  lastBegunNonce = runNonce(getGameState());
   wreckedLatched = false;
   pendingGameOver = null;
   bustedTracker.reset();
@@ -235,13 +249,37 @@ export function tickRunLoop(): void {
 }
 
 function handleMachineChange(state: GameStoreState, prevState: GameStoreState): void {
+  // --- entering GARAGE from a live/ended run = the run is OVER (Phase 17) ------------------
+  // Phase 17 opened garage RE-ENTRY (pause menu "Garage", game-over `G`), which broke the
+  // founding assumption of the GARAGE->PLAYING edge below ("the world is already
+  // pristine") — found live in the six-car audit: heat/score/pursuit swarm carried straight
+  // through the garage into the "new" run (score 447, ★2, 6 units at spawn). Ending the run
+  // HERE, on the way IN, covers every entry path (both keyboard bindings, the pause-menu
+  // button, and anything future) and restores that invariant by construction:
+  //   - from PAUSED: the run is being abandoned mid-flight — fold its partial score into
+  //     lifetime/unlocks first (same `reason: 'quit'` contract as pauseMenuActions.ts's
+  //     restartRun; state/persistence.ts's runEnded subscriber does the folding), then reset.
+  //   - from GAMEOVER: the real game-over path already emitted runEnded — just reset.
+  // runReset() zeroes heat/score/hp AND bumps runId, so the keyed world remount happens
+  // behind the garage overlay (Physics is paused outside PLAYING; the rebuild is invisible).
+  const enteringGarage =
+    state.machine === 'GARAGE' && (prevState.machine === 'PAUSED' || prevState.machine === 'GAMEOVER');
+  if (enteringGarage) {
+    if (prevState.machine === 'PAUSED') {
+      gameEvents.emit('runEnded', { score: prevState.score, reason: 'quit' });
+    }
+    getGameState().runReset();
+    return;
+  }
+
   const enteringPlaying =
     state.machine === 'PLAYING' && (prevState.machine === 'GARAGE' || prevState.machine === 'GAMEOVER');
   if (!enteringPlaying) return;
   // Retry edge: zero the run numbers + bump runId BEFORE runStarted, so the keyed world
   // remount (game/index.tsx `${seed}-${runId}` keys) and the fresh-run event agree.
-  // GARAGE->PLAYING first runs skip it — the world is already pristine and a remount
-  // would visibly hiccup the run start for nothing.
+  // GARAGE->PLAYING runs skip it — the world is pristine both at boot and after the
+  // entering-GARAGE reset above, and a remount would visibly hiccup the run start for
+  // nothing.
   if (prevState.machine === 'GAMEOVER') getGameState().runReset();
   beginRun(state.seed);
 }
@@ -253,6 +291,19 @@ function handleMachineChange(state: GameStoreState, prevState: GameStoreState): 
  */
 export function initRunLoopSystem(): () => void {
   const offStore = useGameStore.subscribe(handleMachineChange);
+
+  // Mount-time catch-up (Phase 17, root-caused live): this system lives under the canvas
+  // Suspense boundary (Rapier wasm), so on a slow load a fast player can click "Start
+  // driving" BEFORE this subscription exists — the GARAGE->PLAYING edge then fires with no
+  // listener and runStarted (an EDGE, not a level) is lost for the whole run: no engine
+  // audio, no lastSeed, no busted-tracker reset. Same "covers mounting while already
+  // PLAYING" idiom as audio/manager.ts's maybeUnlock; the module-scope nonce (see
+  // lastBegunNonce's doc comment) keeps beginRun exactly-once per run when this races the
+  // subscription path instead of replacing it.
+  const atMount = getGameState();
+  if (atMount.machine === 'PLAYING' && lastBegunNonce !== runNonce(atMount)) {
+    beginRun(atMount.seed);
+  }
 
   const offPlayerDamaged = gameEvents.on('playerDamaged', ({ hp }) => {
     if (hp <= 0) handleWrecked();
@@ -293,4 +344,5 @@ export function __resetRunLoopForTest(): void {
   pendingGameOver = null;
   bustedTracker = createBustedTracker(BUSTED);
   setDeathPullback(false);
+  lastBegunNonce = null;
 }

@@ -8,6 +8,8 @@ import {
   PLAYER_CARS,
   ENEMY_UNITS,
   BUSTED,
+  UNLOCKS,
+  unlockedCarIdsForScore,
   CollisionGroup,
   COLLIDES_WITH,
   interactionGroups,
@@ -144,5 +146,46 @@ describe('vehicles', () => {
     expect(ENEMY_UNITS.armored.shoveImpulse).toBeGreaterThan(0);
     expect(police.shoveImpulse).toBeUndefined();
     expect(swat.shoveImpulse).toBeUndefined();
+  });
+});
+
+describe('unlocks (Phase 17)', () => {
+  it('UNLOCKS has exactly the six PLAYER_CARS ids, rustySedan at threshold 0', () => {
+    expect(Object.keys(UNLOCKS).sort()).toEqual(Object.keys(PLAYER_CARS).sort());
+    expect(UNLOCKS.rustySedan).toBe(0);
+  });
+
+  it('thresholds are non-negative and strictly ascending in PLAYER_CARS table order', () => {
+    const values = Object.values(UNLOCKS);
+    expect(values.every((v) => v >= 0)).toBe(true);
+    for (let i = 1; i < values.length; i++) {
+      expect(values[i]).toBeGreaterThan(values[i - 1]);
+    }
+  });
+
+  describe('unlockedCarIdsForScore', () => {
+    it('rustySedan is unlocked at score 0 (threshold 0)', () => {
+      expect(unlockedCarIdsForScore(0)).toEqual(['rustySedan']);
+    });
+
+    it('a score just below a threshold does not unlock that car (already-unlocked ones stay)', () => {
+      const ids = unlockedCarIdsForScore(UNLOCKS.streetRacer - 1);
+      expect(ids).toContain('rustySedan');
+      expect(ids).not.toContain('streetRacer');
+    });
+
+    it('a score exactly at a threshold unlocks that car (inclusive)', () => {
+      expect(unlockedCarIdsForScore(UNLOCKS.streetRacer)).toContain('streetRacer');
+    });
+
+    it('is idempotent — a higher score never drops a previously unlocked car', () => {
+      const lower = new Set(unlockedCarIdsForScore(UNLOCKS.pickup));
+      const higher = new Set(unlockedCarIdsForScore(UNLOCKS.pickup + 10_000));
+      for (const id of lower) expect(higher.has(id)).toBe(true);
+    });
+
+    it('a score at/above the top threshold unlocks every car', () => {
+      expect(unlockedCarIdsForScore(UNLOCKS.redRocket).sort()).toEqual(Object.keys(UNLOCKS).sort());
+    });
   });
 });

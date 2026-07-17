@@ -374,6 +374,11 @@ export class TrafficController {
   private readonly world: RapierWorld;
   private readonly rapier: RapierNamespace;
   private readonly graph: TrafficGraph;
+  // Phase 17 monster-truck crush seam: when this returns true the civilian system YIELDS all
+  // player↔civ conversion to combat/playerSpecials.ts's crush path (which converts AND wrecks
+  // on contact). Injected (never a store import here — traffic stays civ-focused); defaults to
+  // "never yield" so a controller built without it keeps the exact Phase-7 ram behaviour.
+  private readonly crushActive: () => boolean;
 
   private readonly slots: CivSlot[];
   private readonly internal: InternalCiv[];
@@ -399,10 +404,17 @@ export class TrafficController {
 
   readonly api: TrafficApi;
 
-  constructor(world: RapierWorld, rapier: RapierNamespace, graph: TrafficGraph, seed: number) {
+  constructor(
+    world: RapierWorld,
+    rapier: RapierNamespace,
+    graph: TrafficGraph,
+    seed: number,
+    crushActive: () => boolean = () => false,
+  ) {
     this.world = world;
     this.rapier = rapier;
     this.graph = graph;
+    this.crushActive = crushActive;
     this.rng = createRng(seed).fork('traffic');
 
     const size = Math.max(0, Math.round(TRAFFIC_CIV.activeTarget));
@@ -422,6 +434,7 @@ export class TrafficController {
       slots: this.slots,
       activeCount: () => this.book.activeCount,
       spawnAt: (x, z) => this.spawnNearest(x, z),
+      crush: (handle) => this.crush(handle),
     };
   }
 
@@ -542,12 +555,42 @@ export class TrafficController {
 
   /** Contact-spine subscriber: convert the driving car a qualifying player ram refers to. */
   handleImpact(record: ImpactRecord): void {
+    // Phase 17: while the monster-truck crush owns player↔civ contacts, the normal
+    // force-thresholded ram conversion is suppressed here so the crush path (which converts AND
+    // immediately wrecks, even below the ram threshold) is the SOLE converter — no nondeterministic
+    // double-conversion between two independent onImpact subscribers. No-op yield for every other
+    // car (crushActive defaults to false), so Phase-7 ram feel is byte-for-byte unchanged.
+    if (this.crushActive()) return;
     const handle = convertibleHandle(record, TRAFFIC_CIV.convertForceThreshold);
     if (handle < 0) return;
     const slotId = this.handleToSlot.get(handle);
     if (slotId === undefined) return;
     if (this.slots[slotId].state !== 'driving') return; // already converted
     this.convert(slotId);
+  }
+
+  /**
+   * Phase 17 monster-truck crush (see TrafficApi.crush). Force the live civilian at collider
+   * `handle` through the SAME conversion + wreck path a fatal ram uses, regardless of ram force:
+   * convert a still-driving civ (civHit once, kinematic→dynamic) then zero its hp so the next
+   * stepAfter's tickWreck emits civWrecked once and darkens it — never emitting either event
+   * twice. Returns true ONLY for a fresh crush (a civ that was still driving this call), so the
+   * caller retains the truck's momentum exactly once per victim.
+   *
+   * Robust by construction: handleImpact yields to this path while a crush is active (see above),
+   * so `handle` is always the still-registered KINEMATIC handle here — never one the normal ram
+   * path already converted (which would have changed the handle out from under handleToSlot).
+   */
+  crush(handle: number): boolean {
+    const slotId = this.handleToSlot.get(handle);
+    if (slotId === undefined) return false; // not a live civ (unregistered / already despawned)
+    if (this.slots[slotId].state !== 'driving') return false; // already converted or wrecked
+    this.convert(slotId); // civHit once, kinematic → dynamic (handle changes to the new body)
+    const iv = this.internal[slotId];
+    const entry = getEntity(iv.colliderHandle);
+    if (entry !== undefined) entry.hp = 0; // → tickWreck (stepAfter) emits civWrecked once
+    this.slots[slotId].hp = 0;
+    return true;
   }
 
   private convert(slotId: number): void {

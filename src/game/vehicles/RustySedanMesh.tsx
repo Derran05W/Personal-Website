@@ -13,10 +13,10 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { CylinderGeometry, MeshStandardMaterial, type Group, type Mesh } from 'three';
-import { PLAYER_CARS, VEHICLE_TUNING } from '../config';
-import { hpLostFraction, tintDamageColor } from '../fx/damageStates';
-import { getGameState } from '../state/store';
+import { VEHICLE_TUNING } from '../config';
+import { tintDamageColor } from '../fx/damageStates';
 import { playerVehicle } from './playerRef';
+import { readCarDamageTint } from './meshes/carDamageTint';
 
 // Flat low-poly palette — five swatches, named so Phase 17's other cars can restyle by
 // swapping values here instead of hunting through the geometry below.
@@ -172,9 +172,10 @@ export function RustySedanMesh() {
     // documents for the fleet meshes, just applied to a real Material instead of an
     // InstancedMesh colour. Smoke/fire emitters for the player are NOT this component's job
     // (fx/damageStates.ts's DamageStatesMount polls the store directly for those).
-    const playerHp = getGameState().playerHp;
-    const lostFrac = hpLostFraction(playerHp, PLAYER_CARS.rustySedan.hp);
-    const wrecked = playerHp <= 0;
+    // Phase 17: hp fraction now reads against THIS car's own max hp (readCarDamageTint,
+    // vehicles/meshes/carDamageTint.ts) rather than a hardcoded rustySedan.hp — the fix
+    // needed once five more cars with different hp pools exist.
+    const { lostFrac, wrecked } = readCarDamageTint('rustySedan');
     bodyMaterial.color.set(PALETTE.body);
     tintDamageColor(bodyMaterial.color, lostFrac, wrecked);
     bumperMaterial.color.set(PALETTE.bumper);

@@ -1,0 +1,20 @@
+/* Pause menu (hud/PauseMenu.tsx). Only what can't be expressed as inline styles (a fade-in
+   keyframe) lives here — same split as Hud.css / GameOver.css / garage/Garage.css. */
+.pause-menu-backdrop {
+  animation: pause-menu-fade-in 0.2s ease;
+}
+
+@keyframes pause-menu-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pause-menu-backdrop {
+    animation: none;
+  }
+}

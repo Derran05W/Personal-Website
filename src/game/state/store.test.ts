@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { gameEvents } from './events';
 import { getGameState, tierForHeat, useGameStore } from './store';
+import { PROGRESS_STORAGE_KEY } from './persistence';
 import { WORLD_GEN } from '../config';
 
 const SETTINGS_KEY = 'smashy6ix:settings';
@@ -30,6 +31,8 @@ describe('initial state', () => {
     expect(state.playerHp).toBe(100);
     expect(state.seed).toBe(WORLD_GEN.defaultSeed);
     expect(state.settings).toEqual({ quality: 'high', muted: false, reducedShake: false });
+    expect(state.selectedCarId).toBe('rustySedan');
+    expect(state.unlockedCarIds).toEqual(['rustySedan']);
   });
 });
 
@@ -336,5 +339,72 @@ describe('settings hydration at store creation', () => {
     vi.resetModules();
     const fresh = await import('./store');
     expect(fresh.useGameStore.getState().settings).toEqual({ quality: 'high', muted: false, reducedShake: false });
+  });
+});
+
+describe('selectCar (Phase 17)', () => {
+  it('selects an unlocked car', () => {
+    useGameStore.getState().selectCar('rustySedan');
+    expect(useGameStore.getState().selectedCarId).toBe('rustySedan');
+  });
+
+  it('rejects a locked car — selectedCarId is left unchanged', () => {
+    expect(useGameStore.getState().unlockedCarIds).not.toContain('redRocket');
+    useGameStore.getState().selectCar('redRocket');
+    expect(useGameStore.getState().selectedCarId).toBe('rustySedan');
+  });
+
+  // A test exercising the real carUnlocked -> unlockedCarIds flow lives in
+  // storeUnlocks.test.ts, NOT here — this file's own afterEach (above) calls
+  // gameEvents.clearAllListeners() after every test, which (correctly, for the tests
+  // that predate Phase 17) tears down locally-registered handlers, but ALSO
+  // permanently wipes state/store.ts's module-scope `carUnlocked` subscription
+  // (registered exactly once, at store.ts's import time) after the very first test in
+  // this file runs — there is no way to re-register it short of re-importing the
+  // module. storeUnlocks.test.ts is a separate file with no such blanket cleanup, the
+  // same "preserve the production listener" idiom hud/gameOverRunEnd.ts's and
+  // hud/gameOverUnlocks.ts's test files already use.
+});
+
+describe('unlockedCarIds / seed hydration at store creation (Phase 17)', () => {
+  // Same vi.resetModules() + dynamic re-import technique as the settings-hydration block
+  // above: the store only reads persisted progress once, at module-evaluation time, so
+  // observing a different localStorage state requires a fresh module instance.
+  it('hydrates unlockedCarIds from a persisted lifetimeScore that already cleared a threshold', async () => {
+    localStorage.setItem(
+      PROGRESS_STORAGE_KEY,
+      JSON.stringify({ v: 1, bestScore: 900, lifetimeScore: 900 }),
+    );
+    vi.resetModules();
+    const fresh = await import('./store');
+    expect(fresh.useGameStore.getState().unlockedCarIds).toEqual(['rustySedan', 'streetRacer']);
+  });
+
+  it('unions the derived set with an explicitly persisted unlockedCarIds (monotonic even if thresholds moved)', async () => {
+    localStorage.setItem(
+      PROGRESS_STORAGE_KEY,
+      JSON.stringify({
+        v: 1,
+        bestScore: 10,
+        lifetimeScore: 10,
+        unlockedCarIds: ['rustySedan', 'redRocket'],
+      }),
+    );
+    vi.resetModules();
+    const fresh = await import('./store');
+    expect(fresh.useGameStore.getState().unlockedCarIds).toEqual(['rustySedan', 'redRocket']);
+  });
+
+  it('hydrates seed from a persisted lastSeed', async () => {
+    localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify({ v: 1, bestScore: 0, lifetimeScore: 0, lastSeed: 8675309 }));
+    vi.resetModules();
+    const fresh = await import('./store');
+    expect(fresh.useGameStore.getState().seed).toBe(8675309);
+  });
+
+  it('falls back to WORLD_GEN.defaultSeed when no lastSeed is persisted', async () => {
+    vi.resetModules();
+    const fresh = await import('./store');
+    expect(fresh.useGameStore.getState().seed).toBe(WORLD_GEN.defaultSeed);
   });
 });

@@ -13,6 +13,8 @@
 // `loadProgress()`; nothing else in this module should be treated as its API surface.
 
 import { gameEvents } from './events';
+import { UNLOCKS, unlockedCarIdsForScore } from '../config/unlocks';
+import type { PlayerCarId } from '../config/vehicles';
 
 // Same `smashy6ix:` prefix as store.ts's SETTINGS_STORAGE_KEY — one namespace, one key
 // per concern.
@@ -46,9 +48,42 @@ export interface Progress {
    * additive and optional.
    */
   darkCityUnlocked?: boolean;
+  /**
+   * Phase 17 addition, following the exact same additive/version-safe pattern as
+   * `darkCityUnlocked` above (still no PROGRESS_VERSION bump — see that field's doc
+   * comment for the full reasoning; the same reasoning applies verbatim here). A
+   * MONOTONIC set of PlayerCarId (config/unlocks.ts) the player has ever unlocked, as
+   * plain strings: recordRunEnd only ever ADDS ids (unioned with whatever
+   * unlockedCarIdsForScore(lifetimeScore) newly computes), never removes them — so a car
+   * already unlocked stays unlocked permanently even if UNLOCKS' thresholds are later
+   * retuned. Validated on load (must be a string array); unknown ids — e.g. from a future
+   * renamed/removed car — are silently dropped rather than rejecting the whole envelope
+   * (see `sanitizeUnlockedCarIds`). Absent on an envelope written before this field
+   * existed; every reader treats that identically to an empty array.
+   */
+  unlockedCarIds?: string[];
+  /**
+   * Phase 17 addition (same additive/optional idiom): the seed of the most recently
+   * STARTED run (state/events.ts's `runStarted`, recorded by this module's
+   * `recordLastSeed` — see initProgressPersistence below), plus an immediate write from
+   * the garage's "New city" reroll control so the choice survives even if the player
+   * never actually starts that run. Lets state/store.ts hydrate a returning visitor
+   * straight into their last city instead of always WORLD_GEN.defaultSeed.
+   */
+  lastSeed?: number;
 }
 
 const DEFAULT_PROGRESS: Progress = { v: PROGRESS_VERSION, bestScore: 0, lifetimeScore: 0 };
+
+// Every id UNLOCKS currently knows about — the "unknown ids dropped on load" allowlist.
+const KNOWN_CAR_IDS = new Set<string>(Object.keys(UNLOCKS));
+
+/** Drops any persisted id that isn't a car UNLOCKS currently recognizes (a future car
+ * rename/removal must degrade gracefully, not corrupt an otherwise-valid envelope).
+ * `undefined` passes through unchanged — the field is optional/additive. */
+function sanitizeUnlockedCarIds(ids: string[] | undefined): string[] | undefined {
+  return ids?.filter((id) => KNOWN_CAR_IDS.has(id));
+}
 
 function isValidProgress(value: unknown): value is Progress {
   if (typeof value !== 'object' || value === null) return false;
@@ -61,21 +96,28 @@ function isValidProgress(value: unknown): value is Progress {
     Number.isFinite(candidate.lifetimeScore) &&
     // Absent is valid (older/pre-Phase-13 envelopes, or one that's never unlocked it) —
     // only a PRESENT-but-wrong-typed value is rejected.
-    (candidate.darkCityUnlocked === undefined || typeof candidate.darkCityUnlocked === 'boolean')
+    (candidate.darkCityUnlocked === undefined || typeof candidate.darkCityUnlocked === 'boolean') &&
+    (candidate.unlockedCarIds === undefined ||
+      (Array.isArray(candidate.unlockedCarIds) &&
+        candidate.unlockedCarIds.every((id) => typeof id === 'string'))) &&
+    (candidate.lastSeed === undefined ||
+      (typeof candidate.lastSeed === 'number' && Number.isFinite(candidate.lastSeed)))
   );
 }
 
 /**
  * Reads the persisted envelope. Missing key, unparseable JSON, wrong/older shape, or a
  * localStorage read throw (private-mode browsers) all degrade to `DEFAULT_PROGRESS` —
- * this never throws.
+ * this never throws. `unlockedCarIds`, if present, is sanitized (unknown ids dropped)
+ * before returning — see `sanitizeUnlockedCarIds`.
  */
 export function loadProgress(): Progress {
   try {
     const raw = localStorage.getItem(PROGRESS_STORAGE_KEY);
     if (!raw) return DEFAULT_PROGRESS;
     const parsed: unknown = JSON.parse(raw);
-    return isValidProgress(parsed) ? parsed : DEFAULT_PROGRESS;
+    if (!isValidProgress(parsed)) return DEFAULT_PROGRESS;
+    return { ...parsed, unlockedCarIds: sanitizeUnlockedCarIds(parsed.unlockedCarIds) };
   } catch {
     return DEFAULT_PROGRESS;
   }
@@ -95,13 +137,31 @@ function saveProgress(progress: Progress): void {
  * `max(current, score)`, `lifetimeScore` accumulates (`+= score`) — and writes the result
  * through to localStorage. Read-modify-write in one call; returns the resulting envelope
  * so callers (and tests) can observe it even if the write itself silently failed.
+ *
+ * Phase 17: also recomputes `unlockedCarIds` from the NEW lifetimeScore, unions it with
+ * whatever was already persisted (monotonic — see the Progress interface's doc comment),
+ * and emits `carUnlocked` (state/events.ts) once per id that's newly present in that
+ * union versus what was unlocked BEFORE this run's score folded in. The "before" set is
+ * itself `unlockedCarIdsForScore(current.lifetimeScore)` unioned with whatever was
+ * already persisted — same monotonic union, computed at the OLD score — so a car is
+ * never reported as "newly crossed" merely because this is the first time its threshold
+ * happened to be checked (e.g. rustySedan's threshold of 0 is already "crossed" the
+ * instant lifetimeScore is read as 0, before any run completes).
  */
 export function recordRunEnd(score: number): Progress {
   const current = loadProgress();
+  const previouslyUnlocked = new Set<string>([
+    ...unlockedCarIdsForScore(current.lifetimeScore),
+    ...(current.unlockedCarIds ?? []),
+  ]);
+  const nextLifetimeScore = current.lifetimeScore + score;
+  const newlyComputedUnlocked = unlockedCarIdsForScore(nextLifetimeScore);
+  const mergedUnlocked = Array.from(new Set([...previouslyUnlocked, ...newlyComputedUnlocked]));
+
   const next: Progress = {
     v: PROGRESS_VERSION,
     bestScore: Math.max(current.bestScore, score),
-    lifetimeScore: current.lifetimeScore + score,
+    lifetimeScore: nextLifetimeScore,
     // Carry the badge forward explicitly. Without this, a run that triggers DARK CITY
     // mid-run (powergrid/grid.ts calls setDarkCityUnlocked() the instant the 16th
     // district goes dark, independent of runEnded) would have its badge silently erased
@@ -110,7 +170,34 @@ export function recordRunEnd(score: number): Progress {
     // unlocked it keeps round-tripping with no extra key (see the Progress interface's
     // doc comment on DEFAULT_PROGRESS).
     ...(current.darkCityUnlocked !== undefined ? { darkCityUnlocked: current.darkCityUnlocked } : {}),
+    unlockedCarIds: mergedUnlocked,
+    ...(current.lastSeed !== undefined ? { lastSeed: current.lastSeed } : {}),
   };
+  saveProgress(next);
+
+  for (const carId of newlyComputedUnlocked) {
+    if (!previouslyUnlocked.has(carId)) {
+      gameEvents.emit('carUnlocked', { carId: carId as PlayerCarId });
+    }
+  }
+
+  return next;
+}
+
+/**
+ * Records the seed of the run that just started (state/events.ts's `runStarted`, via
+ * `initProgressPersistence` below) — or, from the garage's "New city" reroll control, the
+ * seed about to be started — so a returning visitor can resume their city instead of
+ * always landing on WORLD_GEN.defaultSeed (state/store.ts reads this at hydrate). Plain
+ * read-modify-write over the current envelope, same idiom as `setDarkCityUnlocked`; every
+ * other field passes through untouched. Unlike `setDarkCityUnlocked` this is NOT
+ * idempotence-guarded — rewriting the same seed twice (e.g. once on reroll, once again
+ * when that same seed's run actually starts) is just a harmless redundant write, not a
+ * correctness concern.
+ */
+export function recordLastSeed(seed: number): Progress {
+  const current = loadProgress();
+  const next: Progress = { ...current, lastSeed: seed };
   saveProgress(next);
   return next;
 }
@@ -148,14 +235,22 @@ export function resetProgress(): void {
 }
 
 /**
- * Subscribes `recordRunEnd` to the `runEnded` event (state/events.ts) — the single write
- * trigger for score persistence, per the project's typed-emitter convention ("systems
- * stay decoupled", CLAUDE.md). Call once, at game mount (the orchestrator wires this —
- * e.g. from game/index.tsx or a system's mount effect); returns an unsubscribe function
- * for teardown symmetry with every other subscription in this codebase.
+ * Subscribes `recordRunEnd` to `runEnded` and `recordLastSeed` to `runStarted`
+ * (state/events.ts) — the write triggers for score/unlock and city persistence, per the
+ * project's typed-emitter convention ("systems stay decoupled", CLAUDE.md). Call once, at
+ * game mount (the orchestrator wires this — e.g. from game/index.tsx or a system's mount
+ * effect); returns a single unsubscribe function for teardown symmetry with every other
+ * subscription in this codebase.
  */
 export function initProgressPersistence(): () => void {
-  return gameEvents.on('runEnded', ({ score }) => {
+  const offRunEnded = gameEvents.on('runEnded', ({ score }) => {
     recordRunEnd(score);
   });
+  const offRunStarted = gameEvents.on('runStarted', ({ seed }) => {
+    recordLastSeed(seed);
+  });
+  return () => {
+    offRunEnded();
+    offRunStarted();
+  };
 }

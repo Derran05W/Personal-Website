@@ -6,6 +6,8 @@
 // Payloads below are intentionally minimal stubs for Phase 2; later phases extend
 // fields (e.g. `unitWrecked` gaining a position) but must not bypass the emitter or
 // add ad-hoc side channels.
+import type { PlayerCarId } from '../config/vehicles';
+
 export interface GameEventMap {
   heatChanged: { heat: number; delta: number };
   tierChanged: { tier: number; prevTier: number };
@@ -36,6 +38,15 @@ export interface GameEventMap {
   /** Player (or, once Phase 7/9 add them, any vehicle) entered the south lakefront WATER
    * sensor (world/CityScape.tsx). Logged only in Phase 4; Phase 9 wires instant WRECKED. */
   enteredWater: Record<string, never>;
+  /** Phase 17: emitted once per NEWLY crossed lifetime-score unlock threshold
+   * (config/unlocks.ts's UNLOCKS), exactly when a run's score folds into the persisted
+   * `lifetimeScore` — state/persistence.ts's recordRunEnd (the `runEnded` handler) diffs
+   * the before/after unlocked sets and emits one of these per newly-crossed id, in
+   * ascending threshold order. Never re-emitted for a car that was already unlocked
+   * (including rustySedan, whose threshold-0 is already met before any run ever ends).
+   * state/store.ts's module-scope subscription folds these into `unlockedCarIds`;
+   * hud/GameOver.tsx queues the car names for its "UNLOCKED: <name>" toast. */
+  carUnlocked: { carId: PlayerCarId };
 }
 
 type Handler<K extends keyof GameEventMap> = (payload: GameEventMap[K]) => void;

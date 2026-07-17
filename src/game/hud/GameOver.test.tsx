@@ -2,21 +2,25 @@ import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useGameStore } from '../state/store';
 import { gameEvents } from '../state/events';
+import { UNLOCKS } from '../config/unlocks';
 import GameOver from './GameOver';
 import { __resetLastRunEndForTests } from './gameOverRunEnd';
+import { __resetRunUnlocksForTests } from './gameOverUnlocks';
 
 const initialState = useGameStore.getState();
 
 // Deliberately NOT clearing gameEvents listeners in an afterEach here (unlike
-// state/events.test.ts / store.test.ts): hud/gameOverRunEnd.ts registers its `runEnded`
-// listener exactly ONCE, at module-import time, by design (see that module's doc comment) —
-// `gameEvents.clearAllListeners()` would permanently wipe that production listener after
-// the first test in this file, silently breaking every subsequent test's `emit('runEnded',
-// ...)` call. `__resetLastRunEndForTests()` below is the correct, listener-preserving reset.
+// state/events.test.ts / store.test.ts): hud/gameOverRunEnd.ts and hud/gameOverUnlocks.ts
+// both register their listeners exactly ONCE, at module-import time, by design (see those
+// modules' doc comments) — `gameEvents.clearAllListeners()` would permanently wipe those
+// production listeners after the first test in this file, silently breaking every
+// subsequent test's `emit(...)` call. The __reset*ForTests() helpers below are the correct,
+// listener-preserving reset.
 beforeEach(() => {
   localStorage.clear();
   useGameStore.setState(initialState, true);
   __resetLastRunEndForTests();
+  __resetRunUnlocksForTests();
 });
 
 interface GameOverStateOverrides {
@@ -81,11 +85,50 @@ describe('GameOver', () => {
     );
   });
 
-  it('shows the unlock-progress placeholder line', () => {
+  it('shows progress toward the next unlock, driven by persisted lifetimeScore', () => {
+    localStorage.setItem(
+      'smashy6ix:progress',
+      JSON.stringify({ v: 1, bestScore: 0, lifetimeScore: 0 }),
+    );
     setGameOverState();
     render(<GameOver />);
     expect(screen.getByTestId('gameover-unlocks')).toHaveTextContent(
-      'Unlocks in a future update',
+      `${UNLOCKS.streetRacer.toLocaleString('en-US')} pts to unlock Street Racer`,
+    );
+  });
+
+  it('shows "All cars unlocked" once every threshold is cleared', () => {
+    localStorage.setItem(
+      'smashy6ix:progress',
+      JSON.stringify({ v: 1, bestScore: 0, lifetimeScore: UNLOCKS.redRocket }),
+    );
+    setGameOverState();
+    render(<GameOver />);
+    expect(screen.getByTestId('gameover-unlocks')).toHaveTextContent('All cars unlocked');
+  });
+
+  it('does not show the unlock toast when no car was unlocked this run', () => {
+    setGameOverState();
+    render(<GameOver />);
+    expect(screen.queryByTestId('gameover-unlock-toast')).not.toBeInTheDocument();
+  });
+
+  it('shows an "UNLOCKED: <name>" toast for a car crossed this run', () => {
+    gameEvents.emit('runStarted', { seed: 1 });
+    gameEvents.emit('carUnlocked', { carId: 'pickup' });
+    setGameOverState();
+    render(<GameOver />);
+    expect(screen.getByTestId('gameover-unlock-toast')).toHaveTextContent('UNLOCKED: Pickup');
+  });
+
+  it('queues multiple unlocks crossed in the same run', () => {
+    gameEvents.emit('runStarted', { seed: 1 });
+    gameEvents.emit('carUnlocked', { carId: 'streetRacer' });
+    gameEvents.emit('carUnlocked', { carId: 'pickup' });
+    setGameOverState();
+    render(<GameOver />);
+    expect(screen.getByTestId('gameover-unlock-toast')).toHaveTextContent(
+      'UNLOCKED: Street Racer · UNLOCKED: Pickup',
     );
   });
 

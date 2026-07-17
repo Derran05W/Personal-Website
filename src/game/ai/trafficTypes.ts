@@ -34,6 +34,16 @@ export interface TrafficApi {
   activeCount(): number;
   /** Debug: force-spawn a civilian near the given world position (nearest graph node). */
   spawnAt(x: number, z: number): boolean;
+  /**
+   * Phase 17 monster-truck crush: force the LIVE civilian at collider `handle` through the
+   * normal ram-conversion + wreck path — convert it if still driving (emitting civHit once,
+   * swapping it to a dynamic body) then zero its hp so the existing tickWreck pass emits
+   * civWrecked once, exactly like a fatal ram, regardless of the ram force. Returns true only
+   * on a FRESH crush (a still-driving civ this call converted) so the caller applies its
+   * momentum retention exactly once per victim; false for an unknown handle or an already-
+   * converted/wrecked slot. combat/playerSpecials.ts is the sole caller.
+   */
+  crush(handle: number): boolean;
 }
 
 /** Set by ai/traffic.ts's mount; null before the first PLAYING mount. */

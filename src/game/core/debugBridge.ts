@@ -6,6 +6,7 @@
 import { Color } from 'three';
 import { getPerf as getR3fPerfState } from 'r3f-perf';
 import { getGameState } from '../state/store';
+import { PLAYER_CARS, type PlayerCarId } from '../config/vehicles';
 import { canTransition, type GameState } from '../state/machine';
 import { playerVehicle } from '../vehicles/playerRef';
 import { spawnPoseRef } from '../world/spawn';
@@ -167,6 +168,15 @@ const KNOWN_UNIT_KINDS: readonly UnitKind[] = ['police', 'armored', 'swat', 'gun
 
 function isUnitKind(kind: string): kind is UnitKind {
   return (KNOWN_UNIT_KINDS as readonly string[]).includes(kind);
+}
+
+// Phase 17 Task 3: runtime guard for the selectCar bridge. selectedCarId is a PlayerCarId
+// (config/vehicles.ts), a string-literal union with no runtime form, so a raw string off
+// page.evaluate is validated against the real PLAYER_CARS keys before reaching the store setter
+// (mirrors isUnitKind above). There's no bridge SETTER for the selected car otherwise, and a
+// battery selecting a car can't reach the store module directly from the page.
+function isPlayerCarId(id: string): id is PlayerCarId {
+  return Object.prototype.hasOwnProperty.call(PLAYER_CARS, id);
 }
 
 // Phase 9 Task 4: force a GAMEOVER with reason 'busted' without needing the real detector
@@ -335,6 +345,11 @@ declare global {
        * — runLoop's WRECKED detection polls store.playerHp every fixed step specifically
        * so this path (and any other non-event hp mutation) can never be missed. */
       setPlayerHp: (hp: number) => void;
+      /** Phase 17 Task 3: select the player car for the next run (store.setSelectedCar) — the
+       * scripted mirror of the garage car cards, for a battery that needs to drive a specific
+       * car (crush/plow/heavy-mass checks). Validates `id` against PLAYER_CARS; returns whether
+       * it applied. Selection is only meaningful outside PLAYING (the car is fixed per run). */
+      selectCar: (id: string) => boolean;
       /** Phase 6 contact-spine proof: total ImpactRecords dispatched since load. */
       impactCount: () => number;
       /** Phase 6 contact-spine proof: the last few dispatched impacts, resolved to registry
@@ -514,6 +529,11 @@ window.__smashy = {
   },
   addHeat: (delta) => getGameState().addHeat(delta),
   setPlayerHp: (hp) => getGameState().setPlayerHp(hp),
+  selectCar: (id) => {
+    if (!isPlayerCarId(id)) return false;
+    getGameState().setSelectedCar(id);
+    return true;
+  },
   readPerf: () => {
     const state = getR3fPerfState();
     return {

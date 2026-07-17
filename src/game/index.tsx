@@ -59,7 +59,7 @@ import { PowerGridSystem } from './powergrid/PowerGridMount';
 import Hud from './hud/Hud';
 import { SkidMarks } from './fx/SkidMarks';
 import { PlayerVehicle } from './vehicles/PlayerVehicle';
-import { RustySedanMesh } from './vehicles/RustySedanMesh';
+import { PlayerCarMesh } from './vehicles/PlayerCarMesh';
 import { applyDetectedQuality } from './core/quality';
 import { GarageOverlay } from './GarageOverlay';
 // Dependency-free (no leva/three-heavy deps), same as core/renderOwner.ts — safe to import
@@ -153,6 +153,10 @@ export default function Game() {
   // Retry nonce: runReset bumps runId so a same-seed retry still fully remounts the
   // physical world (fresh props/pools/units — the part-file "full clean reset").
   const runId = useGameStore((s) => s.runId);
+  // Phase 17: keys the player mount (below) so picking a different car in the garage
+  // remounts the vehicle with that car's collider/controller params. Safe to subscribe
+  // here — it only ever changes outside PLAYING (garage/dev bridge), never per frame.
+  const selectedCarId = useGameStore((s) => s.selectedCarId);
   const worldKey = `${seed}-${runId}`;
   const world = useMemo(() => generate(seed), [seed]);
   const spawn = useMemo(() => getSpawnPose(world), [world]);
@@ -296,13 +300,18 @@ export default function Game() {
             <Searchlight />
             <PowerGridSystem key={`grid-${worldKey}`} />
             <SkidMarks />
-            {/* key: spawn position is read once at body create (PlayerVehicle contract) —
-                remount on regenerate rather than mutate. */}
+            {/* key: spawn position is read once at body create (PlayerVehicle contract),
+                and (Phase 17) the car's collider/controller params are resolved once at
+                mount from getSelectedCarDef() — so the key carries BOTH the world/run
+                nonce AND the selected car id: regenerate, retry, or picking a different
+                car in the garage each force a full remount with fresh physics. The mesh
+                switcher (PlayerCarMesh) reads the same store field, so paint and
+                collider can never disagree. */}
             <PlayerVehicle
-              key={`player-${worldKey}`}
+              key={`player-${worldKey}-${selectedCarId}`}
               position={[spawn.position.x, spawn.position.y, spawn.position.z]}
             >
-              <RustySedanMesh />
+              <PlayerCarMesh />
             </PlayerVehicle>
 
             {PerfOverlay ? (

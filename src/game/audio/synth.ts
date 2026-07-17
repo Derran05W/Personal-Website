@@ -279,6 +279,10 @@ export interface SoundParams {
   readonly tier?: number;
   /** Per-call gain trim, 0..1 (UI ticks, manual balancing). */
   readonly gain?: number;
+  /** Phase 17: per-car base pitch multiplier for the engine loop (buildEngine only). 1 = the
+   *  Rusty Sedan; <1 deeper (bus/streetcar), >1 brighter (racer). Multiplies the speed-tracked
+   *  fundamental so the whole rev range transposes with the car. Defaults to 1 when absent. */
+  readonly enginePitch?: number;
 }
 
 /** A sound factory. Wires the graph feeding `destination`; does NOT start it. */
@@ -633,6 +637,10 @@ export function buildEngine(
   params?: SoundParams,
 ): EngineVoice {
   const p = SYNTH_PARAMS.engine;
+  // Phase 17: per-car base pitch multiplier — transposes the whole speed-tracked rev range so a
+  // bus rumbles low (0.7) and a street racer sings high (1.35). Read once at build; the engine
+  // loop is rebuilt per run (runStarted), and a car can't change mid-run. Clamped positive.
+  const basePitch = params?.enginePitch !== undefined && params.enginePitch > 0 ? params.enginePitch : 1;
 
   const out = ctx.createGain();
   out.gain.value = 0; // faded in on start(), so binding the engine never pops.
@@ -677,7 +685,8 @@ export function buildEngine(
   let started = false;
 
   const applySpeed = (speed01: number, when: number, immediate = false): void => {
-    const f = engineBaseFreq(speed01);
+    // Per-car pitch transposes the fundamental (and, via subRatio, the sub) together.
+    const f = engineBaseFreq(speed01) * basePitch;
     const tau = immediate ? EPS : p.glideTau;
     saw.frequency.setTargetAtTime(f, when, tau);
     tri.frequency.setTargetAtTime(f * p.subRatio, when, tau);

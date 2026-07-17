@@ -23,8 +23,9 @@ import { useSyncExternalStore, type CSSProperties } from 'react';
 import { loadProgress } from '../state/persistence';
 import { useHudSnapshot } from './useHudSnapshot';
 import { formatScore, filledStarCount } from './hudFormat';
-import { bannerForReason } from './gameOverFormat';
+import { bannerForReason, nextUnlockInfo } from './gameOverFormat';
 import { subscribeRunEnd, getLastRunEnd } from './gameOverRunEnd';
+import { subscribeRunUnlocks, getRunUnlockNames } from './gameOverUnlocks';
 import './GameOver.css';
 
 const backdropBaseStyle: CSSProperties = {
@@ -88,8 +89,26 @@ const hintStyle: CSSProperties = {
   marginTop: '0.35rem',
 };
 
+// Phase 17: "UNLOCKED: <name>" toast — amber-tinted (the site's --color-accent language)
+// so it reads as a distinct, celebratory event rather than another plain info chip.
+const unlockToastStyle: CSSProperties = {
+  display: 'block',
+  background: 'rgba(245, 158, 11, 0.18)',
+  border: '1px solid rgba(245, 158, 11, 0.5)',
+  borderRadius: 8,
+  padding: '0.4rem 0.9rem',
+  fontWeight: 700,
+  fontSize: '0.95rem',
+  color: '#fbbf24',
+  textShadow: '0 1px 8px rgba(0, 0, 0, 0.5)',
+};
+
 export default function GameOver() {
   const runEnd = useSyncExternalStore(subscribeRunEnd, getLastRunEnd);
+  // Phase 17: cars unlocked THIS run (hud/gameOverUnlocks.ts's module-scope queue, reset
+  // on runStarted / appended on carUnlocked — see that file for why it can't simply key
+  // off runEnded directly).
+  const unlockNames = useSyncExternalStore(subscribeRunUnlocks, getRunUnlockNames);
   // Reuses the HUD's own throttled (<=10 Hz) store poll rather than a fresh subscription —
   // one polling contract for every DOM overlay that reads machine/tier/score/seed, per
   // hud/useHudSnapshot.ts's doc comment on why raw zustand selectors are the wrong tool
@@ -110,8 +129,12 @@ export default function GameOver() {
   // (before any run can end), and state/persistence.ts's initProgressPersistence() listener
   // (game/index.tsx mount effect) is registered before the game can ever reach PLAYING —
   // both are guaranteed to have already run by the time a real runEnded fires and this
-  // screen subsequently mounts, so `best` below already reflects the run that just ended.
-  const best = loadProgress().bestScore;
+  // screen subsequently mounts, so `progress` below already reflects the run that just
+  // ended (including any newly-crossed unlock thresholds — the same timing guarantee
+  // covers `nextUnlock`, not just `best`).
+  const progress = loadProgress();
+  const best = progress.bestScore;
+  const nextUnlock = nextUnlockInfo(progress.lifetimeScore);
 
   return (
     <div
@@ -123,6 +146,11 @@ export default function GameOver() {
         <span style={bannerStyle} data-testid="gameover-banner">
           {label}
         </span>
+        {unlockNames.length > 0 ? (
+          <span style={unlockToastStyle} data-testid="gameover-unlock-toast">
+            {unlockNames.map((name) => `UNLOCKED: ${name}`).join(' · ')}
+          </span>
+        ) : null}
         <span style={{ ...chipStyle, ...scoreStyle }} data-testid="gameover-score">
           {formatScore(score)}
         </span>
@@ -136,7 +164,9 @@ export default function GameOver() {
           Seed {seed}
         </span>
         <span style={{ ...chipStyle, ...lineStyle, opacity: 0.75 }} data-testid="gameover-unlocks">
-          Unlocks in a future update
+          {nextUnlock
+            ? `${formatScore(nextUnlock.remaining)} pts to unlock ${nextUnlock.carName}`
+            : 'All cars unlocked'}
         </span>
         <span style={{ ...chipStyle, ...hintStyle }} data-testid="gameover-controls">
           R — retry same city · G — garage

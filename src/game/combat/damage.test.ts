@@ -12,11 +12,12 @@ import {
   computeDamage,
   initDamageSystem,
   massFactorOf,
+  playerMassFactor,
   ramDamageMultiplier,
   resetSparkThrottle,
   type DamageConfig,
 } from './damage';
-import { ENEMY_UNITS } from '../config/vehicles';
+import { ENEMY_UNITS, PLAYER_CARS } from '../config/vehicles';
 import { dispatchImpact, __resetContactsForTest } from './contacts';
 import type { ImpactRecord } from './types';
 import { clearRegistry, registerEntity, type EntityEntry } from '../world/registry';
@@ -150,7 +151,9 @@ describe('computeDamage', () => {
 // --- massFactorOf ------------------------------------------------------------------------------
 
 describe('massFactorOf', () => {
-  it('the player is always exactly 1 (it IS the reference mass)', () => {
+  it('the player resolves to the SELECTED car\'s massFactor — default rustySedan = 1 (the reference mass)', () => {
+    // beforeEach resets the store to its initial state (selectedCarId 'rustySedan', massFactor 1.0),
+    // so the pre-Phase-17 "player is always 1" behaviour holds byte-for-byte for the default car.
     expect(massFactorOf(PLAYER)).toBe(1);
   });
 
@@ -181,6 +184,60 @@ describe('massFactorOf', () => {
 
   it('a pursuit entry with no unitKind (should not happen in practice) falls back to 1, not a crash', () => {
     expect(massFactorOf({ kind: 'pursuit', districtId: -1, hp: 40 })).toBe(1);
+  });
+});
+
+// --- Phase 17: selected-car mass threading (both directions) ----------------------------------
+
+describe('playerMassFactor / selected-car damage scaling (Phase 17)', () => {
+  it('playerMassFactor() and massFactorOf(player) track the selected car', () => {
+    getGameState().setSelectedCar('schoolBus');
+    expect(playerMassFactor()).toBe(PLAYER_CARS.schoolBus.massFactor); // 2.6
+    expect(massFactorOf(PLAYER)).toBe(PLAYER_CARS.schoolBus.massFactor);
+
+    getGameState().setSelectedCar('streetRacer');
+    expect(playerMassFactor()).toBe(PLAYER_CARS.streetRacer.massFactor); // 0.8
+    expect(massFactorOf(PLAYER)).toBe(PLAYER_CARS.streetRacer.massFactor);
+
+    getGameState().setSelectedCar('rustySedan');
+    expect(massFactorOf(PLAYER)).toBe(1); // the reference car
+  });
+
+  // Direction 1: damage OTHERS take from a PLAYER ram scales with the selected car's massFactor.
+  it('a heavier player car deals proportionally MORE damage to what it rams (bus 2.6x > sedan 1x > racer 0.8x)', () => {
+    // Force chosen so even the bus's scaled damage (1.2 × 10 × 2.6 = 31.2) stays under
+    // DAMAGE.maxSingleHit (60) — otherwise the cap would clip the ratio (found live: at a
+    // higher force the bus clipped to 60 and bus/sedan read 2.0 instead of 2.6).
+    const forceMag = DAMAGE.forceToSpeedProxy * (DAMAGE.minImpactSpeed + 5);
+    function damageDealtBy(carId: 'streetRacer' | 'rustySedan' | 'schoolBus'): number {
+      getGameState().setSelectedCar(carId);
+      const t = transformer(1_000_000); // effectively indestructible: isolates one hit's damage
+      applyImpact(impact(PLAYER, t, forceMag));
+      return 1_000_000 - (t.hp ?? 0);
+    }
+    const racer = damageDealtBy('streetRacer');
+    const sedan = damageDealtBy('rustySedan');
+    const bus = damageDealtBy('schoolBus');
+
+    expect(bus).toBeGreaterThan(sedan);
+    expect(sedan).toBeGreaterThan(racer);
+    // Exact ratio = the massFactor ratio (same base formula, only the player mass factor differs).
+    expect(bus / sedan).toBeCloseTo(PLAYER_CARS.schoolBus.massFactor / PLAYER_CARS.rustySedan.massFactor, 6);
+    expect(racer / sedan).toBeCloseTo(PLAYER_CARS.streetRacer.massFactor / PLAYER_CARS.rustySedan.massFactor, 6);
+  });
+
+  // Direction 2: damage the PLAYER takes is governed by the ATTACKER's mass, NOT the player's car —
+  // a fragile racer does NOT take reduced incoming damage (its fragility is its 60 hp, not a discount).
+  it('the damage the player TAKES from a given attacker is identical across player cars', () => {
+    const forceMag = DAMAGE.forceToSpeedProxy * (DAMAGE.minImpactSpeed + 20);
+    function playerLossAs(carId: 'streetRacer' | 'schoolBus'): number {
+      getGameState().setSelectedCar(carId);
+      getGameState().setPlayerHp(100000); // isolate one hit
+      const before = getGameState().playerHp;
+      applyImpact(impact(PLAYER, transformer(1_000_000), forceMag));
+      return before - getGameState().playerHp;
+    }
+    expect(playerLossAs('streetRacer')).toBeCloseTo(playerLossAs('schoolBus'), 9);
   });
 });
 

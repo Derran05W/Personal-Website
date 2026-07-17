@@ -1,7 +1,23 @@
 import { create } from 'zustand';
 import { type GameState, assertTransition, canTransition } from './machine';
 import { gameEvents } from './events';
-import { HEAT, WORLD_GEN } from '../config';
+import { loadProgress } from './persistence';
+import {
+  HEAT,
+  PLAYER_CARS,
+  WORLD_GEN,
+  UNLOCKS,
+  unlockedCarIdsForScore,
+  type PlayerCarId,
+} from '../config';
+
+/** The selected car's full HP (Phase 17): the store's single source for what "full
+ * health" means on run start/reset. Reads PLAYER_CARS directly (not
+ * vehicles/definitions.ts's getSelectedCarDef) to keep this module free of a
+ * state->vehicles import cycle — hp is authored in PLAYER_CARS either way. */
+function selectedCarHp(carId: PlayerCarId): number {
+  return PLAYER_CARS[carId].hp;
+}
 
 // Store rule (TDD §6 `game/state/`): this is the ONLY zustand store, and it holds ONLY
 // machine state, meta-progression numbers, and HUD-visible values. Per-frame hot data —
@@ -92,12 +108,50 @@ function saveSettings(settings: Settings): void {
   }
 }
 
+/**
+ * Phase 17 unlock-slice hydration: every PlayerCarId unlocked at store-creation time,
+ * computed from the persisted `lifetimeScore` (config/unlocks.ts's threshold rule) UNIONED
+ * with whatever was already explicitly persisted in `unlockedCarIds` (state/persistence.ts's
+ * monotonic set — see that file's Progress.unlockedCarIds doc comment). The union matters
+ * if UNLOCKS' thresholds are ever retuned after a save already crossed one: a car earned
+ * under looser thresholds must not silently re-lock. `id in UNLOCKS` is a second, cheap
+ * validation pass on top of persistence.ts's own `sanitizeUnlockedCarIds` — belt-and-
+ * suspenders against a garbage/foreign id ever reaching the store.
+ */
+function hydrateUnlockedCarIds(): PlayerCarId[] {
+  const progress = loadProgress();
+  const fromThresholds = unlockedCarIdsForScore(progress.lifetimeScore);
+  const persisted = (progress.unlockedCarIds ?? []).filter((id): id is PlayerCarId => id in UNLOCKS);
+  return Array.from(new Set([...fromThresholds, ...persisted]));
+}
+
+/** Phase 17: resume a returning visitor's last city (state/persistence.ts's `lastSeed`,
+ * written on every `runStarted` and by the garage's "New city" control) instead of always
+ * defaulting to WORLD_GEN.defaultSeed. A fresh/never-played save has no `lastSeed` yet, so
+ * it falls back to the default exactly as before this field existed. */
+function hydrateSeed(): number {
+  return loadProgress().lastSeed ?? WORLD_GEN.defaultSeed;
+}
+
 export interface GameStoreState {
   machine: GameState;
   heat: number;
   tier: number;
   score: number;
   playerHp: number;
+  /** Phase 17 seam: which PLAYER_CARS entry the next/current run drives. Selection UI,
+   * unlock gating, and persistence land with the garage task; the field lives here first
+   * so the vehicle/mesh/param layers can read one source of truth from day one. Changing
+   * cars mid-run is impossible by construction — the garage is only reachable outside
+   * PLAYING, and index.tsx keys the player mount on car+run. */
+  selectedCarId: PlayerCarId;
+  /** Phase 17 unlock slice: every PlayerCarId currently unlocked (hydrated once at store
+   * creation from persisted lifetimeScore + config/unlocks.ts's thresholds — see
+   * `hydrateUnlockedCarIds` — and extended, never shrunk, by the module-scope
+   * `carUnlocked` subscription below as thresholds are crossed). rustySedan is always
+   * present, even on a brand-new save (its threshold is 0). The garage UI is this
+   * field's only real reader; `selectCar` is its only writer-adjacent gate. */
+  unlockedCarIds: PlayerCarId[];
   seed: number;
   /** Increments on every retry (runReset) — game/index.tsx keys the physical world on
    * `${seed}-${runId}` so a same-seed retry still gets a FULL remount: fresh props,
@@ -112,6 +166,14 @@ export interface GameStoreState {
   addScore: (points: number) => void;
   setPlayerHp: (hp: number) => void;
   setSeed: (seed: number) => void;
+  /** Phase 17 seam: pick the car for the next run. The garage task layers unlock
+   * validation on top; this raw setter stays dev-bridge/garage-internal. */
+  setSelectedCar: (carId: PlayerCarId) => void;
+  /** Phase 17: the garage's real car picker. A no-op (dev-only console warning) if
+   * `carId` isn't in `unlockedCarIds` — everywhere else that just needs to set the car
+   * without re-validating an already-known-unlocked id (dev bridge, tests) can keep using
+   * the raw `setSelectedCar` above. */
+  selectCar: (carId: PlayerCarId) => void;
   setQuality: (quality: Settings['quality']) => void;
   toggleMuted: () => void;
   /** A11y (Phase 16): persist the reduced-camera-shake preference. Read from non-React
@@ -136,7 +198,9 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   tier: 0,
   score: 0,
   playerHp: 100,
-  seed: WORLD_GEN.defaultSeed,
+  selectedCarId: 'rustySedan',
+  unlockedCarIds: hydrateUnlockedCarIds(),
+  seed: hydrateSeed(),
   runId: 0,
   settings: loadSettings(),
 
@@ -147,7 +211,16 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     // `set` call in that environment.
     assertTransition(from, to);
     if (canTransition(from, to)) {
-      set({ machine: to });
+      // Phase 17: a FRESH run (garage -> playing) starts at the SELECTED car's full HP —
+      // 60 for the racer, 260 for the streetcar. Only this edge refills: PAUSED->PLAYING
+      // is a resume (damage must survive a pause), and the GAMEOVER->PLAYING retry edge
+      // is refilled by runReset() below (combat/runLoop.ts calls it alongside the
+      // transition), which reads the same per-car source.
+      if (to === 'PLAYING' && from === 'GARAGE') {
+        set({ machine: to, playerHp: selectedCarHp(get().selectedCarId) });
+      } else {
+        set({ machine: to });
+      }
     }
   },
 
@@ -185,6 +258,18 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   setPlayerHp: (hp) => set({ playerHp: hp }),
   setSeed: (seed) => set({ seed }),
 
+  setSelectedCar: (carId) => set({ selectedCarId: carId }),
+
+  selectCar: (carId) => {
+    if (!get().unlockedCarIds.includes(carId)) {
+      if (import.meta.env.DEV) {
+        console.warn(`[store] selectCar("${carId}") rejected — not yet unlocked.`);
+      }
+      return;
+    }
+    set({ selectedCarId: carId });
+  },
+
   setQuality: (quality) => {
     set((state) => {
       const settings = { ...state.settings, quality };
@@ -212,8 +297,15 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   hardReset: () => {
     // BOOT has no predecessor in TRANSITIONS, so this intentionally bypasses
     // assertTransition rather than going through `transition`. Settings and seed are
-    // meta-progression (not run state) and survive.
-    set({ machine: 'BOOT', heat: 0, tier: 0, score: 0, playerHp: 100 });
+    // meta-progression (not run state) and survive — as does the car selection, so the
+    // hp refill reads the selected car (Phase 17), not a hardcoded 100.
+    set((s) => ({
+      machine: 'BOOT',
+      heat: 0,
+      tier: 0,
+      score: 0,
+      playerHp: selectedCarHp(s.selectedCarId),
+    }));
   },
 
   runReset: () => {
@@ -221,9 +313,28 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     // (a real GAMEOVER->PLAYING edge) is what moves the machine; this action only ever
     // touches run-scoped numbers. runId++ drives the full-remount retry contract (see
     // the field's doc comment). See the GameStoreState doc comment above.
-    set((s) => ({ heat: 0, tier: 0, score: 0, playerHp: 100, runId: s.runId + 1 }));
+    set((s) => ({
+      heat: 0,
+      tier: 0,
+      score: 0,
+      playerHp: selectedCarHp(s.selectedCarId),
+      runId: s.runId + 1,
+    }));
   },
 }));
+
+// Phase 17: extends `unlockedCarIds` as `carUnlocked` events arrive (state/persistence.ts's
+// recordRunEnd emits one per NEWLY crossed threshold when a run's score folds into
+// lifetimeScore). Subscribed once at MODULE-EVALUATION time — mirrors hud/gameOverRunEnd.ts's
+// "listen before the first run can ever end" reasoning — rather than a store action
+// persistence.ts calls directly, so the two modules stay decoupled through the typed event
+// catalog (CLAUDE.md: "systems stay decoupled") instead of persistence.ts reaching into the
+// store. Append-only and dedup-guarded; never removes an id.
+gameEvents.on('carUnlocked', ({ carId }) => {
+  const { unlockedCarIds } = useGameStore.getState();
+  if (unlockedCarIds.includes(carId)) return;
+  useGameStore.setState({ unlockedCarIds: [...unlockedCarIds, carId] });
+});
 
 // Convenience for non-React systems (AI, physics callbacks, etc.) that need a one-shot
 // read without subscribing.

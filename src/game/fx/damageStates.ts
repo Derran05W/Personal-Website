@@ -28,11 +28,12 @@ import { useEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Color } from 'three';
 import { DAMAGE_VISUALS } from '../config/damageVisuals';
-import { ENEMY_UNITS, PLAYER_CARS } from '../config/vehicles';
+import { ENEMY_UNITS } from '../config/vehicles';
 import { TRAFFIC_CIV } from '../config/world';
 import { gameEvents } from '../state/events';
 import { getGameState } from '../state/store';
 import { playerVehicle } from '../vehicles/playerRef';
+import { getSelectedCarDef } from '../vehicles/definitions';
 import { trafficRef } from '../ai/trafficTypes';
 import { unitsRef, type UnitKind } from '../ai/pursuitTypes';
 import { attachFxEmitter, type FxEmitter } from './particleFeed';
@@ -244,9 +245,8 @@ function pollPlayer(nowSec: number): void {
     return;
   }
   const state = getGameState();
-  const maxHp = PLAYER_CARS.rustySedan.hp; // Phase 16 scope: the only car that exists yet —
-  // Phase 17's garage will need a "current car's max hp" selector here once more than one
-  // car can be equipped.
+  const maxHp = getSelectedCarDef().hp; // Phase 17: the selected car's full HP is the damage/
+  // visual max-HP source of truth (smoke/fire thresholds scale to whatever car is equipped).
   const lostFrac = hpLostFraction(state.playerHp, maxHp);
   const wrecked = state.playerHp <= 0;
   stepTrackedEntity(

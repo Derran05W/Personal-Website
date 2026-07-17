@@ -31,7 +31,7 @@
 import { useEffect } from 'react';
 import { Color, Matrix4, Vector3 } from 'three';
 import { DAMAGE } from '../config/damage';
-import { ENEMY_UNITS } from '../config/vehicles';
+import { ENEMY_UNITS, PLAYER_CARS } from '../config/vehicles';
 import { gameEvents } from '../state/events';
 import { getGameState } from '../state/store';
 import { getDevToggles } from '../core/devToggles';
@@ -86,11 +86,31 @@ export function computeDamage(
 }
 
 /**
+ * The selected player car's damage-model mass factor: PLAYER_CARS[selectedCarId].massFactor,
+ * read LIVE from the store (state/store.ts). These authored values (sedan 1.0, racer 0.8,
+ * pickup 1.4, bus 2.6, monster 2.2, Red Rocket 3.0) are already expressed as a factor relative
+ * to the reference chassis (DAMAGE.referenceMassKg = the sedan's 1200 kg), so a bus rams 2.6×
+ * as hard as the sedan and a street racer 0.8× — exactly the same "factor vs reference"
+ * convention massFactorOf() applies to props and pursuit units, so they compose in one formula.
+ *
+ * Phase 17: the player is NO LONGER hard-coded to 1. The sedan still resolves to exactly 1
+ * (it IS the reference), so the M1-signed-off feel and every pre-Phase-17 test are byte-
+ * identical while rustySedan is selected; heavier/lighter cars scale the damage OTHERS take
+ * from a player ram. Damage the player TAKES is unaffected — that is governed by the ATTACKER's
+ * mass factor (massFactorOf(other) in applySideDamage), never the player's own — so a racer's
+ * fragility stays its 60 hp, not a reduced-incoming discount. Read live (not cached at mount)
+ * so it always reflects the current run's car regardless of any mount-timing coupling.
+ */
+export function playerMassFactor(): number {
+  return PLAYER_CARS[getGameState().selectedCarId].massFactor;
+}
+
+/**
  * The "other side's mass factor" for the damage formula: entry's mass (DAMAGE.archetypeMassKg
- * for its archetype, or the reference mass for the player — it IS the reference, so its own
- * factor is always exactly 1) divided by DAMAGE.referenceMassKg. Entities with no known mass
- * (undefined entry, buildings, unlisted archetypes, civilian units — not modeled yet) default
- * to factor 1, per this phase's documented scope.
+ * for its archetype, the selected car's factor for the player — see playerMassFactor above)
+ * divided by DAMAGE.referenceMassKg. Entities with no known mass (undefined entry, buildings,
+ * unlisted archetypes, civilian units — not modeled yet) default to factor 1, per this phase's
+ * documented scope.
  *
  * Phase 10 extension: `kind: 'pursuit'` entries carry their own `unitKind` (world/registry.ts
  * seam) set by the unit factories (ai/units/*) — ENEMY_UNITS[unitKind].massFactor IS ALREADY
@@ -102,7 +122,7 @@ export function computeDamage(
  */
 export function massFactorOf(entry: EntityEntry | undefined): number {
   if (!entry) return 1;
-  if (entry.kind === 'player') return 1;
+  if (entry.kind === 'player') return playerMassFactor();
   if (entry.kind === 'pursuit' && entry.unitKind) {
     return ENEMY_UNITS[entry.unitKind].massFactor;
   }

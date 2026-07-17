@@ -250,6 +250,93 @@ describe('runStarted', () => {
   });
 });
 
+// --- Phase 17: Suspense-race catch-up (root-caused live: a fast start-click can beat this
+// system's wasm-gated mount, losing the runStarted edge for the whole run) --------------------
+
+describe('mount-time run catch-up', () => {
+  it('initRunLoopSystem while ALREADY PLAYING emits runStarted immediately (the missed-edge rescue)', () => {
+    const handler = vi.fn();
+    gameEvents.on('runStarted', handler);
+    const store = useGameStore.getState();
+    store.setSeed(777);
+    store.transition('LOADING');
+    store.transition('GARAGE');
+    store.transition('PLAYING'); // run begins BEFORE the system mounts (no subscriber yet)
+    expect(handler).not.toHaveBeenCalled();
+
+    const off = initRunLoopSystem(); // late mount — must catch up
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith({ seed: 777 });
+    off();
+  });
+
+  it('a keyed remount mid-run does NOT double-emit for a run the subscription already began', () => {
+    const handler = vi.fn();
+    gameEvents.on('runStarted', handler);
+    const off1 = initRunLoopSystem();
+    const store = useGameStore.getState();
+    store.transition('LOADING');
+    store.transition('GARAGE');
+    store.transition('PLAYING'); // subscription path begins the run
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    off1(); // keyed remount: teardown + fresh init while still PLAYING, same run nonce
+    const off2 = initRunLoopSystem();
+    expect(handler).toHaveBeenCalledTimes(1); // nonce guard: no second runStarted
+    off2();
+  });
+});
+
+// --- Phase 17: entering the garage ENDS the run (found live in the six-car audit) -----------------
+
+describe('garage re-entry ends the run', () => {
+  it('PAUSED->GARAGE folds the partial score (runEnded reason "quit") and resets the run', () => {
+    const runEnded = vi.fn();
+    gameEvents.on('runEnded', runEnded);
+    const off = initRunLoopSystem();
+    const store = useGameStore.getState();
+    store.transition('LOADING');
+    store.transition('GARAGE');
+    store.transition('PLAYING');
+    store.addHeat(50);
+    store.addScore(123);
+    const runIdBefore = useGameStore.getState().runId;
+
+    store.transition('PAUSED');
+    store.transition('GARAGE'); // pause menu "Garage" / `G`
+
+    const s = useGameStore.getState();
+    expect(runEnded).toHaveBeenCalledTimes(1);
+    expect(runEnded).toHaveBeenCalledWith({ score: 123, reason: 'quit' });
+    expect(s.heat).toBe(0);
+    expect(s.score).toBe(0);
+    expect(s.runId).toBe(runIdBefore + 1); // world remounts pristine behind the garage
+    off();
+  });
+
+  it('GAMEOVER->GARAGE resets the run WITHOUT a second runEnded (the real one already fired)', () => {
+    const runEnded = vi.fn();
+    const off = initRunLoopSystem();
+    const store = useGameStore.getState();
+    store.transition('LOADING');
+    store.transition('GARAGE');
+    store.transition('PLAYING');
+    store.addHeat(80);
+    store.transition('PAUSED');
+    store.transition('GAMEOVER');
+    gameEvents.on('runEnded', runEnded); // subscribe AFTER game over — count garage-entry emits only
+    const runIdBefore = useGameStore.getState().runId;
+
+    store.transition('GARAGE'); // game-over `G`
+
+    const s = useGameStore.getState();
+    expect(runEnded).not.toHaveBeenCalled();
+    expect(s.heat).toBe(0);
+    expect(s.runId).toBe(runIdBefore + 1);
+    off();
+  });
+});
+
 // --- integration: WRECKED flow -------------------------------------------------------------------
 
 describe('WRECKED flow', () => {

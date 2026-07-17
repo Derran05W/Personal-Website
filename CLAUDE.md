@@ -88,7 +88,7 @@ Status: `[ ]` todo · `[~]` in progress · `[!]` blocked / awaiting user · `[x]
 - [x] **Phase 16 — FX & juice pass** (M7c) — 2026-07-17: 500-slot/2-draw-call particle system + 8 presets, slip-triggered skids + tire smoke, damage tint/smoke/fire states, per-source shake + FOV kick + reducedShake, BUSTED wash/WRECKED beat/DARK CITY treatment, road-follow pursuit slice; found & fixed TWO buried regressions (TankMesh/Explosions/TankTelegraph never mounted since P12 — tanks couldn't spawn, blasts had no visuals; spark-spam pool saturation); bench 92-95/150 calls heapΔ0, 5-min soak flat, 1,196 tests (see phase-16-notes.md). M7/Part 5 COMPLETE.
 
 ### Part 6 — Ship It (`.planning/part-6-ship.md`)
-- [ ] **Phase 17 — Garage, six cars, unlocks, persistence** (M8a)
+- [x] **Phase 17 — Garage, six cars, unlocks, persistence** (M8a) — 2026-07-17: grade→param mapping w/ test-locked sedan invariance, six distinct procedural cars + real garage (cards/bars/locks/keyboard), monster crush + heavy plow + boat-turn specials, lifetime-score unlocks + toast + v1-additive persistence (lastSeed/unlockedCarIds); found & fixed THREE live bugs (garage re-entry never ended the run; pre-existing run-start Suspense race — runStarted lost to a fast click, engine audio/lastSeed dead; HP bar % math wrong for non-100-hp cars); ★5 regression heaviest+lightest clean, bench 92/150 heapΔ0, 1,320 tests (see phase-17-notes.md).
 - [ ] **Phase 18 — Mobile controls & quality tiers** (M8b) — USER GATE: real-phone test
 - [ ] **Phase 19 — Toronto landmark layer & lighting polish** (M9)
 - [ ] **Phase 20 — Content, SEO, credits, launch** (M10) — USER GATE: real content + launch approval

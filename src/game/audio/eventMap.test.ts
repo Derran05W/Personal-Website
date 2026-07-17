@@ -262,6 +262,7 @@ describe('EVENT_SOUND_DOC', () => {
     'runEnded',
     'darkCity',
     'enteredWater',
+    'carUnlocked',
   ];
 
   it('documents every GameEventMap key exactly once, with a non-empty description', () => {

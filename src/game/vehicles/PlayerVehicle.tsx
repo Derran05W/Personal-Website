@@ -13,7 +13,7 @@
 // Do NOT wire this into game/index.tsx here — the phase orchestrator integrates it (and the
 // car mesh is a separate task, passed in as {children}).
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import {
   CuboidCollider,
   RigidBody,
@@ -22,9 +22,10 @@ import {
   type RapierRigidBody,
 } from '@react-three/rapier';
 import { Group } from 'three';
-import { interactionGroups, VEHICLE_TUNING } from '../config';
+import { interactionGroups } from '../config';
 import { getDrivingInput } from '../input';
 import { createRaycastVehicle } from './raycastVehicle';
+import { getSelectedCarDef } from './definitions';
 import { playerVehicle } from './playerRef';
 import { dispatchContactForce } from '../combat/contacts';
 import { registerEntity, unregisterEntity } from '../world/registry';
@@ -47,7 +48,12 @@ export function PlayerVehicle({ position = [0, 1, 0], children }: PlayerVehicleP
   const bodyRef = useRef<RapierRigidBody>(null);
   const groupRef = useRef<Group>(null);
 
-  const { chassis } = VEHICLE_TUNING;
+  // Phase 17: resolve the selected car ONCE at mount (the "spawn read once" contract — the car
+  // can't change mid-run: the garage is only reachable outside PLAYING, and index.tsx keys this
+  // mount on the selected car so a car swap fully remounts). getSelectedCarDef() hands the sedan
+  // the VEHICLE_TUNING reference (leva-live + M1-exact) and every other car a resolved snapshot.
+  const carDef = useMemo(() => getSelectedCarDef(), []);
+  const { chassis } = carDef.controller;
 
   // Instantiate + tear down the vehicle model alongside the body. StrictMode-safe: the
   // effect creates a fresh model each mount and destroy()/null are idempotent, so the dev
@@ -57,7 +63,14 @@ export function PlayerVehicle({ position = [0, 1, 0], children }: PlayerVehicleP
     const object = groupRef.current;
     if (!body || !object) return;
 
-    const model = createRaycastVehicle({ world, rapier, body, object });
+    const model = createRaycastVehicle({
+      world,
+      rapier,
+      body,
+      object,
+      tuning: carDef.controller,
+      topSpeed: carDef.topSpeed,
+    });
     model.create({
       position: { x: position[0], y: position[1], z: position[2] },
       rotation: { x: 0, y: 0, z: 0, w: 1 },

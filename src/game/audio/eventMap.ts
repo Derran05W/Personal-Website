@@ -41,6 +41,7 @@
 import { gameEvents, type GameEventMap } from '../state/events';
 import { getGameState } from '../state/store';
 import { playerVehicle } from '../vehicles/playerRef';
+import { getSelectedCarDef } from '../vehicles/definitions';
 import { readTracers } from '../combat/tracerFeed';
 import { readExplosions } from '../combat/explosionFeed';
 import { STARTER_TOP_SPEED } from '../config/vehicles';
@@ -244,7 +245,10 @@ function getEngineVoice(): EngineVoice | null {
 }
 
 export function startEngineLoop(): void {
-  startLoop('engine', { speed: 0, throttle: 0 });
+  // Phase 17: transpose the engine voice by the selected car's base pitch (buildEngine reads
+  // `enginePitch` once at build). The loop is (re)built here on every runStarted, and a car
+  // can't change mid-run, so reading the selection at loop-start is the correct, stable moment.
+  startLoop('engine', { speed: 0, throttle: 0, enginePitch: getSelectedCarDef().enginePitch });
 }
 
 export function stopEngineLoop(): void {
@@ -415,6 +419,7 @@ export const EVENT_SOUND_DOC: Record<keyof GameEventMap, string> = {
   runEnded: 'stop engine + ambience loop (graceful — synth.ts\'s own release tails, not a hard cut)',
   darkCity: 'ambience swap city -> crickets (nextAmbience)',
   enteredWater: 'impact, low velocity trim (splash-ish stand-in — no dedicated splash synth exists in this pass; a real watery variant is a reasonable Task 2/16 follow-up)',
+  carUnlocked: 'no-op in the audio map — the unlock cue (score-screen toast + garage badge; a uiTick if the garage/HUD layer wants one) is owned there, not here. No dedicated unlock jingle in this pass; adding one is a clean follow-up.',
 };
 
 // ============================================================================================
