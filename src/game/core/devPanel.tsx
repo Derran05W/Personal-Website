@@ -20,10 +20,16 @@ import { getDevToggles, setDevToggle } from './devToggles';
 import { loadProgress, resetProgress } from '../state/persistence';
 import { trafficRef } from '../ai/trafficTypes';
 import { unitsRef, type UnitSlot } from '../ai/pursuitTypes';
-import { forceBustedGameOver } from './debugBridge';
+import {
+  forceBustedGameOver,
+  blackoutDistrict,
+  blackoutAll,
+  relightDistrict,
+  relightAll,
+} from './debugBridge';
 import { startChaosBench } from '../ai/chaosBench';
-import { ARCHETYPES, EMISSIVE_ARCHETYPES } from '../world/archetypes';
-import { DISTRICT_COUNT, setDistrictColor, setDistrictEmissive } from '../world/instancing';
+import { ARCHETYPES } from '../world/archetypes';
+import { DISTRICT_COUNT, setDistrictColor } from '../world/instancing';
 import { derivePlacements } from '../world/propPlacements';
 import { worldRef } from '../world/worldRef';
 
@@ -530,21 +536,29 @@ export default function DevPanel() {
         value: getDevToggles().aimViz,
         onChange: (value: boolean) => setDevToggle('aimViz', value),
       },
-      // Task 5 district-range proof: each button fans over every archetype (or every
-      // EMISSIVE archetype) and writes exactly one district's [start,count] slice. Eyeball
-      // adjacent districts in the result — only `tintDistrict`'s district should change.
+      // Phase 13 Task 4: pooled dynamic-light position viz (minimap dots — see
+      // core/devToggles.ts's lightPoolViz doc comment for why dots over an in-scene
+      // marker set).
+      lightPoolViz: {
+        value: getDevToggles().lightPoolViz,
+        onChange: (value: boolean) => setDevToggle('lightPoolViz', value),
+      },
+      // Task 5 district-range proof: fans over every archetype and writes exactly one
+      // district's [start,count] slice. Eyeball adjacent districts in the result — only
+      // `tintDistrict`'s district should change.
       'tint district (red)': button(() => {
         const d = getWorldField('tintDistrict');
         for (const name of ARCHETYPES) setDistrictColor(name, d, TINT_COLOR);
       }),
-      'blackout district': button(() => {
-        const d = getWorldField('tintDistrict');
-        for (const name of EMISSIVE_ARCHETYPES) setDistrictEmissive(name, d, 0);
-      }),
-      'relight district': button(() => {
-        const d = getWorldField('tintDistrict');
-        for (const name of EMISSIVE_ARCHETYPES) setDistrictEmissive(name, d, 1);
-      }),
+      // Phase 13 Task 4: blackout/relight one district, or every district at once — routed
+      // through core/debugBridge.ts's blackoutDistrict/blackoutAll/relightDistrict/
+      // relightAll so the devPanel, the minimap overlay, and window.__smashy all observe
+      // the same lit/dark state, real +12 heat, and (once wired) real DARK CITY at 16/16 —
+      // see that module's doc comment for exactly what each button drives.
+      'blackout district': button(() => blackoutDistrict(getWorldField('tintDistrict'))),
+      'relight district': button(() => relightDistrict(getWorldField('tintDistrict'))),
+      'blackout ALL': button(() => blackoutAll()),
+      'relight ALL': button(() => relightAll()),
     }),
     [],
   );

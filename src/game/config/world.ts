@@ -125,6 +125,49 @@ export const POWER_GRID = {
   lightPoolSize: 6,
 } as const;
 
+// The real dynamic-light pool that trails the player (powergrid/lightPool.ts + LightPool.tsx;
+// TDD §5.8/§8.2). Blue-hour streets read as *actually lit* only right around the car: a
+// handful of real PointLights follow the player and snap to the nearest LIT streetlight
+// heads, while blacked-out districts never receive one — that contrast is what makes a
+// blackout land. Size is POWER_GRID.lightPoolSize (single source of truth for the "4-6
+// lights" budget); everything else is a feel/perf knob surfaced live in the Config →
+// LIGHT_POOL folder. `color` is a hex string, so the leva auto-schema (number/boolean
+// leaves only) skips it — retune it in code. The intensity/distance/height numbers are
+// placeholder look values pending the live blue-hour check.
+export const LIGHT_POOL = {
+  // Number of real PointLights in the pool — derived from POWER_GRID.lightPoolSize so the
+  // budget lives in exactly one place. STRUCTURAL: it fixes the <pointLight> element count
+  // at mount, so changing it needs a reload, not just a leva tweak.
+  size: POWER_GRID.lightPoolSize,
+  // three.js PointLight intensity (candela — the renderer runs physically-based lights, so
+  // this is the same unit regime as EXPLOSION.light.intensity). Sized so a warm pool reads
+  // on the dark asphalt without blowing out; tune against the live scene.
+  intensity: 12,
+  // PointLight `distance` (m): the falloff radius. ~1.5 tiles so one light pools the road
+  // around its streetlight without bleeding across a whole block.
+  distanceM: 16,
+  // World Y (m) the light sits at — the streetlight lamp head (the streetlight pole is
+  // PROP_DIMS.streetlight.poleHeightM = 5.5 m and the lamp head hangs just under the top),
+  // so the pool falls from the lamp down onto the street like a real sodium head.
+  headHeightM: 5,
+  // Warm sodium-lamp tone, matching the emissive lamp-head palette cell (streetlightWarm ≈
+  // #ffb44d) but a touch softer/paler for the cast pool.
+  color: '#ffc27a',
+  // Fade duration (s) for ONE leg of a handoff: on reassignment a light fades OUT at its old
+  // streetlight over this long, then fades IN at the new one over this long again (~250 ms
+  // each ⇒ ~500 ms total), so a light never pops as the pool trails the player.
+  fadeSec: 0.25,
+  // Reassignment cadence (Hz): how often the nearest-lit set is recomputed and the pool is
+  // re-targeted. 5 Hz is imperceptible for a slowly-trailing pool and keeps the distance
+  // sort (a few hundred streetlights) well off the per-frame budget.
+  reassignHz: 5,
+  // Assignment hysteresis (fraction): an incumbent streetlight is retained even when a rival
+  // is nearer, as long as the incumbent stays within this fraction of the Nth-nearest cutoff
+  // — so the pool doesn't thrash between two near-equal candidates as the car creeps between
+  // them.
+  hysteresisPct: 0.1,
+} as const;
+
 // Procedural geometry dimensions for the instanced city (world/geometry/*.ts, Phase 5 Task
 // 2). Every builder there is parameterless except buildings (which take a bucketed variant
 // spec) — one canonical geometry per street-prop archetype, shared by every instance via

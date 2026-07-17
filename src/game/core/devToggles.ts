@@ -36,6 +36,13 @@ export interface DevToggles {
    * (debug-owned) LOS raycast is clear, red when a building blocks it. Same lazy +
    * toggle-gated mount pattern as `squadViz`/`graphViz`. Default off. */
   aimViz: boolean;
+  /** Phase 13 Task 4 debug tool: pooled dynamic-light position viz. Rendered as small dots
+   * on hud/Minimap.tsx rather than an in-scene marker set — chosen over a 3D marker set as
+   * the cheaper/clearer option (no extra scene objects/materials, reuses the minimap's
+   * already-cheap 10 Hz 2D canvas redraw; see core/debugBridge.ts's getLightPoolPositions
+   * doc comment for the data source, a stub returning [] until powergrid/lightPool.ts
+   * (Task 3, concurrent this wave) lands). Default off. */
+  lightPoolViz: boolean;
 }
 
 const toggles: DevToggles = {
@@ -44,6 +51,7 @@ const toggles: DevToggles = {
   squadViz: false,
   invincible: false,
   aimViz: false,
+  lightPoolViz: false,
 };
 const listeners = new Set<() => void>();
 

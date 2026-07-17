@@ -6,6 +6,7 @@ import {
   loadProgress,
   recordRunEnd,
   resetProgress,
+  setDarkCityUnlocked,
 } from './persistence';
 
 beforeEach(() => {
@@ -92,6 +93,69 @@ describe('recordRunEnd', () => {
     // ...but nothing actually landed in storage: a fresh read (getItem isn't mocked) sees
     // no persisted progress at all.
     expect(loadProgress()).toEqual({ v: 1, bestScore: 0, lifetimeScore: 0 });
+  });
+});
+
+describe('darkCityUnlocked (Phase 13 — optional, version-safe v1 extension)', () => {
+  it('is absent (undefined) on a fresh envelope — no extra key added by default', () => {
+    const progress = loadProgress();
+    expect(progress).toEqual({ v: 1, bestScore: 0, lifetimeScore: 0 });
+    expect(progress.darkCityUnlocked).toBeUndefined();
+  });
+
+  it('setDarkCityUnlocked sets the flag and writes through, leaving score fields untouched', () => {
+    recordRunEnd(30); // bestScore/lifetimeScore = 30 before any DARK CITY
+    const result = setDarkCityUnlocked();
+    expect(result).toEqual({ v: 1, bestScore: 30, lifetimeScore: 30, darkCityUnlocked: true });
+    expect(loadProgress()).toEqual({ v: 1, bestScore: 30, lifetimeScore: 30, darkCityUnlocked: true });
+  });
+
+  it('is idempotent — a second call does not re-write or change the envelope', () => {
+    setDarkCityUnlocked();
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    const result = setDarkCityUnlocked();
+    expect(result).toEqual({ v: 1, bestScore: 0, lifetimeScore: 0, darkCityUnlocked: true });
+    expect(setItemSpy).not.toHaveBeenCalled();
+  });
+
+  it('recordRunEnd (a later run ending) preserves an already-set darkCityUnlocked flag', () => {
+    setDarkCityUnlocked(); // e.g. tripped mid-run, before this run's own runEnded fires
+    const result = recordRunEnd(50);
+    expect(result).toEqual({ v: 1, bestScore: 50, lifetimeScore: 50, darkCityUnlocked: true });
+    expect(loadProgress()).toEqual({ v: 1, bestScore: 50, lifetimeScore: 50, darkCityUnlocked: true });
+  });
+
+  it('recordRunEnd on an envelope that never unlocked it keeps round-tripping with no extra key', () => {
+    recordRunEnd(20);
+    expect(loadProgress()).toEqual({ v: 1, bestScore: 20, lifetimeScore: 20 });
+  });
+
+  it('loadProgress accepts a stored envelope missing the key (pre-Phase-13 shape)', () => {
+    localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify({ v: 1, bestScore: 10, lifetimeScore: 10 }));
+    expect(loadProgress()).toEqual({ v: 1, bestScore: 10, lifetimeScore: 10 });
+  });
+
+  it('loadProgress accepts a stored envelope with darkCityUnlocked: true', () => {
+    localStorage.setItem(
+      PROGRESS_STORAGE_KEY,
+      JSON.stringify({ v: 1, bestScore: 5, lifetimeScore: 5, darkCityUnlocked: true }),
+    );
+    expect(loadProgress()).toEqual({ v: 1, bestScore: 5, lifetimeScore: 5, darkCityUnlocked: true });
+  });
+
+  it('loadProgress rejects a stored envelope with a wrong-typed darkCityUnlocked (falls back to defaults)', () => {
+    localStorage.setItem(
+      PROGRESS_STORAGE_KEY,
+      JSON.stringify({ v: 1, bestScore: 5, lifetimeScore: 5, darkCityUnlocked: 'yes' }),
+    );
+    expect(loadProgress()).toEqual({ v: 1, bestScore: 0, lifetimeScore: 0 });
+  });
+
+  it('degrades silently when localStorage.setItem throws', () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('quota exceeded');
+    });
+    expect(() => setDarkCityUnlocked()).not.toThrow();
   });
 });
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { WORLD } from '../config';
 import { districtIdAt, tileCenter, type WorldData } from '../world/types';
-import { TILE_COLORS, worldToMapPx } from './minimapMath';
+import { districtPixelRect, TILE_COLORS, worldToMapPx } from './minimapMath';
 
 const MAP_PX = 192;
 
@@ -118,6 +118,60 @@ describe('worldToMapPx', () => {
 
     expect(toPx.x).toBeGreaterThan(fromPx.x); // node B is further east (col 7 vs col 0)
     expect(toPx.y).toBeCloseTo(fromPx.y, 9); // same row
+  });
+});
+
+describe('districtPixelRect', () => {
+  const MAP_PX_TEST = 192;
+  const EXPECTED_SIZE = MAP_PX_TEST / WORLD.districts; // 4x4 grid -> one quarter of the map per side
+
+  it('places district 0 (dCol=0, dRow=0) at the map\'s NW corner', () => {
+    const rect = districtPixelRect(0, MAP_PX_TEST);
+    expect(rect.x).toBeCloseTo(0, 9);
+    expect(rect.y).toBeCloseTo(0, 9);
+    expect(rect.size).toBeCloseTo(EXPECTED_SIZE, 9);
+  });
+
+  it('places the last district (15) flush against the SE (lakefront) corner', () => {
+    const last = WORLD.districts * WORLD.districts - 1;
+    const rect = districtPixelRect(last, MAP_PX_TEST);
+    expect(rect.x + rect.size).toBeCloseTo(MAP_PX_TEST, 9);
+    expect(rect.y + rect.size).toBeCloseTo(MAP_PX_TEST, 9);
+  });
+
+  it('derives dCol/dRow the same way districtIdAt does (id = dRow * districts + dCol)', () => {
+    // District 6 in a 4x4 grid: dRow=1, dCol=2. Its region should contain the world-space
+    // center of a tile known (via districtIdAt) to belong to district 6.
+    const id = 6;
+    const dRow = Math.floor(id / WORLD.districts);
+    const dCol = id % WORLD.districts;
+    const perSide = WORLD.tiles / WORLD.districts;
+    const col = dCol * perSide + Math.floor(perSide / 2);
+    const row = dRow * perSide + Math.floor(perSide / 2);
+    expect(districtIdAt(col, row)).toBe(id);
+
+    const { x, z } = tileCenter(col, row);
+    const px = worldToMapPx(x, z, MAP_PX_TEST);
+    const rect = districtPixelRect(id, MAP_PX_TEST);
+    expect(px.x).toBeGreaterThanOrEqual(rect.x);
+    expect(px.x).toBeLessThanOrEqual(rect.x + rect.size);
+    expect(px.y).toBeGreaterThanOrEqual(rect.y);
+    expect(px.y).toBeLessThanOrEqual(rect.y + rect.size);
+  });
+
+  it('tiles the map with no gaps: adjacent districts along a row touch exactly', () => {
+    const rectA = districtPixelRect(0, MAP_PX_TEST); // dCol 0, dRow 0
+    const rectB = districtPixelRect(1, MAP_PX_TEST); // dCol 1, dRow 0
+    expect(rectB.x).toBeCloseTo(rectA.x + rectA.size, 9);
+    expect(rectB.y).toBeCloseTo(rectA.y, 9);
+  });
+
+  it('scales linearly with mapPx for a fixed district', () => {
+    const small = districtPixelRect(6, 96);
+    const big = districtPixelRect(6, 192);
+    expect(big.x).toBeCloseTo(small.x * 2, 9);
+    expect(big.y).toBeCloseTo(small.y * 2, 9);
+    expect(big.size).toBeCloseTo(small.size * 2, 9);
   });
 });
 

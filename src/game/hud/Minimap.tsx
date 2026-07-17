@@ -13,13 +13,23 @@ import { tileCenter } from '../world/types';
 import { worldRef } from '../world/worldRef';
 import { playerVehicle } from '../vehicles/playerRef';
 import { useDevToggle } from '../core/devToggles';
-import { TILE_COLORS, worldToMapPx } from './minimapMath';
+import { isDistrictDark, getLightPoolPositions } from '../core/debugBridge';
+import { TILE_COLORS, districtPixelRect, worldToMapPx } from './minimapMath';
 
 const MAP_PX = 192;
 const REDRAW_INTERVAL_MS = 100; // ~10 Hz — a debug tool, not part of the render loop.
 const PLAYER_DOT_RADIUS_PX = 3;
 const EDGE_STROKE = 'rgba(255, 255, 255, 0.35)';
 const PLAYER_DOT_COLOR = '#ff3b3b';
+// Phase 13 Task 4: dark-district overlay + light-pool viz dots. DISTRICT_COUNT mirrors
+// world/instancing.ts's derivation (WORLD.districts squared) without importing that
+// (three.js-heavy) module into this tiny DOM-canvas component.
+const DISTRICT_COUNT = WORLD.districts * WORLD.districts;
+// Deliberately more opaque/darker than any TILE_COLORS entry so a dark district reads as
+// visibly "dead" at a glance, not just a slightly muddier version of its lit tiles.
+const DISTRICT_DARK_FILL = 'rgba(4, 6, 10, 0.72)';
+const LIGHT_POOL_DOT_COLOR = '#ffd166';
+const LIGHT_POOL_DOT_RADIUS_PX = 2;
 
 // Fixed bottom-left. Header is a fixed 64px bar at the TOP (z-index 50, app/Header.css);
 // there is no site footer, so bottom-left is clear real estate — the 12px inset just keeps
@@ -42,6 +52,7 @@ const canvasStyle: CSSProperties = { width: '100%', height: '100%', display: 'bl
 
 export default function Minimap() {
   const visible = useDevToggle('minimap');
+  const lightPoolVizOn = useDevToggle('lightPoolViz');
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -62,6 +73,18 @@ export default function Minimap() {
         const { x, y } = worldToMapPx(wx, wz, MAP_PX);
         ctx.fillStyle = TILE_COLORS[tile.type];
         ctx.fillRect(x - blockPx / 2, y - blockPx / 2, blockPx, blockPx);
+      }
+
+      // Phase 13 Task 4: dark-district overlay — one flat alpha square per dark district
+      // over its 16x16-tile region (minimapMath.districtPixelRect), drawn on top of that
+      // district's tiles so it reads as visibly dead at a glance. Read at this same 10 Hz
+      // tick from core/debugBridge.ts's isDistrictDark — see that module's doc comment for
+      // what it stands in for pre-integration (Tasks 1-2's real powergrid/grid.ts).
+      for (let d = 0; d < DISTRICT_COUNT; d++) {
+        if (!isDistrictDark(d)) continue;
+        const { x, y, size } = districtPixelRect(d, MAP_PX);
+        ctx.fillStyle = DISTRICT_DARK_FILL;
+        ctx.fillRect(x, y, size, size);
       }
 
       // Traffic graph edges, thin lines. Looked up by id (not array index) — TrafficNode
@@ -90,12 +113,28 @@ export default function Minimap() {
         ctx.arc(x, y, PLAYER_DOT_RADIUS_PX, 0, Math.PI * 2);
         ctx.fill();
       }
+
+      // Phase 13 Task 4: light-pool viz, opt-in (core/devToggles.ts's `lightPoolViz`,
+      // default off) — small dots at the pooled dynamic lights' world positions, chosen
+      // over an in-scene marker set as the cheaper/clearer option (see that toggle's doc
+      // comment). Reads core/debugBridge.ts's getLightPoolPositions, a stub returning []
+      // until powergrid/lightPool.ts (Task 3, concurrent this wave) lands and exposes real
+      // pool positions.
+      if (lightPoolVizOn) {
+        ctx.fillStyle = LIGHT_POOL_DOT_COLOR;
+        for (const p of getLightPoolPositions()) {
+          const { x, y } = worldToMapPx(p.x, p.z, MAP_PX);
+          ctx.beginPath();
+          ctx.arc(x, y, LIGHT_POOL_DOT_RADIUS_PX, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
     };
 
     draw();
     const id = setInterval(draw, REDRAW_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [visible]);
+  }, [visible, lightPoolVizOn]);
 
   if (!visible) return null;
 

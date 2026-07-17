@@ -12,6 +12,12 @@ import { spawnPoseRef } from '../world/spawn';
 import type { VehiclePose, VehicleState } from '../vehicles/IVehicleModel';
 import { ARCHETYPES, EMISSIVE_ARCHETYPES } from '../world/archetypes';
 import { setDistrictColor, setDistrictEmissive as setDistrictEmissiveRange } from '../world/instancing';
+import { DISTRICT_COUNT, gridRef } from '../powergrid/grid';
+import {
+  isDistrictDark as emittersIsDistrictDark,
+  relightDistrict as emittersRelightDistrict,
+  setDistrictDark,
+} from '../powergrid/emitters';
 import { getImpactCount, onImpact } from '../combat/contacts';
 import { trafficRef } from '../ai/trafficTypes';
 import { gameEvents } from '../state/events';
@@ -63,6 +69,82 @@ onImpact((impact) => {
 // a screenshot script driving this bridge headlessly reproduces exactly what the leva
 // button does.
 const TINT_COLOR = new Color('#ff2222');
+
+// Phase 13 Task 4 debug tooling: district blackout/relight -------------------------------
+// Routes through the REAL Task 1/2 modules (powergrid/grid.ts, powergrid/emitters.ts —
+// both landed mid-session; this replaced an earlier direct-buffer-write fallback written
+// before they existed):
+//  - `blackoutDistrict` fires the real `transformerDestroyed` event, the exact trigger a
+//    live transformer kill uses — grid.ts's subscription (once the orchestrator's
+//    integration mount calls `initPowerGrid()`) updates the canonical `gridRef` state,
+//    grants the standard +12 heat (state/heat.ts's own independent listener — same event,
+//    same amount a real kill grants), and fires `darkCity` + the persisted badge at 16/16.
+//    It's ALSO followed by a direct `setDistrictDark` call so the district goes visibly
+//    dark immediately regardless of whether the flicker sequencer's physics-step tick
+//    (powergrid/PowerGridMount.tsx's useAfterPhysicsStep) is mounted yet — the flicker
+//    path alone never advances without that tick, which would otherwise leave a debug
+//    blackout stuck mid-sequence pre-integration.
+//  - `isDistrictDark` ORs grid.ts's canonical `gridRef.current.lit` (heat/darkCity source
+//    of truth) with emitters.ts's own settled-flicker state, so hud/Minimap.tsx reads
+//    correctly whether or not the orchestrator's `setBlackoutHandler`/mount wiring has
+//    happened yet: `setDistrictDark` above always updates the emitters side; `gridRef`
+//    updates once grid.ts's subscription is live.
+//  - Guarded against re-firing on an already-dark district (mirrors grid.ts's own
+//    idempotency) so double-clicking "blackout district"/"blackout ALL" can't double-grant
+//    heat — state/heat.ts's `transformerDestroyed` listener has no such guard itself (see
+//    that file), so this guard is the only thing preventing it on the debug path.
+//  - `relightDistrict`/`relightAll` are visual-only (emitters.ts's own debug relight) —
+//    grid.ts has no un-blackout path (blackouts are permanent for a run, by design), so a
+//    relit district's `gridRef` state (and any heat/darkCity already granted) does NOT
+//    reset. These exist purely so this task's own before/after screenshot workflow (and
+//    future manual testing) can reset the visual between shots.
+
+/** Phase 13 Task 4: is district `districtId` currently dark? Reads BOTH sources — see the
+ * block comment above for why. */
+export function isDistrictDark(districtId: number): boolean {
+  return gridRef.current.lit[districtId] === false || emittersIsDistrictDark(districtId);
+}
+
+/** Phase 13 Task 4: blackout one district through the real grid-consistent path — see the
+ * block comment above. Used by both the devPanel "blackout district" button and
+ * window.__smashy. No-op if the district is already dark (idempotency guard). */
+export function blackoutDistrict(districtId: number): void {
+  if (isDistrictDark(districtId)) return;
+  gameEvents.emit('transformerDestroyed', { districtId });
+  setDistrictDark(districtId);
+}
+
+/** Phase 13 Task 4: relight one district — visual-only debug reset (see block comment
+ * above for why this can't undo grid.ts's state/heat/darkCity). */
+export function relightDistrict(districtId: number): void {
+  emittersRelightDistrict(districtId);
+}
+
+/** Phase 13 Task 4: blackout every district (the devPanel "blackout ALL" button). Loops
+ * `blackoutDistrict`, so it's exactly as grid-consistent (and idempotent) as blackout-one;
+ * once grid.ts's subscription is live this naturally fires the real `darkCity` + persisted
+ * badge at 16/16 — no separate manual emit needed here. */
+export function blackoutAll(): void {
+  for (let d = 0; d < DISTRICT_COUNT; d++) blackoutDistrict(d);
+}
+
+/** Phase 13 Task 4: relight every district (visual-only debug reset). */
+export function relightAll(): void {
+  for (let d = 0; d < DISTRICT_COUNT; d++) relightDistrict(d);
+}
+
+/** Phase 13 Task 4 stub for the minimap's `lightPoolViz` overlay (see core/devToggles.ts's
+ * lightPoolViz doc comment for why minimap dots were chosen over an in-scene marker set).
+ * TODO(Phase 13 Task 3 integration): powergrid/lightPool.ts (landed mid-session as this
+ * task's own pure selection/fade core) doesn't export a ref to the LIVE per-slot state —
+ * only its mount component (an R3F tree, still under active revision as of this task's
+ * finish) owns the real `<pointLight>` positions, the same "heavy system owns a ref the
+ * mount populates" shape as trafficRef/unitsRef/projectilesRef. Deliberately not wired
+ * against that mount here (it was still being renamed/reworked while this task ran) —
+ * once it settles and exposes a ref, point this at it for real instead of returning []. */
+export function getLightPoolPositions(): { x: number; z: number }[] {
+  return [];
+}
 
 // Phase 10 Task 3: forceSpawnUnit's runtime kind guard. UnitKind (ai/pursuitTypes.ts) is a
 // string-literal union with no runtime representation, so a plain string argument off
@@ -235,6 +317,23 @@ declare global {
         shotsFired: number;
         turretYaw: number;
       }[];
+      /** Phase 13 Task 4 debug: blackout/relight one district through the grid-consistent
+       * entry point — see blackoutDistrict's doc comment for exactly what this stands in
+       * for pre-integration (Tasks 1-2's real powergrid/grid.ts + emitters.ts). */
+      blackoutDistrict: (districtId: number) => void;
+      relightDistrict: (districtId: number) => void;
+      /** Phase 13 Task 4 debug: blackout/relight every district. blackoutAll also fires
+       * the real `darkCity` event (no heat, no flicker, no persisted badge — see doc
+       * comment above). */
+      blackoutAll: () => void;
+      relightAll: () => void;
+      /** Phase 13 Task 4 proof: current lit/dark state for all 16 districts, index =
+       * districtId — the scripted mirror of what hud/Minimap.tsx's overlay is reading. */
+      districtDarkStates: () => boolean[];
+      /** Phase 13 Task 4 stub: pooled dynamic-light world positions for the minimap's
+       * lightPoolViz overlay. Empty until powergrid/lightPool.ts (Task 3) lands — see
+       * getLightPoolPositions' doc comment. */
+      lightPoolPositions: () => { x: number; z: number }[];
     };
   }
 }
@@ -334,4 +433,10 @@ window.__smashy = {
   },
   shellCount: () => projectilesRef.current?.activeCount() ?? 0,
   tankTelegraphs: () => tankDebugSnapshot(),
+  blackoutDistrict,
+  relightDistrict,
+  blackoutAll,
+  relightAll,
+  districtDarkStates: () => Array.from({ length: DISTRICT_COUNT }, (_, d) => isDistrictDark(d)),
+  lightPoolPositions: getLightPoolPositions,
 };

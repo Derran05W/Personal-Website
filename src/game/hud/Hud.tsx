@@ -269,6 +269,100 @@ function HpSilhouette({ hp }: { hp: number }) {
   );
 }
 
+// DARK CITY (Phase 13 Task 2; TDD §5.8's "easter egg": all 16 districts dark). Two
+// pieces sharing one subscription (useDarkCityState below): a dramatic ~5s centered
+// banner on the `darkCity` event, and a subtle indicator near the wanted stars that
+// persists for the rest of the run once triggered (districts only ever go lit->dark
+// within a run — powergrid/grid.ts's PowerGridState doc comment — so once true this
+// never has a reason to flip back off mid-run).
+const DARKCITY_BANNER_MS = 5000;
+
+/**
+ * Owns the darkCity subscription. Lives in its own hook (not inlined in the default
+ * export) so both DarkCityBanner and the persistent indicator share one listener instead
+ * of each re-subscribing independently — same "one tiny subscription per concern, shared
+ * where the concern is the same" precedent as useDamageFlash above.
+ *
+ * Reset note: <Hud/> mounts once for the whole game lifetime (this file's header "mount
+ * contract" — it only conditionally renders null, it doesn't unmount between runs), so a
+ * retried run needs an explicit reset or it would inherit the previous run's DARK CITY
+ * state. `runStarted` (state/events.ts; emitted exactly once per run by
+ * combat/runLoop.ts's beginRun, on both a fresh GARAGE->PLAYING run and a GAMEOVER->
+ * PLAYING retry) is the correct signal for that — it fires strictly before any gameplay
+ * (and therefore any transformerDestroyed) can happen in the new run.
+ */
+function useDarkCityState(): { bannerVisible: boolean; allDark: boolean } {
+  const [bannerVisible, setBannerVisible] = useState(false);
+  const [allDark, setAllDark] = useState(false);
+  const timeoutRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    const offDark = gameEvents.on('darkCity', () => {
+      setAllDark(true);
+      window.clearTimeout(timeoutRef.current);
+      setBannerVisible(true);
+      timeoutRef.current = window.setTimeout(() => setBannerVisible(false), DARKCITY_BANNER_MS);
+    });
+    const offStart = gameEvents.on('runStarted', () => {
+      window.clearTimeout(timeoutRef.current);
+      setBannerVisible(false);
+      setAllDark(false);
+    });
+    return () => {
+      offDark();
+      offStart();
+      window.clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  return { bannerVisible, allDark };
+}
+
+// Dramatic centered banner, ~5s (DARKCITY_BANNER_MS). Always rendered (not conditionally
+// mounted) — visibility toggles via the `--visible` class, same opacity+visibility
+// transition-delay idiom as `.hud-control-hints`/`.hud-control-hints--hidden` above, so a
+// player who somehow re-triggers it mid-fade-out gets a clean restart instead of a
+// remount pop. The entrance flourish (Hud.css's `hud-darkcity-in` keyframe) layers on top
+// of that transition and is disabled under prefers-reduced-motion (Hud.css), leaving the
+// plain opacity fade intact — the banner is still unmissable, just not motion-heavy.
+function DarkCityBanner({ visible }: { visible: boolean }) {
+  return (
+    <div
+      className={visible ? 'hud-darkcity-banner hud-darkcity-banner--visible' : 'hud-darkcity-banner'}
+      data-testid="hud-darkcity-banner"
+      aria-hidden={!visible}
+    >
+      DARK CITY
+    </div>
+  );
+}
+
+// Subtle persistent indicator (task brief: "small text near stars, your judgment") — sits
+// just below WantedStars' chip (STARS_TOP + its own ~44px height) in the same right-
+// aligned column, dim enough to read as ambient flavor rather than another HUD readout
+// competing with the stars/score for attention.
+function DarkCityIndicator() {
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: STARS_TOP + 44,
+        right: 16,
+        fontSize: '0.65rem',
+        letterSpacing: '0.08em',
+        textTransform: 'uppercase',
+        color: 'rgba(245, 245, 245, 0.45)',
+        ...chipStyle,
+        padding: '0.2rem 0.55rem',
+      }}
+      data-testid="hud-darkcity-indicator"
+      aria-hidden="true"
+    >
+      dark city
+    </div>
+  );
+}
+
 function ControlHints() {
   const [visible, setVisible] = useState(true);
 
@@ -326,6 +420,13 @@ function SeedReadout({ seed }: { seed: number }) {
 
 export default function Hud() {
   const { machine, tier, score, playerHp, seed } = useHudSnapshot();
+  // Subscribed unconditionally, ABOVE the visibility early-return below (React's
+  // rules-of-hooks: every hook here must run on every render regardless of what this
+  // component ends up returning) — this is deliberate, not an oversight: it's what keeps
+  // the darkCity/runStarted listeners alive for <Hud/>'s whole (game-lifetime) mount,
+  // not just while machine happens to be PLAYING/PAUSED. See useDarkCityState's doc
+  // comment for why that matters for the reset-on-retry behavior.
+  const { bannerVisible, allDark } = useDarkCityState();
   // Task brief point 1: PLAYING + PAUSED only (not GAMEOVER-adjacent) — the game-over
   // screen is a separate future surface (Phase 9), and showing the run HUD underneath it
   // would just be visual noise once the run has ended.
@@ -335,10 +436,12 @@ export default function Hud() {
   return (
     <div style={rootStyle} data-testid="hud-root">
       <WantedStars tier={tier} />
+      {allDark ? <DarkCityIndicator /> : null}
       <ScoreDisplay score={score} />
       <HpSilhouette hp={playerHp} />
       <ControlHints />
       {import.meta.env.DEV ? <SeedReadout seed={seed} /> : null}
+      <DarkCityBanner visible={bannerVisible} />
       {/* Last child: paints above every other HUD element (DOM order, no z-index needed —
           see Hud.css's .hud-damage-vignette comment). */}
       <DamageVignette />

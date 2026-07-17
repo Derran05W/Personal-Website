@@ -37,3 +37,32 @@ export function worldToMapPx(x: number, z: number, mapPx: number): { x: number; 
     y: ((z + half) / span) * mapPx,
   };
 }
+
+/**
+ * Phase 13 Task 4: pixel-space square for one district's 16×16-tile region (TDD §5.8's
+ * blackout unit), for the minimap's dark-district overlay (hud/Minimap.tsx). `districtId`
+ * is 0..15 (id = dRow * WORLD.districts + dCol, the same derivation world/types.ts's
+ * generator uses to build District.col0/row0 — reproduced here from `WORLD` alone so this
+ * helper needs no WorldData/District input, just like `worldToMapPx`). Returns the
+ * TOP-LEFT pixel corner (ready for `ctx.fillRect(x, y, size, size)` — no centering offset
+ * needed, unlike the per-tile block loop in Minimap.tsx which starts from a tile CENTER)
+ * plus the region's side length in pixels. The 16 returned squares tile the map exactly,
+ * edge-to-edge, with no gaps or overlap.
+ */
+export function districtPixelRect(
+  districtId: number,
+  mapPx: number,
+): { x: number; y: number; size: number } {
+  const districtTilesPerSide = WORLD.tiles / WORLD.districts;
+  const dCol = districtId % WORLD.districts;
+  const dRow = Math.floor(districtId / WORLD.districts);
+
+  const span = WORLD.tiles * WORLD.tileSize;
+  const half = span / 2;
+  const worldX0 = dCol * districtTilesPerSide * WORLD.tileSize - half;
+  const worldZ0 = dRow * districtTilesPerSide * WORLD.tileSize - half;
+
+  const { x, y } = worldToMapPx(worldX0, worldZ0, mapPx);
+  const size = ((districtTilesPerSide * WORLD.tileSize) / span) * mapPx;
+  return { x, y, size };
+}

@@ -24,6 +24,7 @@ import { AiSystem, CameraFxSystem, EventDrainSystem } from './core/frameOrder';
 import { generate } from './world/generate';
 import { getSpawnPose } from './world/spawn';
 import { CityScape } from './world/CityScape';
+import { LightPool } from './powergrid/LightPoolMount';
 import { PropDynamics } from './world/PropDynamicsMount';
 import { DamageSystem } from './combat/damage';
 import { onImpact } from './combat/contacts';
@@ -42,6 +43,8 @@ import GameOver from './hud/GameOver';
 import { SirensSystem } from './audio/SirensSystem';
 import { HeatScoreSystem } from './state/heatScoreSystem';
 import { initProgressPersistence } from './state/persistence';
+import { initPowerGrid } from './powergrid/grid';
+import { PowerGridSystem } from './powergrid/PowerGridMount';
 import Hud from './hud/Hud';
 import { SkidMarks } from './fx/SkidMarks';
 import { PlayerVehicle } from './vehicles/PlayerVehicle';
@@ -160,6 +163,10 @@ export default function Game() {
   // mounted lifetime; unsubscribes on route-away unmount.
   useEffect(() => initProgressPersistence(), []);
 
+  // Power grid (Phase 13): transformerDestroyed -> blackout + DARK CITY. Re-inits per
+  // world/run so district state always matches the freshly-lit remounted city.
+  useEffect(() => initPowerGrid(), [worldKey]);
+
   // Bootstrap seam: BOOT → LOADING → GARAGE. Every branch reads the *current* machine
   // state fresh from the store and only fires the transition it expects, so the store's
   // dev-mode invalid-transition throw can never trigger under StrictMode's double mount
@@ -212,6 +219,10 @@ export default function Game() {
             <CameraFxSystem />
 
             <CityScape key={`city-${worldKey}`} world={world} />
+            {/* Pooled dynamic lights (Phase 13 Task 3): a handful of real PointLights trail
+                the player and light the nearest LIT streetlights; blacked-out districts never
+                receive one. Keyed on the world so a regenerate drops the pool with its city. */}
+            <LightPool key={`lightpool-${worldKey}`} world={world} />
             {/* Destruction spine (Phase 6): impacts flow contacts→damage/propDynamics.
                 Keyed on seed like the city — a regenerate must reset the pool + hp state
                 with the world it belongs to. */}
@@ -240,6 +251,7 @@ export default function Game() {
             {/* Heat/score accrual runs in fixed-step land (Phase 8) — pausing Physics
                 pauses accrual for free. */}
             <HeatScoreSystem />
+            <PowerGridSystem key={`grid-${worldKey}`} />
             <SkidMarks />
             {/* key: spawn position is read once at body create (PlayerVehicle contract) —
                 remount on regenerate rather than mutate. */}

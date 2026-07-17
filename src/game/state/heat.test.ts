@@ -3,6 +3,18 @@ import { gameEvents } from './events';
 import { useGameStore } from './store';
 import { HEAT } from '../config/heat';
 import { accruePassive, initHeatSystem, __resetPassiveAccumulatorForTest } from './heat';
+import { gridRef, initPowerGrid, __resetGridForTest } from '../powergrid/grid';
+import { clearFlickers } from '../powergrid/emitters';
+
+// Real (not mocked) powergrid/emitters.ts for this file's regression block — the point is
+// to prove powergrid/grid.ts's OWN repeat-districtId guard, driven end-to-end against the
+// real flicker sequencer, not a stand-in. See that describe block's header comment.
+vi.mock('../powergrid/emitters', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../powergrid/emitters')>();
+  return { ...actual, blackoutDistrict: vi.fn(actual.blackoutDistrict) };
+});
+import { blackoutDistrict } from '../powergrid/emitters';
+const blackoutDistrictMock = vi.mocked(blackoutDistrict);
 
 const initialStoreState = useGameStore.getState();
 
@@ -152,5 +164,71 @@ describe('accruePassive', () => {
     // a whole heat point. It must not: 1/60s alone is far short of 1.0.
     accruePassive(1 / 60);
     expect(useGameStore.getState().heat).toBe(15);
+  });
+});
+
+// --- Phase 13 regression: transformerDestroyed double-emit + powergrid/grid.ts -------------
+//
+// Proves WHERE the "+12 exactly once per transformer" guarantee actually lives. It is NOT
+// inside this file: initHeatSystem's `offTransformer` handler (above) adds HEAT.events.
+// transformer on every transformerDestroyed event it receives, with zero districtId-
+// awareness or dedup logic — by design, per the "transformerBox is deliberately ABSENT"
+// header comment's account of the real emission contract. The actual exactly-once guarantee
+// is structural, upstream, in combat/damage.ts's `applyEntityDamage`: once an entry's hp
+// reaches 0, every subsequent call on that same entry no-ops immediately (`if (hp ===
+// undefined || hp <= 0) return;`), so `handleTransformerDeath` — and therefore
+// `transformerDestroyed` — can fire at most once per district per run in the real flow.
+// That upstream contract is exercised by combat/damage.test.ts, not here.
+//
+// What IS this file's concern: proving heat.ts's lack of dedup is real (a synthetic double-
+// emit genuinely double-bills heat) while also proving powergrid/grid.ts — Phase 13's other
+// transformerDestroyed subscriber — stays defensively idempotent against the exact same
+// synthetic duplicate, so the user-visible grid/blackout/darkCity behavior can never
+// double-fire even in a hypothetical world where the upstream hp-clamp were ever violated.
+describe('regression (Phase 13) — transformerDestroyed double-emit vs powergrid/grid.ts', () => {
+  beforeEach(() => {
+    __resetGridForTest();
+    clearFlickers(); // real emitters.ts singleton — drop cross-test flicker/dark residue
+    blackoutDistrictMock.mockClear();
+  });
+
+  afterEach(() => {
+    __resetGridForTest();
+    clearFlickers();
+  });
+
+  it('a single transformerDestroyed adds +12 exactly once', () => {
+    const off = initHeatSystem();
+    gameEvents.emit('transformerDestroyed', { districtId: 4 });
+    expect(useGameStore.getState().heat).toBe(HEAT.events.transformer);
+    off();
+  });
+
+  it('a synthetic duplicate for the SAME district double-bills heat.ts (no dedup, by design) while powergrid/grid.ts ignores the repeat', () => {
+    const offHeat = initHeatSystem();
+    const offGrid = initPowerGrid();
+
+    gameEvents.emit('transformerDestroyed', { districtId: 7 });
+    expect(useGameStore.getState().heat).toBe(HEAT.events.transformer);
+    expect(gridRef.current.lit[7]).toBe(false);
+    expect(blackoutDistrictMock).toHaveBeenCalledTimes(1);
+
+    // Synthetic duplicate — cannot happen via the real hp-clamp guard in
+    // combat/damage.ts (see this describe block's header); simulates a hypothetical
+    // upstream regression to prove each subscriber's own behavior in isolation.
+    gameEvents.emit('transformerDestroyed', { districtId: 7 });
+
+    // heat.ts: billed a second time — it has no districtId-level guard of its own.
+    expect(useGameStore.getState().heat).toBe(HEAT.events.transformer * 2);
+    // powergrid/grid.ts: unchanged — the repeat districtId was a no-op (its own
+    // regression coverage lives in powergrid/grid.test.ts's "repeat districtId" block).
+    // Asserted against the REAL blackoutDistrict's call count (not just the resulting
+    // flicker state), since emitters.ts's FlickerRunner has its own independent
+    // idempotency guard that could otherwise mask a bug in grid.ts's own.
+    expect(gridRef.current.lit[7]).toBe(false);
+    expect(blackoutDistrictMock).toHaveBeenCalledTimes(1);
+
+    offGrid();
+    offHeat();
   });
 });

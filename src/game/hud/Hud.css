@@ -89,6 +89,60 @@
   }
 }
 
+/* DARK CITY banner (hud/Hud.tsx's DarkCityBanner; TDD §5.8's "easter egg" — all 16
+   districts dark). Always rendered; visibility toggles via `--visible`, same opacity +
+   visibility(transition-delay) idiom as `.hud-control-hints` above so re-triggering
+   mid-fade restarts cleanly instead of popping via a remount. The ~5s ON duration itself
+   is timed in JS (Hud.tsx's DARKCITY_BANNER_MS) — this class only supplies the fade and
+   the entrance flourish. */
+.hud-darkcity-banner {
+  position: fixed;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(2.5rem, 9vw, 6rem);
+  letter-spacing: 0.3em;
+  color: #f5f5f5;
+  text-shadow:
+    0 0 24px rgba(0, 0, 0, 0.85),
+    0 0 48px rgba(0, 0, 0, 0.6);
+  text-transform: uppercase;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.5s ease,
+    visibility 0s linear 0.5s;
+}
+
+.hud-darkcity-banner--visible {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.5s ease;
+  animation: hud-darkcity-in 900ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes hud-darkcity-in {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.85);
+    letter-spacing: 0.55em;
+  }
+  60% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+    letter-spacing: 0.3em;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .hud-star--flare {
     animation: none;
@@ -96,6 +150,10 @@
 
   .hud-control-hints {
     transition: none;
+  }
+
+  .hud-darkcity-banner--visible {
+    animation: none;
   }
 
   /* Keep the flash legible (it's the required no-HP-bar-needed signal) but drop the eased

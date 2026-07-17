@@ -82,7 +82,7 @@ Status: `[ ]` todo · `[~]` in progress · `[!]` blocked / awaiting user · `[x]
 - [x] **Phase 12 — ★5 Tanks, shells, explosions + chaos bench** (M5c) — 2026-07-16: pure-point no-tunnel shells, faction-free 8 m blasts (friendly fire proven live, player can't helicopter), 6×-mass tank w/ 0.8 s telegraph + dodgeable-by-construction shells, ★5 composition (2 tanks max), chaos bench standing harness (3× runs: 71/150 calls, 211k/300k tris, heapΔ 0.0 MB, exit 0); 799 tests; M5/Part 4 COMPLETE (see phase-12-notes.md).
 
 ### Part 5 — Signature & Juice (`.planning/part-5-signature-and-juice.md`)
-- [ ] **Phase 13 — Power grid & district blackouts** (M6)
+- [x] **Phase 13 — Power grid & district blackouts** (M6) — 2026-07-16/17: seeded flicker → permanent district blackouts (write 0.05 ms vs 1 ms budget), 6-light pool w/ hysteresis + dark-exclusion-even-mid-fade, DARK CITY banner + persisted badge, minimap overlay + debug suite; real event chain proven live, 876 tests (see phase-13-notes.md).
 - [ ] **Phase 14 — Helicopters & searchlight** (M7a)
 - [ ] **Phase 15 — Audio pass** (M7b)
 - [ ] **Phase 16 — FX & juice pass** (M7c)
