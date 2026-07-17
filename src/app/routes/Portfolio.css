@@ -9,6 +9,10 @@
   margin-bottom: 2.5rem;
 }
 
+.portfolio__empty {
+  color: var(--color-text-muted);
+}
+
 .portfolio__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -19,6 +23,8 @@
 }
 
 .portfolio__card {
+  display: flex;
+  flex-direction: column;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   padding: 1.25rem;
@@ -26,19 +32,124 @@
 }
 
 .portfolio__card-thumb {
+  position: relative;
   height: 120px;
   border-radius: 8px;
   margin-bottom: 1rem;
+  overflow: hidden;
   background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(59, 47, 99, 0.35));
 }
 
+.portfolio__card-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Same "skyline" motif as the hero (Home.css .home__skyline), scaled down — a tasteful
+   stand-in for project screenshots that haven't been supplied yet. Zero image bytes. */
+.portfolio__card-skyline {
+  position: absolute;
+  inset: 0;
+  background: var(--color-bg);
+  opacity: 0.5;
+  clip-path: polygon(
+    0% 100%,
+    0% 60%,
+    10% 60%,
+    10% 35%,
+    20% 35%,
+    20% 70%,
+    30% 70%,
+    30% 20%,
+    40% 20%,
+    40% 55%,
+    50% 55%,
+    50% 15%,
+    60% 15%,
+    60% 45%,
+    70% 45%,
+    70% 65%,
+    80% 65%,
+    80% 30%,
+    90% 30%,
+    90% 50%,
+    100% 50%,
+    100% 100%
+  );
+}
+
+.portfolio__card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
 .portfolio__card-title {
-  margin: 0 0 0.4rem;
+  margin: 0;
   font-size: 1.05rem;
 }
 
+/* Same visual language as the header's "soon" pill (Header.css .site-header__soon):
+   outlined, accent-colored, uppercase — reads as "not final" without alarm. */
+.portfolio__badge {
+  flex-shrink: 1;
+  min-width: 0;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-accent);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+  /* Phase 20 QA FILED-4: long badge text on narrow cards must clamp inside the card,
+     not overflow past its edge — ellipsize instead of nowrap-overflowing. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
 .portfolio__card-body {
-  margin: 0;
+  margin: 0 0 0.85rem;
   color: var(--color-text-muted);
   font-size: 0.9rem;
+  flex-grow: 1;
+}
+
+.portfolio__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.portfolio__tag {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+}
+
+/* Dashed border marks tags that are unconfirmed guesses (project.tagsPlaceholder),
+   distinct from the solid style a user-confirmed tag would get. */
+.portfolio__tag--placeholder {
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+}
+
+.portfolio__card-links {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.portfolio__card-link {
+  font-size: 0.85rem;
+  padding: 0.5rem 1rem;
 }

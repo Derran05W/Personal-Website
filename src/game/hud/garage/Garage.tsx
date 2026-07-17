@@ -241,11 +241,14 @@ export function Garage() {
           >
             New city
           </button>
+          {/* No autoFocus (Phase 20 QA FILED-1): the game auto-starts on desktop Home, and
+              stealing focus into the garage on page load defeats the Phase-1 skip-link
+              (first Tab must reach it). Keyboard users Tab in normally; Enter still
+              activates once focused. */}
           <button
             type="button"
             className="garage-btn garage-btn--primary"
             onClick={handleStart}
-            autoFocus
             data-testid="garage-start"
           >
             Start driving

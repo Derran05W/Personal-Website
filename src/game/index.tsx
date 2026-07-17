@@ -51,6 +51,7 @@ import { TankMesh } from './ai/units/TankMesh';
 import { ParticlesMount } from './fx/ParticlesMount';
 import { DamageStatesMount } from './fx/damageStates';
 import { initEventFx } from './fx/eventFx';
+import { initGameAnalytics } from './analytics';
 import GameOver from './hud/GameOver';
 import { SirensSystem } from './audio/SirensSystem';
 import { PositionalAudioSystem } from './audio/PositionalAudioSystem';
@@ -196,6 +197,10 @@ export default function Game() {
   // bursts through the particle feed; game-lifetime subscription like the audio map.
   useEffect(() => initEventFx(), []);
 
+  // Analytics events (Phase 20): runStarted/runEnded/darkCity -> Vercel Analytics via the
+  // typed event catalog; no-ops in dev and under webdriver (see game/analytics.ts).
+  useEffect(() => initGameAnalytics(), []);
+
   // Quality FPS probe (Phase 18): after the machine first reaches GARAGE, sample ~2 s of
   // frame deltas on the live scene and demote the tier if the device can't hold it. An
   // explicit user pick in the pause menu (qualitySource 'user') is never overridden.
@@ -237,7 +242,14 @@ export default function Game() {
         // TDD §5.3) and snaps to its ideal on the first PLAYING frame; fov/near/far
         // stay governed by this prop.
         camera={{ position: [18, 16, 18], fov: 45, near: 0.1, far: 1000 }}
-        onCreated={({ camera }) => camera.lookAt(0, 0, 0)}
+        onCreated={({ camera, gl }) => {
+          camera.lookAt(0, 0, 0);
+          // The REAL <canvas> carries the img role/label (Phase 20 QA FILED-2) — the
+          // shell wrapper is a region so the garage/pause/game-over controls stay
+          // exposed to assistive tech.
+          gl.domElement.setAttribute('role', 'img');
+          gl.domElement.setAttribute('aria-label', '3D driving game canvas');
+        }}
       >
         {/* Blue-hour-ish clear colour so lights/emissives will read later (TDD §8). */}
         <color attach="background" args={['#121a2b']} />

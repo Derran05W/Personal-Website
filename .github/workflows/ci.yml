@@ -48,6 +48,13 @@ jobs:
       - name: Check shell chunk budget
         run: node scripts/check-shell-size.mjs
 
+      # Prerender output guard (Phase 20 Task 1, TDD §9): the four content routes have
+      # real static HTML with meta/OG/canonical tags and pull zero game-chunk bytes on
+      # a cold load. `pnpm build` already runs scripts/prerender.mjs as its last step;
+      # this just verifies what it produced.
+      - name: Check prerendered routes
+        run: pnpm check:prerender
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 

@@ -1,0 +1,7 @@
+/* Renders inside .game-canvas-container (GameCanvas.css: `position: fixed; inset: 0`),
+   which is already exactly viewport-sized — `min-height: 100%` (not SkylineHero's default
+   100dvh) so this fills that box precisely rather than stacking two independent viewport
+   calculations. */
+.game-boot-fallback {
+  min-height: 100%;
+}

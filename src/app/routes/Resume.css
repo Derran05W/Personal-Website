@@ -9,6 +9,28 @@
   margin-bottom: 1.5rem;
 }
 
+.resume__pending {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 2rem;
+  background: var(--color-bg-elevated);
+}
+
+.resume__download--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.resume__download--disabled:hover {
+  filter: none;
+}
+
+.resume__mobile-note {
+  margin: 1rem 0 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
 .resume__embed {
   display: block;
   width: 100%;
@@ -17,6 +39,12 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   background: var(--color-bg-elevated);
+}
+
+.resume__embed-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
 }
 
 .resume__fallback {

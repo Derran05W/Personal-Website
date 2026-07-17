@@ -12,15 +12,21 @@ const ROUTES: Array<{ path: string; heading: string }> = [
   { path: '/', heading: 'Smashy the 6ix' },
   { path: '/portfolio', heading: 'Portfolio' },
   { path: '/resume', heading: 'Résumé' },
-  { path: '/does-not-exist', heading: '404' },
+  // Phase 20 Task 2 redesigned the 404 page (routes/NotFound.tsx → SkylineHero): the
+  // <h1> is now "Wrong turn"; the literal "404" is a decorative aria-hidden <p>, so it's
+  // deliberately NOT the level-1 heading anymore.
+  { path: '/does-not-exist', heading: 'Wrong turn' },
 ];
 
 /** Asserts the header (wordmark + all 4 link items) is present with correct hrefs. */
 async function expectHeaderPresent(page: Page) {
   await expect(page.getByText('Derran', { exact: true })).toBeVisible();
 
-  const resume = page.getByRole('link', { name: 'Resume' });
-  const portfolio = page.getByRole('link', { name: 'Portfolio' });
+  const resume = page.getByRole('link', { name: 'Resume', exact: true });
+  // `exact: true`: Phase 20 Task 2's redesigned 404 page adds a "View the portfolio"
+  // link, which a substring name match would also select here — pin the header link by
+  // its exact accessible name so this stays unambiguous on every route, including 404.
+  const portfolio = page.getByRole('link', { name: 'Portfolio', exact: true });
   const linkedin = page.getByRole('link', {
     name: 'LinkedIn soon — placeholder link, not connected yet',
   });
@@ -75,8 +81,11 @@ test('home route renders the labeled game-canvas container', async ({ page }) =>
   // here — actual game rendering (a mounted <canvas>, chunk-load timing) is covered by
   // e2e/game.spec.ts, which needs the WebGL software-rendering launch flag and much
   // more generous timeouts than this shell-level smoke test does.
-  const canvas = page.getByRole('img', { name: '3D driving game canvas' });
-  await expect(canvas).toBeVisible();
+  // The always-present shell wrapper is a labeled region (Phase 20 FILED-2 — role="img"
+  // would prune the game's interactive UI from the accessibility tree); the real <canvas>
+  // gets the img role only once the game chunk mounts (covered by game.spec.ts).
+  const region = page.getByRole('region', { name: '3D driving game' });
+  await expect(region).toBeVisible();
 });
 
 test('no console or page errors while navigating all routes', async ({ page }) => {

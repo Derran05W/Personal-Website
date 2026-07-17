@@ -1,0 +1,25 @@
+/* `position: relative` + a real z-index (matching routes/Home.css's `.home__hero`
+   pattern) is required, not decorative: Home mounts the game canvas as `position: fixed;
+   inset: 0; z-index: 0`, which — being a sibling stacking context at the document root,
+   not a descendant of this footer — would otherwise paint OVER a plain static-flow
+   footer regardless of DOM order. See GameCanvas.css for the canvas side of this. */
+.site-footer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: center;
+  padding: 1.25rem 1.5rem calc(1.25rem + env(safe-area-inset-bottom, 0px));
+  background: var(--color-bg);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.site-footer__link {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.site-footer__link:hover {
+  color: var(--color-text);
+  text-decoration: underline;
+}

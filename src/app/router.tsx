@@ -1,9 +1,5 @@
 import { createBrowserRouter } from 'react-router';
-import App from '../App';
-import Home from './routes/Home';
-import NotFound from './routes/NotFound';
-import Portfolio from './routes/Portfolio';
-import Resume from './routes/Resume';
+import { routes } from './routeTable';
 
 // Data router (react-router v8, "Data mode"): current idiomatic top-level API for a
 // plain Vite SPA — see main.tsx for the paired <RouterProvider> (imported from
@@ -12,15 +8,11 @@ import Resume from './routes/Resume';
 // All routes nest under <App>, the persistent shell layout (skip link + Header + the
 // #main-content landmark that <Outlet/> renders into) — so the header and skip link
 // stay present, tabbable, and consistent on every route, including 404.
-export const router = createBrowserRouter([
-  {
-    path: '/',
-    element: <App />,
-    children: [
-      { index: true, element: <Home /> },
-      { path: 'portfolio', element: <Portfolio /> },
-      { path: 'resume', element: <Resume /> },
-      { path: '*', element: <NotFound /> },
-    ],
-  },
-]);
+//
+// The route table itself lives in routeTable.ts (Phase 20 Task 1) — see that file's
+// header for why: `createBrowserRouter(...)` below has a real side effect at
+// module-eval time (it reaches for `document`/`window` to build browser History
+// immediately), so this module can only ever be evaluated in a real browser. Only
+// main.tsx (the real client entry) imports this file; src/entry-server.tsx imports
+// routeTable.ts directly instead, so prerendering never touches this side effect.
+export const router = createBrowserRouter(routes);

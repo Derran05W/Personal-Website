@@ -4,7 +4,13 @@
     "target": "es2023",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "esnext",
-    "types": ["vite/client"],
+    // "node" added (Phase 20 Task 1): src/app/content/credits.test.ts reads package.json
+    // off disk via 'node:fs'/'node:path'/`process.cwd()` — the first file under src/ to
+    // need Node built-ins. Without this, `tsc -b`/`pnpm typecheck` fails project-wide
+    // (this tsconfig's explicit `types` list otherwise excludes the already-installed
+    // @types/node). Harmless for actual browser runtime code: this only adds ambient
+    // type declarations, not a runtime dependency.
+    "types": ["vite/client", "node"],
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,
 

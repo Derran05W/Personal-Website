@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/prerender.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "lint": "eslint .",
@@ -17,12 +17,14 @@
     "test": "vitest run",
     "smoke": "playwright test",
     "check:shell": "node scripts/check-shell-size.mjs",
+    "check:prerender": "node scripts/check-prerender.mjs",
     "bench:chaos": "node scripts/bench-chaos.mjs"
   },
   "dependencies": {
     "@react-three/drei": "10.7.7",
     "@react-three/fiber": "9.6.1",
     "@react-three/rapier": "2.2.0",
+    "@vercel/analytics": "^2.0.1",
     "howler": "2.2.4",
     "leva": "0.10.1",
     "react": "^19.2.7",
