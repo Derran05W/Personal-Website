@@ -34,10 +34,15 @@
 // upstream (a new emission path added without updating this comment) — this module logs a
 // DEV warning and drops it rather than silently double- or mis-billing it.
 //
-// `unitWrecked` (police/armored/SWAT/gun-truck/tank wrecks — HEAT.events.policeWreck etc.)
-// is intentionally NOT wired here: nothing in the codebase emits `unitWrecked` yet (it's
-// Phase 9+ pursuit-AI scope; state/events.test.ts is its only current subscriber, as a type
-// contract check). Wiring it now would be dead code with no way to verify it end-to-end.
+// `unitWrecked` (police/armored/SWAT/gun-truck/tank wrecks — HEAT.events.policeWreck etc.):
+// Phase 9 wires the first real kind ('police' -> policeWreck, +25). The map below is keyed
+// by `UnitKind | string` (not narrowed to ai/pursuitTypes.ts's `UnitKind` union) precisely
+// because events.ts's `unitWrecked` payload types `unitKind` as a plain `string` — same
+// dependency-light stub shape as `propDestroyed`'s `archetype` field (see that event's
+// handling below) — so this module doesn't need to import the AI layer's types just to
+// read an event payload. Part 4 (armored/SWAT/gun-truck/tank) appends its kinds to both
+// ai/pursuitTypes.ts's UnitKind union and this map; an unmapped kind falls through to the
+// same DEV-warn-and-drop path propDestroyed's unmapped archetypes use.
 import { gameEvents } from './events';
 import { getGameState } from './store';
 import { HEAT } from '../config/heat';
@@ -52,6 +57,16 @@ const PROP_HEAT_DELTA: Partial<Record<ArchetypeName, number>> = {
   tree: HEAT.events.lightPost,
   trafficLight: HEAT.events.trafficLight,
   parkedCar: HEAT.events.civHit,
+};
+
+// Shape ready for Part 4's armored/swat/gunTruck/tank kinds (M5a/M5b/M5c) — only 'police'
+// has a live emitter today (Phase 9's ai/units/policeSedan.ts, via unitWrecked).
+const UNIT_HEAT_DELTA: Partial<Record<string, number>> = {
+  police: HEAT.events.policeWreck,
+  armored: HEAT.events.armoredWreck,
+  swat: HEAT.events.swatWreck,
+  gunTruck: HEAT.events.gunTruckWreck,
+  tank: HEAT.events.tankWreck,
 };
 
 /**
@@ -93,11 +108,23 @@ export function initHeatSystem(): () => void {
     getGameState().addHeat(HEAT.events.transformer);
   });
 
+  const offUnitWrecked = gameEvents.on('unitWrecked', ({ unitKind }) => {
+    const delta = UNIT_HEAT_DELTA[unitKind];
+    if (delta === undefined) {
+      if (import.meta.env.DEV) {
+        console.warn(`[heat] unitWrecked for kind "${unitKind}" has no heat mapping — see state/heat.ts's UNIT_HEAT_DELTA.`);
+      }
+      return;
+    }
+    getGameState().addHeat(delta);
+  });
+
   return () => {
     offProp();
     offCivHit();
     offCivWrecked();
     offTransformer();
+    offUnitWrecked();
   };
 }
 

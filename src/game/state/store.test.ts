@@ -205,6 +205,55 @@ describe('hardReset', () => {
   });
 });
 
+describe('runReset', () => {
+  it('zeroes heat/tier/score and restores playerHp, but leaves machine untouched', () => {
+    const store = useGameStore.getState();
+    store.transition('LOADING');
+    store.transition('GARAGE');
+    store.transition('PLAYING');
+    store.addHeat(50);
+    store.addScore(100);
+    store.setPlayerHp(40);
+
+    useGameStore.getState().runReset();
+
+    const state = useGameStore.getState();
+    expect(state.machine).toBe('PLAYING'); // unchanged — contrast hardReset
+    expect(state.heat).toBe(0);
+    expect(state.tier).toBe(0);
+    expect(state.score).toBe(0);
+    expect(state.playerHp).toBe(100);
+  });
+
+  it('preserves settings and seed, same as hardReset', () => {
+    const store = useGameStore.getState();
+    store.setSeed(999);
+    store.setQuality('low');
+
+    store.runReset();
+
+    const state = useGameStore.getState();
+    expect(state.seed).toBe(999);
+    expect(state.settings).toEqual({ quality: 'low', muted: false });
+  });
+
+  it('does not emit tierChanged/heatChanged (a silent reset, not a monotonic addHeat call)', () => {
+    const tierHandler = vi.fn();
+    const heatHandler = vi.fn();
+    gameEvents.on('tierChanged', tierHandler);
+    gameEvents.on('heatChanged', heatHandler);
+
+    useGameStore.getState().addHeat(50); // tier 0 -> 2, emits both
+    tierHandler.mockClear();
+    heatHandler.mockClear();
+
+    useGameStore.getState().runReset();
+
+    expect(tierHandler).not.toHaveBeenCalled();
+    expect(heatHandler).not.toHaveBeenCalled();
+  });
+});
+
 describe('settings hydration at store creation', () => {
   // The store only reads localStorage once, at module-evaluation time (`settings:
   // loadSettings()` in the create() initializer). To observe hydration under different

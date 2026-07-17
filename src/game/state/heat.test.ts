@@ -79,6 +79,29 @@ describe('initHeatSystem — event → heat delta mapping', () => {
     off();
   });
 
+  it.each([
+    ['police', HEAT.events.policeWreck],
+    ['armored', HEAT.events.armoredWreck],
+    ['swat', HEAT.events.swatWreck],
+    ['gunTruck', HEAT.events.gunTruckWreck],
+    ['tank', HEAT.events.tankWreck],
+  ] as const)('unitWrecked{unitKind: %s} adds %d heat', (unitKind, expected) => {
+    const off = initHeatSystem();
+    gameEvents.emit('unitWrecked', { unitKind });
+    expect(useGameStore.getState().heat).toBe(expected);
+    off();
+  });
+
+  it('unitWrecked for an unmapped kind is a no-op with a DEV warning', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const off = initHeatSystem();
+    gameEvents.emit('unitWrecked', { unitKind: 'unknownFutureUnit' });
+    expect(useGameStore.getState().heat).toBe(0);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+    off();
+  });
+
   it('the returned teardown unsubscribes every listener', () => {
     const off = initHeatSystem();
     off();
@@ -86,6 +109,7 @@ describe('initHeatSystem — event → heat delta mapping', () => {
     gameEvents.emit('civWrecked', {});
     gameEvents.emit('transformerDestroyed', { districtId: 0 });
     gameEvents.emit('propDestroyed', { archetype: 'mailbox' });
+    gameEvents.emit('unitWrecked', { unitKind: 'police' });
     expect(useGameStore.getState().heat).toBe(0);
   });
 });

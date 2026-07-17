@@ -80,6 +80,10 @@ export interface GameStoreState {
   score: number;
   playerHp: number;
   seed: number;
+  /** Increments on every retry (runReset) — game/index.tsx keys the physical world on
+   * `${seed}-${runId}` so a same-seed retry still gets a FULL remount: fresh props,
+   * drained pools, respawned player (part-file "full clean reset" requirement). */
+  runId: number;
   settings: Settings;
 
   /** Validates against machine.ts's TRANSITIONS table before applying. */
@@ -93,6 +97,15 @@ export interface GameStoreState {
   toggleMuted: () => void;
   /** Out-of-band reset (route-change/unmount teardown) — NOT a table transition. */
   hardReset: () => void;
+  /**
+   * Run-scoped reset for the retry path (Phase 9 combat/runLoop.ts): zeroes heat/tier/
+   * score and restores playerHp to full, but — unlike hardReset — leaves `machine`
+   * completely untouched. The retry flow calls this alongside a GAMEOVER->PLAYING
+   * transition (a real TRANSITIONS edge, machine.ts) so a fresh run starts clean without
+   * tearing the whole game tree down to BOOT. Settings and seed survive, same as
+   * hardReset (seed survives deliberately — retry replays the SAME seed).
+   */
+  runReset: () => void;
 }
 
 export const useGameStore = create<GameStoreState>((set, get) => ({
@@ -102,6 +115,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   score: 0,
   playerHp: 100,
   seed: WORLD_GEN.defaultSeed,
+  runId: 0,
   settings: loadSettings(),
 
   transition: (to) => {
@@ -170,6 +184,14 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     // assertTransition rather than going through `transition`. Settings and seed are
     // meta-progression (not run state) and survive.
     set({ machine: 'BOOT', heat: 0, tier: 0, score: 0, playerHp: 100 });
+  },
+
+  runReset: () => {
+    // No `machine` key here at all — the retry flow's own transition('PLAYING') call
+    // (a real GAMEOVER->PLAYING edge) is what moves the machine; this action only ever
+    // touches run-scoped numbers. runId++ drives the full-remount retry contract (see
+    // the field's doc comment). See the GameStoreState doc comment above.
+    set((s) => ({ heat: 0, tier: 0, score: 0, playerHp: 100, runId: s.runId + 1 }));
   },
 }));
 

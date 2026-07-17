@@ -21,9 +21,15 @@ export interface DevToggles {
   /** In-scene traffic-graph line visualizer (world/GraphViz.tsx). Default off — only
    * wanted when specifically debugging the traffic graph. */
   graphViz: boolean;
+  /** Phase 9 Task 4 debug tool: the devPanel "Debug" folder's invincible toggle writes this
+   * flag; it does NOT itself change any gameplay behavior — combat/damage.ts's
+   * applyPlayerDamage() (Task 3/orchestrator-owned, not touched by this task) is the
+   * consumer that must check `getDevToggles().invincible` and no-op player damage when
+   * true. Handoff recorded in phase-09-notes.md. Default off. */
+  invincible: boolean;
 }
 
-const toggles: DevToggles = { minimap: true, graphViz: false };
+const toggles: DevToggles = { minimap: true, graphViz: false, invincible: false };
 const listeners = new Set<() => void>();
 
 /** The one write path — devPanel.tsx's "World" folder controls call this on change. */

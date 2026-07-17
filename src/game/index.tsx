@@ -29,6 +29,11 @@ import { DamageSystem } from './combat/damage';
 import { onImpact } from './combat/contacts';
 import { Traffic } from './ai/TrafficMount';
 import { TrafficMesh } from './ai/TrafficMesh';
+import { RunLoopSystem } from './combat/runLoop';
+import { SpawnDirector } from './ai/SpawnDirectorMount';
+import { PoliceMesh } from './ai/units/PoliceMesh';
+import GameOver from './hud/GameOver';
+import { SirensSystem } from './audio/SirensSystem';
 import { HeatScoreSystem } from './state/heatScoreSystem';
 import { initProgressPersistence } from './state/persistence';
 import Hud from './hud/Hud';
@@ -119,6 +124,10 @@ export default function Game() {
   // colliders torn down and rebuilt by @react-three/rapier, player dropped at the new
   // map's spawn tile. No incremental mutation, no leak surface.
   const seed = useGameStore((s) => s.seed);
+  // Retry nonce: runReset bumps runId so a same-seed retry still fully remounts the
+  // physical world (fresh props/pools/units — the part-file "full clean reset").
+  const runId = useGameStore((s) => s.runId);
+  const worldKey = `${seed}-${runId}`;
   const world = useMemo(() => generate(seed), [seed]);
   const spawn = useMemo(() => getSpawnPose(world), [world]);
 
@@ -190,16 +199,22 @@ export default function Game() {
             <EventDrainSystem />
             <CameraFxSystem />
 
-            <CityScape key={`city-${seed}`} world={world} />
+            <CityScape key={`city-${worldKey}`} world={world} />
             {/* Destruction spine (Phase 6): impacts flow contacts→damage/propDynamics.
                 Keyed on seed like the city — a regenerate must reset the pool + hp state
                 with the world it belongs to. */}
-            <DamageSystem key={`damage-${seed}`} />
-            <PropDynamics key={`props-${seed}`} source={onImpact} />
+            <DamageSystem key={`damage-${worldKey}`} />
+            <PropDynamics key={`props-${worldKey}`} source={onImpact} />
             {/* Civilian traffic (Phase 7): kinematic graph-followers + hit conversion.
                 Same seed-keyed remount contract as the city/pool systems. */}
-            <Traffic key={`traffic-${seed}`} graph={world.graph} seed={seed} source={onImpact} />
-            <TrafficMesh key={`traffic-mesh-${seed}`} />
+            <Traffic key={`traffic-${worldKey}`} graph={world.graph} seed={seed} source={onImpact} />
+            <TrafficMesh key={`traffic-mesh-${worldKey}`} />
+            {/* Pursuit (Phase 9): PoliceMesh registers the unit factory + drives the
+                per-step tick list; the director owns spawn/despawn/caps. Run-loop owns
+                WRECKED/BUSTED/water → GAMEOVER. All keyed on the retry nonce. */}
+            <PoliceMesh key={`police-${worldKey}`} />
+            <SpawnDirector key={`director-${worldKey}`} world={world} seed={seed} />
+            <RunLoopSystem key={`runloop-${worldKey}`} />
             {/* Heat/score accrual runs in fixed-step land (Phase 8) — pausing Physics
                 pauses accrual for free. */}
             <HeatScoreSystem />
@@ -207,7 +222,7 @@ export default function Game() {
             {/* key: spawn position is read once at body create (PlayerVehicle contract) —
                 remount on regenerate rather than mutate. */}
             <PlayerVehicle
-              key={`player-${seed}`}
+              key={`player-${worldKey}`}
               position={[spawn.position.x, spawn.position.y, spawn.position.z]}
             >
               <RustySedanMesh />
@@ -248,6 +263,8 @@ export default function Game() {
       {/* Gameplay HUD (Phase 8): DOM overlay, pointer-events none, self-gates to
           PLAYING/PAUSED, ≤10 Hz store sampling. */}
       <Hud />
+      <GameOver />
+      <SirensSystem />
 
       {DevPanel ? (
         <Suspense fallback={null}>

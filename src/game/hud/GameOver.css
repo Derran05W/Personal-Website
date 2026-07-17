@@ -1,0 +1,62 @@
+/* GAMEOVER screen backdrop washes (hud/GameOver.tsx). Only what can't be expressed as
+   inline style objects (keyframe color/opacity animation) lives here — same split as
+   Hud.css / GarageOverlay.css. */
+
+@keyframes gameover-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.gameover-backdrop {
+  animation: gameover-fade-in 350ms ease-out;
+}
+
+/* WRECKED: a static warm-red vignette — reads as a hard stop, not a strobe. */
+.gameover-backdrop--wrecked {
+  background: radial-gradient(
+    ellipse at center,
+    rgba(120, 18, 12, 0.35) 0%,
+    rgba(40, 8, 6, 0.78) 65%,
+    rgba(12, 3, 2, 0.92) 100%
+  );
+}
+
+/* BUSTED: alternating red/blue "police light" wash — a hard cut (steps, not a crossfade)
+   between the two colors, echoing the pursuit sirens (audio/sirens.ts) that are still
+   ringing out under this exact screen. */
+@keyframes gameover-busted-wash {
+  0%,
+  45% {
+    background-color: rgba(130, 14, 22, 0.6);
+  }
+  50%,
+  95% {
+    background-color: rgba(14, 46, 130, 0.6);
+  }
+  100% {
+    background-color: rgba(130, 14, 22, 0.6);
+  }
+}
+
+.gameover-backdrop--busted {
+  animation:
+    gameover-fade-in 350ms ease-out,
+    gameover-busted-wash 1.2s steps(1, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gameover-backdrop {
+    animation: none;
+    opacity: 1;
+  }
+
+  .gameover-backdrop--busted {
+    animation: none;
+    /* Static red/blue blend fallback — still legible as "police", no strobing. */
+    background-color: rgba(70, 24, 76, 0.6);
+  }
+}

@@ -38,6 +38,10 @@ export interface CameraFrameInput {
   readonly dt: number;
   /** The camera's current (smoothed) position — the lerp starts here. */
   readonly currentCamPos: Readonly<Vec3>;
+  /** Extra follow-distance (m), on top of base/speed/tier zoom — Phase 9's WRECKED/BUSTED
+   * death pull-back (setDeathPullback below). Defaults to 0 when omitted, so every
+   * pre-Phase-9 call site (and test) is unaffected. */
+  readonly pullback?: number;
 }
 
 export interface CameraFrameResult {
@@ -84,9 +88,10 @@ export function easeSpeedZoom(speed: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/** Follow distance (m): base + eased speed-zoom + per-tier zoom. */
-export function cameraDistance(speed: number, tier: number): number {
-  return CAMERA.baseDist + CAMERA.speedZoom * easeSpeedZoom(speed) + CAMERA.tierZoom * tier;
+/** Follow distance (m): base + eased speed-zoom + per-tier zoom + an optional death
+ * pull-back (m, default 0 — see CameraFrameInput.pullback / setDeathPullback below). */
+export function cameraDistance(speed: number, tier: number, pullback = 0): number {
+  return CAMERA.baseDist + CAMERA.speedZoom * easeSpeedZoom(speed) + CAMERA.tierZoom * tier + pullback;
 }
 
 /** Fixed yaw/pitch spherical offset (player → camera) at `distance`, written into `out`. */
@@ -106,8 +111,9 @@ export function computeIdealCamPos(
   playerPos: Readonly<Vec3>,
   speed: number,
   tier: number,
+  pullback = 0,
 ): Vec3 {
-  sphericalOffset(out, cameraDistance(speed, tier));
+  sphericalOffset(out, cameraDistance(speed, tier, pullback));
   out.x += playerPos.x;
   out.y += playerPos.y;
   out.z += playerPos.z;
@@ -156,7 +162,7 @@ const frameResult: CameraFrameResult = {
  * keep past the call. Shake is applied separately (see stepShake / updateCameraRig).
  */
 export function computeCameraFrame(input: CameraFrameInput): CameraFrameResult {
-  computeIdealCamPos(idealScratch, input.playerPos, input.speed, input.tier);
+  computeIdealCamPos(idealScratch, input.playerPos, input.speed, input.tier, input.pullback ?? 0);
   const alpha = dampingAlpha(CAMERA.lerp, input.dt);
   const desired = frameResult.desiredCamPos;
   desired.x = lerp(input.currentCamPos.x, idealScratch.x, alpha);
@@ -214,6 +220,25 @@ export function stepShake(dt: number): Readonly<Vec3> {
   return shakeOffset;
 }
 
+// --- death pull-back (Phase 9, TDD §5.10) -------------------------------------------------
+// A WRECKED/BUSTED lock window (combat/runLoop.ts) wants the camera to zoom OUT for the
+// game-over beat. Kept as a tiny live-rig flag (mirrors the shake trauma model above) rather
+// than threading state through the pure computeCameraFrame/computeIdealCamPos core: those
+// stay pure and take `pullback` as an explicit, testable parameter (default 0); only
+// updateCameraRig's impure per-frame read of this flag decides what to pass in.
+let deathPullbackActive = false;
+
+/** Toggle the death pull-back on/off. combat/runLoop.ts calls this true when a WRECKED/
+ * BUSTED lock window starts and false again at the next run's start (beginRun). */
+export function setDeathPullback(active: boolean): void {
+  deathPullbackActive = active;
+}
+
+/** Test/debug: current death-pullback flag. */
+export function getDeathPullback(): boolean {
+  return deathPullbackActive;
+}
+
 // --- live rig ----------------------------------------------------------------------------
 // Smoothed follow position persisted across frames (the lerp state, shake-free). Separate
 // from camera.position so the shake offset never feeds back into the next frame's lerp.
@@ -229,11 +254,21 @@ const rigInput: {
   tier: number;
   dt: number;
   currentCamPos: Readonly<Vec3>;
-} = { playerPos: smoothedCamPos, velocity: smoothedCamPos, speed: 0, tier: 0, dt: 0, currentCamPos: smoothedCamPos };
+  pullback: number;
+} = {
+  playerPos: smoothedCamPos,
+  velocity: smoothedCamPos,
+  speed: 0,
+  tier: 0,
+  dt: 0,
+  currentCamPos: smoothedCamPos,
+  pullback: 0,
+};
 
 /** Reset the follow state so the next frame snaps (run restart / vehicle respawn). */
 export function resetCameraRig(): void {
   rigInitialized = false;
+  deathPullbackActive = false;
   resetShake();
 }
 
@@ -253,10 +288,11 @@ export function updateCameraRig(camera: PerspectiveCamera, dt: number): void {
   const pos = state.pose.position; // interpolated pose — never rawPose (TDD §7)
   const speed = state.speed;
   const tier = getGameState().tier;
+  const pullback = deathPullbackActive ? CAMERA.deathPullback : 0;
 
   if (!rigInitialized) {
     // First frame of a run: snap to the ideal so we don't lerp in from the origin.
-    computeIdealCamPos(smoothedCamPos, pos, speed, tier);
+    computeIdealCamPos(smoothedCamPos, pos, speed, tier, pullback);
     rigInitialized = true;
   }
 
@@ -265,6 +301,7 @@ export function updateCameraRig(camera: PerspectiveCamera, dt: number): void {
   rigInput.speed = speed;
   rigInput.tier = tier;
   rigInput.dt = dt;
+  rigInput.pullback = pullback;
   // currentCamPos already aliases smoothedCamPos (stable module ref).
   const frame = computeCameraFrame(rigInput);
   smoothedCamPos.x = frame.desiredCamPos.x;

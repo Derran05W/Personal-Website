@@ -182,6 +182,14 @@ export interface EnemyUnitDef {
 }
 
 // Keyed by unit id. TDD §5.6 table.
+//
+// Phase 9 note (police): the pursuit chassis (ai/pursuitVehicle.ts) consumes these abstract
+// stats DIRECTLY rather than duplicating them as concrete kg / scale leaves — massFactor 1.0
+// resolves to 1200 kg against the 1200 kg reference chassis (VEHICLE_TUNING.chassis.massKg,
+// which the reused RaycastVehicle applies verbatim), and topSpeedPct 105 → a 1.05 top-speed
+// scale over STARTER_TOP_SPEED. Keeping ENEMY_UNITS the single source of truth (matching the
+// TDD §5.6 table) avoids a massKg/topSpeedScale pair drifting out of sync with massFactor/
+// topSpeedPct.
 export const ENEMY_UNITS = {
   police: { hp: 40, massFactor: 1.0, topSpeedPct: 105, behavior: 'pursuit' },
   armored: { hp: 90, massFactor: 1.6, topSpeedPct: 90, behavior: 'pursuit' },
@@ -209,4 +217,73 @@ export const GUN_TRUCK = {
     impulsePerHit: 600,
     cooldownSec: 2.5,
   },
+} as const;
+
+// Pursuit steering-behavior tunables (TDD §5.6 "AI implementation": seek/pursue with velocity
+// lead, ram commitment, 3-ray obstacle avoidance, stuck recovery). Consumed by the PURE math
+// in ai/aiSteering.ts (decisions cached at SPAWN.aiTickHz, forces applied every physics step)
+// and the pursuit chassis overdrive in ai/pursuitVehicle.ts. All leva-live; the values below
+// are the Phase 9 starting baseline (the TDD gives only the behavior, not the numbers) — any
+// retune from these is recorded in the phase handoff notes.
+export const AI_STEERING = {
+  // Velocity LEAD: aim at playerPos + playerVel × leadTimeSec so the unit cuts toward where
+  // the player is GOING, not where they are — this is what makes a moving player get boxed in.
+  leadTimeSec: 0.35,
+  // Ram COMMITMENT band: within this range of the player the unit drops the lead and drives
+  // full-throttle straight at the player's CURRENT position — so a juke makes it overshoot
+  // (relentless but dodgeable). Metres.
+  commitDistM: 10,
+  // Heading error (rad) → steer input gain, clamped to [-1,1]. ~0.45 rad (26°) → full lock.
+  steerGain: 2.2,
+  // --- 3-ray obstacle avoidance (rays cast center / ±avoidAngleDeg at think time, masked to
+  // BUILDING|PROP_STATIC only — chasing through parks/dynamic debris is desired) ------------
+  avoidAngleDeg: 15,
+  // Ray length (m) and how far ahead of the chassis center the rays START (past the front
+  // bumper so they never self-hit): ~halfLength + margin.
+  avoidRayLenM: 9,
+  avoidRayOriginAheadM: 2.3,
+  // Height (m) the horizontal probe rays sit at — mid-body, clear of the ground slab (top
+  // y=0) so they read building/prop boxes, not the road (mirrors traffic's RAY_HEIGHT_M).
+  avoidRayHeightM: 0.6,
+  // Side-ray blockage differential → steer-away weight; center-ray blockage → extra steer
+  // toward the clearer side (deadzone below which the center ray is ignored as noise).
+  avoidSideWeight: 1.3,
+  avoidCenterWeight: 1.1,
+  avoidCenterDeadzone: 0.12,
+  // A wall dead ahead cuts throttle by up to this fraction so the avoidance turn can bite
+  // instead of grinding head-on — but never below throttleFloor (keep closing = relentless).
+  avoidThrottleCut: 0.65,
+  throttleFloor: 0.35,
+  // Ease the throttle off in hard turns (fraction of throttle removed at full lock, scaling
+  // with |steer|). The AI — unlike a human — otherwise holds FULL throttle through full lock
+  // at top speed, which launches/flips the reused raycast chassis. This keeps units planted on
+  // straights (relentless) but composed through corners. Paired with downforcePerSpeed below.
+  cornerThrottleEase: 0.5,
+  // --- stuck recovery (wedged against a corner) --------------------------------------------
+  // Below this planar speed (m/s) while trying to throttle, for stuckSec seconds, triggers a
+  // reverseSec reversal phase (reverse + full lock toward the clearer side) to break free.
+  stuckSpeedMps: 0.5,
+  stuckSec: 3,
+  reverseSec: 1,
+  reverseSteer: 1,
+  // --- chassis overdrive (ai/pursuitVehicle.ts) --------------------------------------------
+  // The reused RaycastVehicle governs its engine force to zero at STARTER_TOP_SPEED, so a
+  // >100% unit needs a small supplemental forward push in the (base, topSpeed) band to reach
+  // its spec'd cap. Fraction of engine.maxForce available at the band bottom, tapering to 0
+  // at topSpeed (so it can never run away). 0 = disable the overdrive (unit caps at 100%).
+  overdriveGain: 0.5,
+  // EXTRA speed-scaled downforce (N per m/s) applied to pursuit chassis in ai/pursuitVehicle.ts,
+  // ON TOP of the shared VEHICLE_TUNING.stability.downforcePerSpeed (40) that keeps the human-
+  // driven player planted. The AI floors into turns far harder than a human, so pursuit units
+  // need more anti-launch grip; applied ONLY to pursuit bodies, never the player. Tuned so units
+  // stay grounded at speed without feeling glued. (Solo units stay planted at ~1.1 m peak;
+  // in a tight multi-unit pileup, collision impulses can still briefly toss one — inherent
+  // swarm chaos that downforce can't cancel, left as an M4 feel-tuning watch-item.)
+  downforcePerSpeed: 100,
+  // --- wreck-by-flip detection (ai/units/policeSedan.ts) -----------------------------------
+  // A pursuit unit wrecks on hp≤0 OR a sustained roll: uprightness (world-up·body-up) below
+  // wreckUpDot for wreckFlipSustainSec seconds. Mirrors the civilian values (TRAFFIC_CIV) for
+  // consistent "on its roof = dead" behavior across all vehicles.
+  wreckUpDot: 0.3,
+  wreckFlipSustainSec: 1.5,
 } as const;

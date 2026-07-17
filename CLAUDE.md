@@ -74,7 +74,7 @@ Status: `[ ]` todo · `[~]` in progress · `[!]` blocked / awaiting user · `[x]
 ### Part 3 — Core Loop (`.planning/part-3-core-loop.md`)
 - [x] **Phase 7 — Civilian traffic** (M3a) — 2026-07-16: 24-car kinematic graph-followers w/ block-ray hold + anti-deadlock creep, ram conversion (explicit velocity inheritance, civHit once), wreck detection (flip/hp → civWrecked once, linger, recycle); 5-min combined soak: pool pinned 24/24, 22.3k impacts, flat heap, 0 errors; 450 tests (see phase-07-notes.md).
 - [x] **Phase 8 — Heat, score, HUD** (M3b) — 2026-07-16: monotonic heat w/ ordered tier crossings, score + risk bonus (fixed-step accrual), header-matched HUD (stars/score/HP/hints, 10 Hz throttle), versioned persistence; fixed ground-spike insta-death found by first HP render; live audit green, 503 tests; damage tuning flagged for P9 (see phase-08-notes.md).
-- [ ] **Phase 9 — Police ★1, WRECKED/BUSTED, full run loop** (M4)
+- [x] **Phase 9 — Police ★1, WRECKED/BUSTED, full run loop** (M4) — 2026-07-16: spawn director (extensible composition, staggered 10 Hz), police reuse the signed-off vehicle controller (lead/ram/avoid/stuck-recover, strobing lightbar), WRECKED/water/BUSTED states, damage root-cause retune + vehicle-ram proxy, same-seed retry via runId remount, game-over screen + synthesized sirens; M4 battery: swarm→death→pristine retry ×10, 0 errors; organic-BUSTED reachability flagged for Part 4 tuning; 624 tests (see phase-09-notes.md).
 
 ### Part 4 — Escalation (`.planning/part-4-escalation.md`)
 - [ ] **Phase 10 — ★2 Armored + ★3 SWAT flanking** (M5a)

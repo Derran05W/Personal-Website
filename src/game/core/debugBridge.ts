@@ -15,6 +15,9 @@ import { setDistrictColor, setDistrictEmissive as setDistrictEmissiveRange } fro
 import { getImpactCount, onImpact } from '../combat/contacts';
 import { trafficRef } from '../ai/trafficTypes';
 import { gameEvents } from '../state/events';
+import { unitsRef, type UnitKind } from '../ai/pursuitTypes';
+import { setDevToggle } from './devToggles';
+import { getSirenDebugSnapshot, type SirenDebugVoice } from '../audio/sirens';
 
 // Phase 7 traffic verification: exactly-once event proof. The civHit/civWrecked emitter
 // payloads are empty, so scripted checks can't scrape them from the DOM — count them here
@@ -58,6 +61,22 @@ onImpact((impact) => {
 // button does.
 const TINT_COLOR = new Color('#ff2222');
 
+// Phase 9 Task 4: force a GAMEOVER with reason 'busted' without needing the real detector
+// live (combat/runLoop.ts, a concurrent sibling task — speed<1 for 3s AND >=3 pursuers
+// within 8m — which in turn needs Task 1/2's pursuit units actually chasing the player to
+// construct naturally). This is a screen/flow verification shortcut, not a stand-in for
+// runLoop's real BUSTED detector: it drives the exact same public seams (gameEvents,
+// store.transition) runLoop itself will drive once it lands, so once it exists this
+// function and the real path can never disagree about what a BUSTED game-over looks like —
+// there's nothing here for runLoop to conflict with. Exported (not just attached to
+// window) so core/devPanel.tsx's "force BUSTED (debug)" button can call the identical
+// logic instead of duplicating it.
+export function forceBustedGameOver(): void {
+  const state = getGameState();
+  gameEvents.emit('runEnded', { score: state.score, reason: 'busted' });
+  if (canTransition(state.machine, 'GAMEOVER')) state.transition('GAMEOVER');
+}
+
 /** Task 5 perf snapshot for the screenshot suite. The PerfOverlay draws these numbers to a
  * canvas (not DOM text), so a screenshot script can't scrape them from the page — this
  * reads the SAME r3f-perf zustand store PerfOverlay renders from instead. `gl.info.render`
@@ -98,6 +117,12 @@ declare global {
       /** Phase 8 audit: monotonic heat grant — the scripted mirror of the devPanel
        * "+N heat" buttons (leva DOM automation is canvas-occluded in headless). */
       addHeat: (delta: number) => void;
+      /** Phase 9 audit: direct store.setPlayerHp mirror — the scripted kill path for
+       * WRECKED verification (combat/runLoop.ts). Deliberately bypasses the damage
+       * resolver (combat/damage.ts) entirely, same as the devPanel's own hp slider would
+       * — runLoop's WRECKED detection polls store.playerHp every fixed step specifically
+       * so this path (and any other non-event hp mutation) can never be missed. */
+      setPlayerHp: (hp: number) => void;
       /** Phase 6 contact-spine proof: total ImpactRecords dispatched since load. */
       impactCount: () => number;
       /** Phase 6 contact-spine proof: the last few dispatched impacts, resolved to registry
@@ -125,6 +150,40 @@ declare global {
       /** Phase 7 traffic proof: total civHit / civWrecked events emitted since load. */
       civHitCount: () => number;
       civWreckCount: () => number;
+      /** Phase 9 Task 4 proof: live pursuit-unit count (non-free slots); 0 when the spawn
+       * director (ai/spawnDirector.ts) hasn't mounted yet. */
+      pursuitCount: () => number;
+      /** Phase 9 Task 4 proof: plain per-slot snapshot (no functions — safe to serialize
+       * across page.evaluate), mirroring trafficSlots' shape for the pursuit roster. */
+      pursuitSlots: () => {
+        id: number;
+        kind: string | null;
+        state: string;
+        x: number;
+        y: number;
+        z: number;
+        hp: number;
+        behaviorLabel: string;
+      }[];
+      /** Phase 9 Task 4 debug: force-spawn one police unit near the player, ignoring spawn
+       * caps (ai/pursuitTypes.ts's PursuitApi.forceSpawn). False if the director hasn't
+       * mounted yet or declined to spawn. */
+      forceSpawnPolice: () => boolean;
+      /** Phase 9 Task 4 debug: flips core/devToggles.ts's `invincible` flag. See that
+       * module's doc comment for the handoff — this flag alone changes no behavior until
+       * combat/damage.ts's applyPlayerDamage() is wired to read it. */
+      setInvincible: (value: boolean) => void;
+      /** Phase 9 Task 4 debug: forces a GAMEOVER with reason 'busted' — see
+       * forceBustedGameOver's doc comment above for exactly what this does and doesn't
+       * stand in for. */
+      forceBustedGameOver: () => void;
+      /** Phase 9 Task 4 proof: per-voice siren binding + gain, and the shared
+       * AudioContext's state (audio/sirens.ts). Real audible output can't be verified in
+       * this headless container — see that module's file header. */
+      sirenSnapshot: () => {
+        readonly contextState: AudioContextState | null;
+        readonly voices: readonly SirenDebugVoice[];
+      };
     };
   }
 }
@@ -148,6 +207,7 @@ window.__smashy = {
     return { heat: s.heat, tier: s.tier, score: s.score, playerHp: s.playerHp };
   },
   addHeat: (delta) => getGameState().addHeat(delta),
+  setPlayerHp: (hp) => getGameState().setPlayerHp(hp),
   readPerf: () => {
     const state = getR3fPerfState();
     return {
@@ -179,4 +239,22 @@ window.__smashy = {
   trafficSpawnAt: (x, z) => trafficRef.current?.spawnAt(x, z) ?? false,
   civHitCount: () => civHitTotal,
   civWreckCount: () => civWreckTotal,
+  pursuitCount: () => unitsRef.current?.activeCount() ?? 0,
+  pursuitSlots: () =>
+    (unitsRef.current?.slots ?? [])
+      .filter((s) => s.kind !== null)
+      .map((s) => ({
+        id: s.id,
+        kind: s.kind,
+        state: s.state,
+        x: s.x,
+        y: s.y,
+        z: s.z,
+        hp: s.hp,
+        behaviorLabel: s.behaviorLabel,
+      })),
+  forceSpawnPolice: () => unitsRef.current?.forceSpawn('police' satisfies UnitKind) ?? false,
+  setInvincible: (value) => setDevToggle('invincible', value),
+  forceBustedGameOver,
+  sirenSnapshot: () => getSirenDebugSnapshot(),
 };

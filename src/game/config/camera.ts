@@ -24,4 +24,9 @@ export const CAMERA = {
     // feel placeholder until the Phase 16 juice pass.
     frequencyHz: 24,
   },
+  // Phase 9 (combat/runLoop.ts, TDD §5.10 "brief ... camera pull-back" on WRECKED):
+  // extra follow-distance (m), on top of the normal base/speed/tier zoom, while
+  // fx/cameraRig.ts's setDeathPullback(true) is active — i.e. during a WRECKED/BUSTED
+  // lock window. STARTING POINT, tunable.
+  deathPullback: 6,
 } as const;

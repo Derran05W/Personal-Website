@@ -7,6 +7,7 @@
 // tier, grant heat, spawn unit X, blackout district, teleport, invincible, chaos bench…),
 // so it is structured around a top-level "Debug" folder plus auto-generated config folders.
 
+import { useEffect, useState, type CSSProperties } from 'react';
 import { Quaternion, Euler, Color } from 'three';
 import { useControls, folder, button, monitor, Leva } from 'leva';
 import { getGameState, useGameStore } from '../state/store';
@@ -18,6 +19,8 @@ import type { VehiclePose } from '../vehicles/IVehicleModel';
 import { getDevToggles, setDevToggle } from './devToggles';
 import { loadProgress, resetProgress } from '../state/persistence';
 import { trafficRef } from '../ai/trafficTypes';
+import { unitsRef, type UnitSlot } from '../ai/pursuitTypes';
+import { forceBustedGameOver } from './debugBridge';
 import { ARCHETYPES, EMISSIVE_ARCHETYPES } from '../world/archetypes';
 import { DISTRICT_COUNT, setDistrictColor, setDistrictEmissive } from '../world/instancing';
 import { derivePlacements } from '../world/propPlacements';
@@ -97,6 +100,93 @@ function yawOnlyRotation(rotation: VehiclePose['rotation']): VehiclePose['rotati
   );
   const yaw = new Quaternion().setFromEuler(new Euler(0, euler.y, 0, 'YXZ'));
   return { x: yaw.x, y: yaw.y, z: yaw.z, w: yaw.w };
+}
+
+// Phase 9 Task 4 debug tooling: unit state overlay ------------------------------------------
+// Small dev-only DOM list — same "plain fixed-position overlay, not an r3f scene" pattern as
+// hud/Minimap.tsx (a 2D canvas would be overkill for a handful of text rows) — polling
+// unitsRef.current at ~4 Hz (UNIT_OVERLAY_INTERVAL_MS) rather than every render/physics
+// step, since this is a debugging aid, not part of the render loop. Lives inside this file
+// (not a new hud/* component) so DevPanel's own already-DEV-gated mount
+// (`import.meta.env.DEV ? lazy(() => import('./core/devPanel')) : null` in game/index.tsx)
+// is the only wiring this needs — no separate mount point, no game/index.tsx edit.
+const UNIT_OVERLAY_INTERVAL_MS = 250; // ~4 Hz.
+
+const unitOverlayStyle: CSSProperties = {
+  position: 'fixed',
+  right: 8,
+  top: 140, // clears core/PerfOverlay.tsx (top:70) and hud/Hud.tsx's star row (top:112).
+  maxWidth: 260,
+  maxHeight: '40vh',
+  overflowY: 'auto',
+  background: 'rgba(10, 14, 22, 0.65)',
+  border: '1px solid rgba(255, 255, 255, 0.15)',
+  borderRadius: 4,
+  padding: '0.4rem 0.6rem',
+  fontFamily: 'monospace',
+  fontSize: '0.65rem',
+  lineHeight: 1.5,
+  color: 'rgba(245, 245, 245, 0.85)',
+  pointerEvents: 'none',
+  zIndex: 45, // above hud/Minimap.tsx (z-40); below Leva's own default z-index.
+};
+
+function distance2D(ax: number, az: number, bx: number, bz: number): number {
+  return Math.hypot(ax - bx, az - bz);
+}
+
+interface UnitOverlayRow {
+  readonly id: number;
+  readonly kind: string;
+  readonly behaviorLabel: string;
+  readonly hp: number;
+  readonly dist: number;
+}
+
+/** Distance-to-player is computed HERE, inside the poll tick (an effect/interval callback,
+ * not render) — react-hooks' `refs` rule flags reading a ref's `.current` during render
+ * (it can't tell the render apart from a stale value), so the row shape below already
+ * carries the derived `dist` rather than raw player-position state read back out in JSX. */
+function buildUnitOverlayRows(slots: readonly UnitSlot[], playerX: number, playerZ: number): UnitOverlayRow[] {
+  return slots
+    .filter((s) => s.kind !== null)
+    .map((s) => ({
+      id: s.id,
+      kind: s.kind ?? '?',
+      behaviorLabel: s.behaviorLabel,
+      hp: s.hp,
+      dist: distance2D(s.x, s.z, playerX, playerZ),
+    }));
+}
+
+function UnitOverlay() {
+  const [rows, setRows] = useState<readonly UnitOverlayRow[]>([]);
+
+  useEffect(() => {
+    const poll = () => {
+      const api = unitsRef.current;
+      const pose = playerVehicle.current?.readState().pose;
+      const px = pose?.position.x ?? 0;
+      const pz = pose?.position.z ?? 0;
+      setRows(api ? buildUnitOverlayRows(api.slots, px, pz) : []);
+    };
+    poll();
+    const id = window.setInterval(poll, UNIT_OVERLAY_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, []);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div style={unitOverlayStyle} data-testid="unit-overlay">
+      <div style={{ opacity: 0.7, marginBottom: 2 }}>pursuit units ({rows.length})</div>
+      {rows.map((row) => (
+        <div key={row.id}>
+          #{row.id} {row.kind} · {row.behaviorLabel} · hp {Math.round(row.hp)} · {row.dist.toFixed(0)}m
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function DevPanel() {
@@ -256,6 +346,37 @@ export default function DevPanel() {
       schema['lifetime score'] = monitor(() => loadProgress().lifetimeScore, { interval: 250 });
       schema['reset progress'] = button(() => resetProgress());
 
+      // Phase 9 Task 4 debug tooling — police/game-over verification ------------------------
+      // unitsRef (ai/pursuitTypes.ts) is null until ai/spawnDirector.ts's mount runs (a
+      // concurrent sibling task this wave) — null-safe no-op until then, same shape as the
+      // civilian-traffic hooks above.
+      schema['force spawn police'] = button(() => {
+        unitsRef.current?.forceSpawn('police');
+      });
+      schema['pursuit units'] = monitor(() => unitsRef.current?.activeCount() ?? 0, {
+        interval: 250,
+      });
+
+      // Invincible: writes ONLY the devToggles.ts flag (leva-free, safe to import from any
+      // build) — it does not itself change gameplay. combat/damage.ts's applyPlayerDamage()
+      // (Task 3/orchestrator-owned; not touched by this task) is the intended consumer —
+      // see core/devToggles.ts's `invincible` doc comment for the full handoff.
+      schema['invincible'] = {
+        value: getDevToggles().invincible,
+        onChange: (value: boolean) => setDevToggle('invincible', value),
+      };
+
+      // Kill player: store.setPlayerHp already exists as a public action (state/store.ts,
+      // since Phase 2) — no new seam needed. Whatever run-ending logic watches playerHp
+      // (combat/runLoop.ts, Task 3 this wave) reacts to this exactly like a real fatal hit.
+      schema['kill player'] = button(() => getGameState().setPlayerHp(0));
+
+      // Force BUSTED: see core/debugBridge.ts's forceBustedGameOver() doc comment for
+      // exactly what this bypasses (the real speed/proximity detector) vs. what it drives
+      // for real (gameEvents + store.transition, the same seams runLoop itself uses) — a
+      // screen/flow verification shortcut, not a fake detector.
+      schema['force BUSTED (debug)'] = button(() => forceBustedGameOver());
+
       return schema as unknown as LevaSchema;
     },
     [machine],
@@ -339,5 +460,10 @@ export default function DevPanel() {
   // Default top-right position sits directly under the fixed 64 px site header (z-index
   // 50) and is unclickable there; offsetting the title bar down clears it. `y: 70` is a
   // few px of breathing room below the header, `x: 0` keeps the default horizontal spot.
-  return <Leva collapsed titleBar={{ position: { x: 0, y: 70 } }} />;
+  return (
+    <>
+      <Leva collapsed titleBar={{ position: { x: 0, y: 70 } }} />
+      <UnitOverlay />
+    </>
+  );
 }

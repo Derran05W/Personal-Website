@@ -7,8 +7,11 @@ import {
   computeLookTarget,
   dampingAlpha,
   easeSpeedZoom,
+  getDeathPullback,
   getShakeTrauma,
+  resetCameraRig,
   resetShake,
+  setDeathPullback,
   sphericalOffset,
   stepShake,
   type Vec3,
@@ -68,6 +71,35 @@ describe('cameraDistance (base + speed zoom + tier zoom)', () => {
       2 * CAMERA.tierZoom,
       12,
     );
+  });
+
+  it('pullback defaults to 0 (no change from the pre-Phase-9 signature)', () => {
+    expect(cameraDistance(5, 2)).toBeCloseTo(cameraDistance(5, 2, 0), 12);
+  });
+
+  it('adds pullback on top of base/speed/tier zoom, additively', () => {
+    expect(cameraDistance(5, 2, 6) - cameraDistance(5, 2, 0)).toBeCloseTo(6, 12);
+  });
+});
+
+describe('death pull-back (setDeathPullback / getDeathPullback)', () => {
+  beforeEach(() => resetCameraRig());
+
+  it('defaults to false', () => {
+    expect(getDeathPullback()).toBe(false);
+  });
+
+  it('round-trips true/false', () => {
+    setDeathPullback(true);
+    expect(getDeathPullback()).toBe(true);
+    setDeathPullback(false);
+    expect(getDeathPullback()).toBe(false);
+  });
+
+  it('resetCameraRig clears it back to false', () => {
+    setDeathPullback(true);
+    resetCameraRig();
+    expect(getDeathPullback()).toBe(false);
   });
 });
 
@@ -208,6 +240,34 @@ describe('computeCameraFrame (ideal + damping)', () => {
     const ideal = computeIdealCamPos(v3(), { x: 0, y: 0, z: 0 }, 0, 4);
     expect(frame.desiredCamPos.x).toBeCloseTo(ideal.x, 6);
     expect(Math.hypot(ideal.x, ideal.y, ideal.z)).toBeCloseTo(cameraDistance(0, 4), 9);
+  });
+
+  it('honors input.pullback (Phase 9 death pull-back), defaulting to 0 when omitted', () => {
+    // computeCameraFrame returns a REUSED object (this file's own documented hot-path
+    // contract) — extract the number immediately after each call rather than holding two
+    // result references, or the second call's mutation silently overwrites the first.
+    const withPullback = computeCameraFrame({
+      playerPos: { x: 0, y: 0, z: 0 },
+      velocity: { x: 0, y: 0, z: 0 },
+      speed: 0,
+      tier: 0,
+      dt: 100, // snap
+      currentCamPos: { x: 0, y: 0, z: 0 },
+      pullback: 6,
+    });
+    const distWith = Math.hypot(withPullback.desiredCamPos.x, withPullback.desiredCamPos.y, withPullback.desiredCamPos.z);
+
+    const without = computeCameraFrame({
+      playerPos: { x: 0, y: 0, z: 0 },
+      velocity: { x: 0, y: 0, z: 0 },
+      speed: 0,
+      tier: 0,
+      dt: 100,
+      currentCamPos: { x: 0, y: 0, z: 0 },
+    });
+    const distWithout = Math.hypot(without.desiredCamPos.x, without.desiredCamPos.y, without.desiredCamPos.z);
+
+    expect(distWith - distWithout).toBeCloseTo(6, 6);
   });
 });
 

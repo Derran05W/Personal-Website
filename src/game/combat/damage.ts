@@ -33,6 +33,7 @@ import { Color } from 'three';
 import { DAMAGE } from '../config/damage';
 import { gameEvents } from '../state/events';
 import { getGameState } from '../state/store';
+import { getDevToggles } from '../core/devToggles';
 import { addShake } from '../fx/cameraRig';
 import { getArchetypeHandles } from '../world/instancing';
 import type { EntityEntry } from '../world/registry';
@@ -153,6 +154,8 @@ function applyEntityDamage(entry: EntityEntry, damage: number): void {
  * this resolver only ever drains HP down to, and holds it at, 0).
  */
 function applyPlayerDamage(damage: number): void {
+  // Dev invincibility (leva Debug toggle; core/devToggles.ts) — Phase 9 debug tooling.
+  if (import.meta.env.DEV && getDevToggles().invincible) return;
   const state = getGameState();
   if (state.playerHp <= 0) return;
   const newHp = Math.max(0, state.playerHp - damage);
@@ -185,7 +188,16 @@ function applySideDamage(
   forceMag: number,
 ): void {
   if (!target || !other) return;
-  const damage = computeDamage(forceMag, massFactorOf(other));
+  // Dynamic-vs-dynamic vehicle pairs use the dedicated ram proxy (see config comment):
+  // two yielding bodies produce far lower contact forces than hits against kinematic /
+  // fixed geometry, so the global proxy would map real rams to zero.
+  const isVehiclePair =
+    (target.kind === 'player' && other.kind === 'pursuit') ||
+    (target.kind === 'pursuit' && other.kind === 'player');
+  const cfg: DamageConfig = isVehiclePair
+    ? { ...DAMAGE, forceToSpeedProxy: DAMAGE.vehicleRamForceProxy }
+    : DAMAGE;
+  const damage = computeDamage(forceMag, massFactorOf(other), cfg);
   if (damage <= 0) return;
   if (target.kind === 'player') {
     applyPlayerDamage(damage);

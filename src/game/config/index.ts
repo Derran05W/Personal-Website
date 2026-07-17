@@ -12,18 +12,20 @@ export * from './damage';
 export * from './fx';
 export * from './lighting';
 export * from './rendering';
+export * from './audio';
 
 import { HEAT } from './heat';
 import { SPAWN, HELI } from './spawn';
 import { TANK } from './tank';
 import { CAMERA } from './camera';
 import { WORLD, WORLD_GEN, TRAFFIC, TRAFFIC_CIV, POWER_GRID, PROPS, BOUNDARY, PROP_DIMS, PROP_PLACEMENT } from './world';
-import { PLAYER_CARS, ENEMY_UNITS, SWAT, GUN_TRUCK, VEHICLE_TUNING } from './vehicles';
+import { PLAYER_CARS, ENEMY_UNITS, SWAT, GUN_TRUCK, VEHICLE_TUNING, AI_STEERING } from './vehicles';
 import { QUALITY_TIERS } from './quality';
 import { DAMAGE, BUSTED } from './damage';
 import { SKID } from './fx';
 import { LIGHTING } from './lighting';
 import { RENDERING } from './rendering';
+import { SIRENS } from './audio';
 
 /**
  * Registry of every tunable config block, keyed by name. The dev tuning panel (leva)
@@ -50,10 +52,12 @@ export const CONFIG = {
   ENEMY_UNITS,
   SWAT,
   GUN_TRUCK,
+  AI_STEERING,
   QUALITY_TIERS,
   DAMAGE,
   BUSTED,
   SKID,
   LIGHTING,
   RENDERING,
+  SIRENS,
 } as const;
