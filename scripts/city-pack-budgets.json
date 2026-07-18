@@ -1,0 +1,25 @@
+{
+  "_comment": "Phase 25.6 Task 2 (D15) — per-model post-simplify triangle caps. Read by scripts/city-pack.mjs (enforces during `pnpm assets:pack`) AND src/game/assets/cityPackBudgets.test.ts (asserts the shipped manifest never drifts back over cap) — ONE json, no drift between the two consumers. Ids not listed here are already <=600 tris and pass through the pipeline untouched (no simplify stage applied). `optOut` lists ids that skip simplify entirely even though they have a cap below, for a documented silhouette-break reason (empty for now — see the id's own comment if one is ever added).",
+  "caps": {
+    "building-red": 1100,
+    "building-green": 1000,
+    "building-red-corner": 1200,
+    "pizza-corner": 1300,
+    "rb-blank": 900,
+    "gb-blank": 900,
+    "big-building": 2400,
+    "brown-building": 700,
+    "traffic-light": 700,
+    "fire-hydrant": 450,
+    "road-bits": 500,
+    "car-a": 1400,
+    "car-b": 1400,
+    "suv": 1500,
+    "van": 1200,
+    "pickup-truck": 1800,
+    "sports-car-a": 1500,
+    "sports-car-b": 1600,
+    "motorcycle": 1200
+  },
+  "optOut": []
+}

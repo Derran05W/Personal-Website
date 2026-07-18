@@ -97,6 +97,43 @@ export interface DistrictBoundsRef {
   readonly south: DistrictBoundsEdge;
 }
 
+/** One city-pack model id + its relative pick weight within a pool (frontage.ts normalizes —
+ * weights need not sum to 1). `id` is a plain string (not imported from assets/cityPackManifest)
+ * to keep this a zero-import pure-data file; torontoDistricts.test.ts / districts.test.ts
+ * validate every id against the real manifest so a typo still fails loudly. */
+export interface PackStockEntry {
+  readonly id: string;
+  readonly weight: number;
+}
+
+/** Street-tree row density for a district's sidewalk bands (Phase 25.6 D16, furniture.ts). */
+export type TreeDensity = 'none' | 'sparse' | 'rows';
+
+/**
+ * Phase 25.6 D10 — city-pack model→district mapping. `models` is the non-corner filler pool
+ * (drawn from the 5 non-corner building ids — big-building/building-red/building-green/
+ * brown-building/greenhouse — plus the 2 blanks rb-blank/gb-blank; "7 types + 2 blanks" per the
+ * criterion). `cornerModels` is the 2-id corner pool (building-red-corner, pizza-corner) that
+ * frontage.ts prefers at intersection corner slots; an EMPTY `cornerModels` (financial,
+ * harbourfront, northYorkCentre — "big-building only" districts) means the consumer falls back
+ * to `models` for corner slots too — there is no dedicated corner-less-district path. Every
+ * `tints` hex is a NEW near-white set (every channel >= ~0.72 / 0xB8) — 25.5 proved
+ * instanceColor MULTIPLIES the palette texture, so the dark absolute §6 `fillerColors` hexes
+ * would crush textured pack facades to black; `fillerColors` stays reserved for the untextured
+ * backdrop boxes (D7). `pizza-corner` is capped at weight 0.05 of any `cornerModels` pool it
+ * appears in (rare neighbourhood-pizza-joint read, never a majority) and is excluded entirely
+ * from financial's pool (bank-tower district — a baked pizza sign there reads as a bug).
+ */
+export interface DistrictPackStock {
+  readonly models: readonly PackStockEntry[];
+  readonly cornerModels: readonly PackStockEntry[];
+  readonly tints: readonly string[];
+  readonly treeDensity: TreeDensity;
+  /** True for the three tower districts that also get a sparse second row of legacy box
+   * massing behind the pack frontage (D7) — financial, harbourfront, northYorkCentre. */
+  readonly backdropTowers?: true;
+}
+
 export interface TorontoDistrictDef {
   readonly id: DistrictId;
   /** §6 display name. */
@@ -105,7 +142,9 @@ export interface TorontoDistrictDef {
   readonly groundTint: string;
   /** 3-5 hex colours for filler-building walls, drawn from the §4 material family the §6
    * "filler stock" column maps to. Filler buildings inherit this automatically (§6 rule);
-   * only named buildings (Phase 24) override. */
+   * only named buildings (Phase 24) override. Still used by the D7 backdrop-box path (untextured
+   * geometry, absolute colour is correct there) — city-pack facades use `packStock.tints`
+   * instead (see that field's doc comment for why). */
   readonly fillerColors: readonly string[];
   /** [min, max] filler-stock building height in REAL metres (Phase 24 named towers are exempt —
    * §3c's height curve is applied to a seeded value from this range by the massing generator). */
@@ -113,10 +152,20 @@ export interface TorontoDistrictDef {
   readonly density: DistrictDensity;
   /** Declarative rect bounds — resolved against buildStreets() + zone constants in districts.ts. */
   readonly bounds: DistrictBoundsRef;
+  /** Phase 25.6 D10 — city-pack model/tint/tree-row mapping (frontage.ts, furniture.ts). */
+  readonly packStock: DistrictPackStock;
 }
 
 const street = (id: string): DistrictBoundsEdge => ({ street: id });
 const zone = (z: DistrictZoneEdge): DistrictBoundsEdge => ({ zone: z });
+/** PackStockEntry shorthand — keeps the per-district blocks below scannable. */
+const pk = (id: string, weight: number): PackStockEntry => ({ id, weight });
+
+// --- D10 corner-model pools (shared shorthand; every family district uses the same shape:
+// building-red-corner as the workhorse, pizza-corner a rare (<=0.05) flavour pick) -----------
+const CORNERS_STANDARD: readonly PackStockEntry[] = [pk('building-red-corner', 0.95), pk('pizza-corner', 0.05)];
+const CORNERS_NO_PIZZA: readonly PackStockEntry[] = [pk('building-red-corner', 1)];
+const CORNERS_NONE: readonly PackStockEntry[] = []; // financial/harbourfront/northYorkCentre — big-building only, frontage.ts falls back to `models`.
 
 /**
  * The 15 districts, in §6 table order (financial → willowdaleFinch), then the two filler
@@ -145,6 +194,15 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     heightRangeM: [60, 220],
     density: 'medium',
     bounds: { west: street('university'), east: street('yonge'), north: street('queen'), south: street('front') },
+    // Bank-tower district: big-building only (no street-level family/corner facades), cool
+    // blue-grey near-white tints, pizza-corner explicitly excluded (D10), backdrop towers.
+    packStock: {
+      models: [pk('big-building', 1)],
+      cornerModels: CORNERS_NONE,
+      tints: ['#c8d0d8', '#c0c8d0', '#d0d8e0'],
+      treeDensity: 'sparse',
+      backdropTowers: true,
+    },
   },
   {
     id: 'entertainment',
@@ -154,6 +212,13 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     heightRangeM: [15, 45],
     density: 'medium',
     bounds: { west: street('spadina'), east: street('university'), north: street('queen'), south: street('king') },
+    // Brick strip (D10: "brown-building + building-red (brick)"), warm near-white tints.
+    packStock: {
+      models: [pk('building-red', 0.45), pk('brown-building', 0.4), pk('rb-blank', 0.1), pk('gb-blank', 0.05)],
+      cornerModels: CORNERS_STANDARD,
+      tints: ['#e8c8c0', '#e0c0b8', '#f0d0c8'],
+      treeDensity: 'rows',
+    },
   },
   {
     id: 'kingWest',
@@ -163,6 +228,13 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     heightRangeM: [12, 30],
     density: 'medium',
     bounds: { west: street('bathurst'), east: street('spadina'), north: street('queen'), south: street('front') },
+    // Same brick flavour as entertainment (D10 groups the two), warm near-white tints.
+    packStock: {
+      models: [pk('brown-building', 0.45), pk('building-red', 0.4), pk('rb-blank', 0.1), pk('gb-blank', 0.05)],
+      cornerModels: CORNERS_STANDARD,
+      tints: ['#e0c0b8', '#e8c8c0', '#f0d0c8'],
+      treeDensity: 'rows',
+    },
   },
   {
     id: 'queenWest',
@@ -172,6 +244,13 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     heightRangeM: [9, 16],
     density: 'dense',
     bounds: { west: street('bathurst'), east: street('university'), north: street('dundas'), south: street('queen') },
+    // D10 sketch: "red/green family + corners heavy, brown-building, warm tints".
+    packStock: {
+      models: [pk('building-red', 0.3), pk('building-green', 0.3), pk('brown-building', 0.15), pk('rb-blank', 0.15), pk('gb-blank', 0.1)],
+      cornerModels: CORNERS_STANDARD,
+      tints: ['#f0e0c8', '#e8d0b8', '#f0d8c0'],
+      treeDensity: 'rows',
+    },
   },
   {
     id: 'chinatownKensington',
@@ -181,6 +260,14 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     heightRangeM: [8, 14],
     density: 'dense',
     bounds: { west: street('bathurst'), east: street('spadina'), north: street('college'), south: street('dundas') },
+    // D10 sketch groups chinatownKensington with queenWest/willowdale (red/green + corners
+    // heavy, brown-building, warm tints) — slightly more brown-building for the market masonry.
+    packStock: {
+      models: [pk('brown-building', 0.35), pk('building-red', 0.25), pk('building-green', 0.2), pk('rb-blank', 0.1), pk('gb-blank', 0.1)],
+      cornerModels: CORNERS_STANDARD,
+      tints: ['#e8d0b8', '#f0e0c8', '#f0d8c0'],
+      treeDensity: 'rows',
+    },
   },
   {
     id: 'yongeDundasQueen',
@@ -193,6 +280,13 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     // edge shares the bay corner with uoft/bloorYorkville instead of overlapping them (see
     // module header + districts.ts).
     bounds: { west: street('bay'), east: street('church'), north: street('college'), south: street('queen') },
+    // D10 sketch: "family + big-building" — the retail core reads a bit taller/glassier.
+    packStock: {
+      models: [pk('big-building', 0.35), pk('building-red', 0.25), pk('building-green', 0.15), pk('brown-building', 0.1), pk('rb-blank', 0.1), pk('gb-blank', 0.05)],
+      cornerModels: CORNERS_STANDARD,
+      tints: ['#e8e0d0', '#e0d8c8', '#f0e8d8'],
+      treeDensity: 'rows',
+    },
   },
   {
     id: 'churchWellesley',
@@ -202,6 +296,13 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     heightRangeM: [10, 20],
     density: 'medium',
     bounds: { west: street('church'), east: street('jarvis'), north: zone('bloor'), south: street('college') },
+    // D10 sketch groups churchWellesley with genericDowntown/foldCorridor — "mixed family".
+    packStock: {
+      models: [pk('building-red', 0.2), pk('building-green', 0.2), pk('brown-building', 0.2), pk('big-building', 0.1), pk('rb-blank', 0.15), pk('gb-blank', 0.15)],
+      cornerModels: CORNERS_STANDARD,
+      tints: ['#d8d8d8', '#d0d0d0', '#e0e0e0'],
+      treeDensity: 'rows',
+    },
   },
   {
     id: 'uoft',
@@ -213,6 +314,13 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     // Bent from the brief's first draft (spadina->bay) — narrowed to spadina->university so it
     // doesn't overlap bloorYorkville (see module header + districts.ts).
     bounds: { west: street('spadina'), east: street('university'), north: zone('bloor'), south: street('college') },
+    // D10 sketch: "brown-building sparse + greenhouse garnish".
+    packStock: {
+      models: [pk('brown-building', 0.65), pk('greenhouse', 0.15), pk('gb-blank', 0.1), pk('rb-blank', 0.1)],
+      cornerModels: CORNERS_NO_PIZZA,
+      tints: ['#d8d0c0', '#d0c8b8', '#e0d8c8'],
+      treeDensity: 'sparse',
+    },
   },
   {
     id: 'stLawrence',
@@ -222,6 +330,13 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     heightRangeM: [12, 25],
     density: 'medium',
     bounds: { west: street('yonge'), east: street('jarvis'), north: street('king'), south: street('front') },
+    // D10 sketch groups stLawrence with entertainment/kingWest — brick, warm near-white tints.
+    packStock: {
+      models: [pk('brown-building', 0.45), pk('building-red', 0.4), pk('rb-blank', 0.1), pk('gb-blank', 0.05)],
+      cornerModels: CORNERS_STANDARD,
+      tints: ['#f0d0c8', '#e8c8c0', '#e0c0b8'],
+      treeDensity: 'rows',
+    },
   },
   {
     id: 'harbourfront',
@@ -231,6 +346,14 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     heightRangeM: [40, 120],
     density: 'medium',
     bounds: { west: zone('downtownWest'), east: zone('downtownEast'), north: street('front'), south: zone('shore') },
+    // D10 sketch: "big-building, pale-blue tints, backdropTowers" (third tower district).
+    packStock: {
+      models: [pk('big-building', 1)],
+      cornerModels: CORNERS_NONE,
+      tints: ['#c0d8e8', '#c8e0f0', '#b8d0e0'],
+      treeDensity: 'sparse',
+      backdropTowers: true,
+    },
   },
   {
     id: 'bloorYorkville',
@@ -242,6 +365,13 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     // Bent from the brief's first draft (bay->jarvis) — becomes university->church, the middle
     // strip between uoft and churchWellesley (see module header + districts.ts).
     bounds: { west: street('university'), east: street('church'), north: zone('bloor'), south: street('college') },
+    // D10 sketch: "building-green + blanks, pale-gold tints".
+    packStock: {
+      models: [pk('building-green', 0.55), pk('gb-blank', 0.25), pk('rb-blank', 0.2)],
+      cornerModels: CORNERS_STANDARD,
+      tints: ['#f0e8c0', '#e8d8b8', '#e8e0c0'],
+      treeDensity: 'rows',
+    },
   },
   {
     id: 'northYorkCentre',
@@ -251,6 +381,14 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     heightRangeM: [40, 150],
     density: 'medium',
     bounds: { west: zone('capsuleWest'), east: zone('capsuleEast'), north: street('parkhome'), south: zone('sheppard') },
+    // D10 sketch: "big-building, teal tints, backdropTowers" (third tower district).
+    packStock: {
+      models: [pk('big-building', 1)],
+      cornerModels: CORNERS_NONE,
+      tints: ['#c0e0d8', '#b8d8d0', '#c8e8e0'],
+      treeDensity: 'sparse',
+      backdropTowers: true,
+    },
   },
   {
     id: 'willowdaleFinch',
@@ -260,6 +398,14 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     heightRangeM: [8, 15],
     density: 'dense',
     bounds: { west: zone('capsuleWest'), east: zone('capsuleEast'), north: zone('capsuleTop'), south: street('parkhome') },
+    // D10 sketch: "red/green family + corners heavy, brown-building, warm tints" (grouped with
+    // queenWest/chinatownKensington).
+    packStock: {
+      models: [pk('building-red', 0.3), pk('building-green', 0.25), pk('brown-building', 0.2), pk('rb-blank', 0.15), pk('gb-blank', 0.1)],
+      cornerModels: CORNERS_STANDARD,
+      tints: ['#f0d8c0', '#f0e0c8', '#e8d0b8'],
+      treeDensity: 'rows',
+    },
   },
   {
     id: 'genericDowntown',
@@ -271,6 +417,13 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     // The "universe" rect districts.ts subtracts every other downtown-zone district's rect
     // from — the true per-district output is the complement (may be several rects).
     bounds: { west: zone('downtownWest'), east: zone('downtownEast'), north: zone('bloor'), south: zone('shore') },
+    // D10 sketch: "mixed family" (grouped with churchWellesley/foldCorridor).
+    packStock: {
+      models: [pk('building-red', 0.2), pk('building-green', 0.2), pk('brown-building', 0.15), pk('big-building', 0.15), pk('rb-blank', 0.15), pk('gb-blank', 0.15)],
+      cornerModels: CORNERS_STANDARD,
+      tints: ['#d0d0d0', '#d8d8d8', '#e0e0e0'],
+      treeDensity: 'sparse',
+    },
   },
   {
     id: 'foldCorridor',
@@ -280,5 +433,12 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     heightRangeM: [8, 14],
     density: 'sparse',
     bounds: { west: zone('foldWest'), east: zone('foldEast'), north: zone('sheppard'), south: zone('bloor') },
+    // D10 sketch: "mixed family", sparse interior — minimal corner variety.
+    packStock: {
+      models: [pk('building-red', 0.25), pk('building-green', 0.25), pk('brown-building', 0.2), pk('rb-blank', 0.15), pk('gb-blank', 0.15)],
+      cornerModels: CORNERS_NO_PIZZA,
+      tints: ['#d0d0d0', '#d8d8d8', '#e0e0e0'],
+      treeDensity: 'sparse',
+    },
   },
 ] as const;

@@ -744,6 +744,34 @@ export default function DevPanel() {
     [],
   );
 
+  // --- City Pack re-dress (P25.6): per-layer toggles for perf triage + A/B --------------------
+  // The re-dressed city (frontage buildings + backdrop towers, furniture rows, parked cars, lamp
+  // cycling) is the world now when the Toronto map is on. These gate each layer live (additive —
+  // no world remount) for perf attribution + A/B screenshots. Same leva-free devToggles seam.
+  useControls(
+    'City Pack re-dress (P25.6)',
+    () => ({
+      packBuildings: {
+        value: getDevToggles().packBuildings,
+        onChange: (value: boolean) => setDevToggle('packBuildings', value),
+      },
+      packFurniture: {
+        value: getDevToggles().packFurniture,
+        onChange: (value: boolean) => setDevToggle('packFurniture', value),
+      },
+      packParked: {
+        value: getDevToggles().packParked,
+        onChange: (value: boolean) => setDevToggle('packParked', value),
+      },
+      packLightCycling: {
+        value: getDevToggles().packLightCycling,
+        onChange: (value: boolean) => setDevToggle('packLightCycling', value),
+      },
+      note: { value: 'needs Toronto map on; re-dressed world (frontage/furniture/parked/lamps)', disabled: true },
+    }),
+    [],
+  );
+
   // --- Audio folder: Phase 15 Task 4 sound-test board ---------------------------------------
   // registerAllEventSounds() is idempotent (audio/eventMap.ts) and cheap (no audio plays until
   // a button is actually clicked) — calling it here means this folder works standalone even

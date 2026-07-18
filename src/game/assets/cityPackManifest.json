@@ -30,10 +30,10 @@
     "prims": 1,
     "bytes": {
       "raw": 56052,
-      "optimized": 12080
+      "optimized": 6044
     },
     "hasTexture": true,
-    "contentHash": "26eb7c9e6ab6820a4629e06e8870bf406a9d12eb99966af820dc3856f4eb145f"
+    "contentHash": "0f7f641e328a1bd4b2bf8505dd185d92dcc83933260695258895f6892841a1bd"
   },
   {
     "id": "bench",
@@ -48,10 +48,10 @@
     "prims": 1,
     "bytes": {
       "raw": 12140,
-      "optimized": 5168
+      "optimized": 3112
     },
     "hasTexture": true,
-    "contentHash": "577f8d424c180952bb8e2c3c98ee719ddecd68b653f824a8f6c7cab44a2e382e"
+    "contentHash": "fe4eff9688aaa7cb385305dd66b351c14e8197ab2316dc7de475c85cc065065a"
   },
   {
     "id": "bicycle",
@@ -66,10 +66,10 @@
     "prims": 1,
     "bytes": {
       "raw": 2394132,
-      "optimized": 45148
+      "optimized": 25796
     },
     "hasTexture": true,
-    "contentHash": "d6226d809272f6192e4ec12e48010f81f79c2cef5e72d0f6ab29994eccc62853"
+    "contentHash": "139b0bc5591a58b55e7451aef5f296d89e4a494b8ea2f933c96e7ef279b42164"
   },
   {
     "id": "big-building",
@@ -80,14 +80,14 @@
       "h": 5.677369447866452,
       "d": 4.390617210037606
     },
-    "tris": 7004,
+    "tris": 2400,
     "prims": 1,
     "bytes": {
       "raw": 353968,
-      "optimized": 78068
+      "optimized": 12964
     },
     "hasTexture": true,
-    "contentHash": "70b2891c1b7dc2d173cebfabbcf52b6a35f346fbd2955ade2cb7ba4560ea9d71"
+    "contentHash": "4845bc784d9f8d50c04ca0d0c47113d6565a4df7e7435c4c638d465c6ce81c05"
   },
   {
     "id": "billboard",
@@ -102,10 +102,10 @@
     "prims": 1,
     "bytes": {
       "raw": 66696,
-      "optimized": 18092
+      "optimized": 15488
     },
     "hasTexture": true,
-    "contentHash": "a3fdc6188cbd01fdf94fb12124f7f993703fb67884c37bd76d42e67a73986965"
+    "contentHash": "68ae12074468f14f5728186d33535742aa52dcf8a7db5f0cb7e3db14947186b4"
   },
   {
     "id": "box",
@@ -120,10 +120,10 @@
     "prims": 1,
     "bytes": {
       "raw": 24228,
-      "optimized": 7136
+      "optimized": 6668
     },
     "hasTexture": true,
-    "contentHash": "18df00ddf02a0b9af83c6af78dbb33bfa28575acce6510c8fdbc73bf8892dd31"
+    "contentHash": "32a7c6dd5afd9959b730e55ae1634e07d944fba0e748aad474ffd211d2cb7eb2"
   },
   {
     "id": "brown-building",
@@ -134,14 +134,14 @@
       "h": 4.083205651603361,
       "d": 2.201779949552199
     },
-    "tris": 899,
+    "tris": 699,
     "prims": 1,
     "bytes": {
       "raw": 63100,
-      "optimized": 12564
+      "optimized": 5936
     },
     "hasTexture": true,
-    "contentHash": "d69c1344d01e8e4a7663335c1b79e3930d23b17bdf484fa2668adf46721ca7e8"
+    "contentHash": "6f8f840598280d4d05c8bb7ff7db2e0b3fcdc86ba03f71b34d5494b20ce0a300"
   },
   {
     "id": "building-green",
@@ -152,14 +152,14 @@
       "h": 3.4754925974874844,
       "d": 1.3394769385765448
     },
-    "tris": 1955,
+    "tris": 999,
     "prims": 1,
     "bytes": {
       "raw": 130308,
-      "optimized": 22568
+      "optimized": 8224
     },
     "hasTexture": true,
-    "contentHash": "3a695e2d34c9332e3ff2669f5f042a83bd59b8373daa465d91894582d766202e"
+    "contentHash": "3c7fd363078d0414d435155d8136182f2fe2b47683a0c2650e3946472815bb2b"
   },
   {
     "id": "building-red",
@@ -170,14 +170,14 @@
       "h": 3.4754925974874844,
       "d": 1.3394769385765448
     },
-    "tris": 2291,
+    "tris": 1099,
     "prims": 1,
     "bytes": {
       "raw": 150868,
-      "optimized": 25696
+      "optimized": 8788
     },
     "hasTexture": true,
-    "contentHash": "343d175cc3d2e3d2f23ab900b9baa21505993ca37542c8f01dc4b1e6d13e36d2"
+    "contentHash": "412b3a7ab7bbcd9285e140e261573bf2f0e72536ee228b14d840ad165a5dc0b2"
   },
   {
     "id": "building-red-corner",
@@ -188,14 +188,14 @@
       "h": 3.4651286533497654,
       "d": 1.3397843461802594
     },
-    "tris": 2892,
+    "tris": 1166,
     "prims": 1,
     "bytes": {
       "raw": 145076,
-      "optimized": 26560
+      "optimized": 8396
     },
     "hasTexture": true,
-    "contentHash": "fbaba0cc212a6406a805654038cdfe9213dc941235092817b385dcf6044853e8"
+    "contentHash": "670586b248e06fab1d79240bc1c8d1650198fddf1170c9dc7209c9771e897622"
   },
   {
     "id": "bus",
@@ -228,10 +228,10 @@
     "prims": 1,
     "bytes": {
       "raw": 34220,
-      "optimized": 9116
+      "optimized": 4728
     },
     "hasTexture": true,
-    "contentHash": "0171f4b2b0cc8b3a3538ea6fb2da2d68029f919f46d0420bb9475fca2ad690bf"
+    "contentHash": "f26e2c0afeea8750e774acefbb1954ae71fd67ef00baeed658244485d09a3f03"
   },
   {
     "id": "bus-stop-sign",
@@ -246,10 +246,10 @@
     "prims": 1,
     "bytes": {
       "raw": 99648,
-      "optimized": 17384
+      "optimized": 8448
     },
     "hasTexture": true,
-    "contentHash": "89e931bddce0544944fb0ba63bd3ca926e3da7b340f569ed3c0c8b50d737ba98"
+    "contentHash": "31f62c0f46cefc11e1201f3112a9d492e01c1f6f52d388b85285c8c8e9c209a6"
   },
   {
     "id": "car-a",
@@ -260,14 +260,14 @@
       "h": 1.1765789622440934,
       "d": 4.220716953277588
     },
-    "tris": 2954,
+    "tris": 1394,
     "prims": 1,
     "bytes": {
       "raw": 164752,
-      "optimized": 39348
+      "optimized": 9392
     },
     "hasTexture": true,
-    "contentHash": "53ec8e3bb18197931e2a48b6db4e0caf3f89e639f91d20ae20d51739efb28aad"
+    "contentHash": "6a6c06587ca22a9ff30c9b92d088cf7afa3011b76577c3abc2f493aade0d4505"
   },
   {
     "id": "car-b",
@@ -278,14 +278,14 @@
       "h": 1.1456159725785255,
       "d": 3.3096230030059814
     },
-    "tris": 3124,
+    "tris": 1394,
     "prims": 1,
     "bytes": {
       "raw": 174320,
-      "optimized": 41844
+      "optimized": 9704
     },
     "hasTexture": true,
-    "contentHash": "e130a4489d63f2cae2563b96fee7c33d9e3eaf433beaa4ee7ff801ed70864534"
+    "contentHash": "0dea5e642bca724efea8ee0a37f6bc21c2baa9331c1e1309c05c7190b63a344e"
   },
   {
     "id": "cone",
@@ -300,10 +300,10 @@
     "prims": 1,
     "bytes": {
       "raw": 21244,
-      "optimized": 6240
+      "optimized": 3800
     },
     "hasTexture": true,
-    "contentHash": "1635713830da404caccd09d32ae9cc2a8b9b5a54d7b759d232270fb4a5eb9602"
+    "contentHash": "f3ffb5fca4ecc95654c6458e484d38ce83e43512fb6721b103e1dc158322455e"
   },
   {
     "id": "debris-papers",
@@ -318,10 +318,10 @@
     "prims": 1,
     "bytes": {
       "raw": 2616,
-      "optimized": 2340
+      "optimized": 1964
     },
     "hasTexture": false,
-    "contentHash": "247aac9a266a18cae5148b7a13c30de3828e2dbd631d2a61e524fcdf3b82646b"
+    "contentHash": "4fd61ab64b16618a41e06da3437bf157ef35ff3267488091b021efecd002b410"
   },
   {
     "id": "dumpster",
@@ -336,10 +336,10 @@
     "prims": 1,
     "bytes": {
       "raw": 19784,
-      "optimized": 6920
+      "optimized": 3816
     },
     "hasTexture": true,
-    "contentHash": "0631255f507a5516b23e0164f29a0618d2536efdf5198c2fb59191ce3e9342c4"
+    "contentHash": "35a5becf0909b96a59f4a734dde5bb0134bcfe1730c2f4b6ee4c3e37287f875a"
   },
   {
     "id": "fence",
@@ -354,10 +354,10 @@
     "prims": 1,
     "bytes": {
       "raw": 52836,
-      "optimized": 9408
+      "optimized": 6464
     },
     "hasTexture": false,
-    "contentHash": "e80bf2c364b5dc99e73224b920796ed7741ddf1db280c04e535131d628a3f884"
+    "contentHash": "27244d5bc50662aade48f9d970727e9c597e74114788defaae38ed0277e3d6b4"
   },
   {
     "id": "fence-end",
@@ -372,10 +372,10 @@
     "prims": 1,
     "bytes": {
       "raw": 40836,
-      "optimized": 9296
+      "optimized": 4912
     },
     "hasTexture": true,
-    "contentHash": "ce1bb293adf3e354342503deac37f7f047387c780e139d4f62f1a4e9c170b092"
+    "contentHash": "aa1a7c2efddb9b9bb5a24ea49d4aed039b36fed3a7fa607eb162c1e5f5f00b75"
   },
   {
     "id": "fence-piece",
@@ -390,10 +390,10 @@
     "prims": 1,
     "bytes": {
       "raw": 30096,
-      "optimized": 7480
+      "optimized": 4228
     },
     "hasTexture": true,
-    "contentHash": "35176b1e738b10efdbe1162080dcff9705197648d71e6a6259499eac2d1bf5ac"
+    "contentHash": "639ab4e7bcd3018c43f258cac6b9b1fcc8dde63cc7af14418067c294392c6be3"
   },
   {
     "id": "fire-exit",
@@ -408,10 +408,10 @@
     "prims": 1,
     "bytes": {
       "raw": 78404,
-      "optimized": 15280
+      "optimized": 6972
     },
     "hasTexture": false,
-    "contentHash": "edfe9462072a46d236b784ed4fd5f09fba9c3e034b702a014d1f858b97b023c6"
+    "contentHash": "051a7b5a5224eae89da5b99b0c67705eb62c2fae5ecb7d742e9817020cc71346"
   },
   {
     "id": "fire-hydrant",
@@ -422,14 +422,14 @@
       "h": 232.617919921875,
       "d": 108.57645797729492
     },
-    "tris": 872,
+    "tris": 450,
     "prims": 1,
     "bytes": {
       "raw": 13080,
-      "optimized": 5360
+      "optimized": 3976
     },
     "hasTexture": false,
-    "contentHash": "abb23a81a9f4effb80aa31903b1c725ba92685bb154eb436c9bd1d19f03b4d27"
+    "contentHash": "c87e782667dc5d4aca9d7c38252894d3c9988d3cf4f98103507b098d563424b1"
   },
   {
     "id": "floor-hole",
@@ -444,10 +444,10 @@
     "prims": 1,
     "bytes": {
       "raw": 5128,
-      "optimized": 3284
+      "optimized": 2688
     },
     "hasTexture": true,
-    "contentHash": "44b2da4139f038d6615de2f72ed4c95f65957a65dbe0cee76708f550b5130954"
+    "contentHash": "a7ae9102c0caec40d6062a5abca085a493675c25a74110f4c992fdd094d4961a"
   },
   {
     "id": "flower-pot-a",
@@ -462,10 +462,10 @@
     "prims": 1,
     "bytes": {
       "raw": 23260,
-      "optimized": 6484
+      "optimized": 4392
     },
     "hasTexture": true,
-    "contentHash": "470ee40a6280db7628cfd2fabaf7139e666d2b4fb5d3aef265bef0d102c3a71e"
+    "contentHash": "f5bc079abb444c789a6d07b79aa2deb49f5805ddc24a3f356c6584f1cf971d20"
   },
   {
     "id": "flower-pot-b",
@@ -480,10 +480,10 @@
     "prims": 1,
     "bytes": {
       "raw": 56460,
-      "optimized": 13668
+      "optimized": 5720
     },
     "hasTexture": true,
-    "contentHash": "e6230cf1dfb4b3340d1b775f2089569cef36a5ae85e89b911d0209c6f961f947"
+    "contentHash": "01733fd7010d309a5cf428593040595ecece21a6db1471fb24aa23c3f7d3d25c"
   },
   {
     "id": "gb-blank",
@@ -494,14 +494,14 @@
       "h": 3.4754925974874844,
       "d": 1.3279972328656184
     },
-    "tris": 1802,
+    "tris": 900,
     "prims": 1,
     "bytes": {
       "raw": 117336,
-      "optimized": 20792
+      "optimized": 7700
     },
     "hasTexture": true,
-    "contentHash": "bad0caf6ba69ffd0b24d84a7c71872999656d1021b4e7e4d65060dcb3de9b6ef"
+    "contentHash": "0aaeac7670fac6afea99faaa3339e734126092430eac3669bd0dd39f2ca18fb9"
   },
   {
     "id": "greenhouse",
@@ -516,10 +516,10 @@
     "prims": 1,
     "bytes": {
       "raw": 31800,
-      "optimized": 8508
+      "optimized": 5360
     },
     "hasTexture": true,
-    "contentHash": "6403fe08cb4036359456636d1ef0aa219ae699781d7378dfd1f3e3f8167303cd"
+    "contentHash": "2f40da2144a1e3aee77d6c316f657a9668e6425183cf07d9c0f5b2953677cf6d"
   },
   {
     "id": "mailbox",
@@ -534,10 +534,10 @@
     "prims": 1,
     "bytes": {
       "raw": 24008,
-      "optimized": 6824
+      "optimized": 4132
     },
     "hasTexture": true,
-    "contentHash": "aafc1c800064490f6325aad8a612854027ae1c05932e99ab3ecdfe7b4f5ea8cd"
+    "contentHash": "de9d1ae0bb3a8c76d6c941c9a31e2298493440a484256c446d13d1b2f0fbd576"
   },
   {
     "id": "manhole-cover",
@@ -552,10 +552,10 @@
     "prims": 1,
     "bytes": {
       "raw": 13084,
-      "optimized": 4964
+      "optimized": 3376
     },
     "hasTexture": true,
-    "contentHash": "55a388a46d8fab8a5c87cbd39d24cfd351791a9cc59f7048d14fa07a1ca7ff0b"
+    "contentHash": "ffa2f417f163ab9f609b62eb888d298e93fc2deb3c61969242849fc137c598ea"
   },
   {
     "id": "motorcycle",
@@ -566,14 +566,14 @@
       "h": 67.17904474267561,
       "d": 127.48837661743164
     },
-    "tris": 6361,
+    "tris": 1194,
     "prims": 1,
     "bytes": {
       "raw": 109608,
-      "optimized": 35356
+      "optimized": 10752
     },
     "hasTexture": true,
-    "contentHash": "04814615bd5c3f12146a89a1047bb1a66a59a53d274843fdd2431bb9334405e2"
+    "contentHash": "c1bf2fb6562676da3678aa5778c95c31bad6e7ca5edfc949c697de5cfb3008b3"
   },
   {
     "id": "pickup-truck",
@@ -584,14 +584,14 @@
       "h": 1.8484454044614815,
       "d": 5.18038130663521
     },
-    "tris": 6432,
+    "tris": 1794,
     "prims": 2,
     "bytes": {
       "raw": 273012,
-      "optimized": 56180
+      "optimized": 15124
     },
     "hasTexture": true,
-    "contentHash": "7ade85336b27d989481c9a6c45651dc03bf4316a5d288cb940e660a2b2b77a41"
+    "contentHash": "e62aff9cd94c082a1cd3f1d7f9ac515cdb690879a438565812c8978cff90b93e"
   },
   {
     "id": "pizza-corner",
@@ -602,14 +602,14 @@
       "h": 3.465128497938247,
       "d": 1.339784348894826
     },
-    "tris": 3126,
+    "tris": 1283,
     "prims": 1,
     "bytes": {
       "raw": 169160,
-      "optimized": 29680
+      "optimized": 8808
     },
     "hasTexture": true,
-    "contentHash": "3197aa3574394b1692e32bd79ef71c6d71750841fda3c6a81c2adceec9b3cfa0"
+    "contentHash": "e2a860e57dc710ee379c3166ee9aad04be6c5e5109c76d8947ea82253794446b"
   },
   {
     "id": "planter-bushes",
@@ -624,10 +624,10 @@
     "prims": 1,
     "bytes": {
       "raw": 53232,
-      "optimized": 13092
+      "optimized": 5252
     },
     "hasTexture": true,
-    "contentHash": "dfd10613215721a716f21895d43e4b908ead2edcc004ca12d69af39381baad73"
+    "contentHash": "631670552300cd20b37aa74f9f52f104b6c8f8ae5c23784305ad39fe1801e682"
   },
   {
     "id": "police-car",
@@ -642,10 +642,10 @@
     "prims": 1,
     "bytes": {
       "raw": 180512,
-      "optimized": 43396
+      "optimized": 16804
     },
     "hasTexture": true,
-    "contentHash": "2863b60c17ecc406468e30bf1eaf44a4f5e2e9ca8d615b86dc64fd53ccf6e26e"
+    "contentHash": "655c15bb4f1c6085220960a41b13b8424c6dc12512a17788cafdbb13aedd94f1"
   },
   {
     "id": "power-box",
@@ -660,10 +660,10 @@
     "prims": 1,
     "bytes": {
       "raw": 18252,
-      "optimized": 5140
+      "optimized": 3620
     },
     "hasTexture": true,
-    "contentHash": "4dc886e48deb31b14366f456c536d3b83f41112ca4dcc4505e758be52d9a81d6"
+    "contentHash": "44738b31564d996e89b5d408eb0b932cf2663407df476d1eb594cc32f6f2f0b5"
   },
   {
     "id": "rb-blank",
@@ -674,14 +674,14 @@
       "h": 3.4754925974874844,
       "d": 1.3279972328656187
     },
-    "tris": 1802,
+    "tris": 900,
     "prims": 1,
     "bytes": {
       "raw": 117328,
-      "optimized": 20800
+      "optimized": 7708
     },
     "hasTexture": true,
-    "contentHash": "2d98c07b0f8d4fdff497df4a118a77f5b05608c098dcf58bb9b559a449c4959f"
+    "contentHash": "1119bfc45c9d3b9a7d2709e15eddab64c620c4a3162bcdce9b63d493bb85cfec"
   },
   {
     "id": "road-bits",
@@ -692,14 +692,14 @@
       "h": 0.10000060400725098,
       "d": 5.000000356938777
     },
-    "tris": 754,
+    "tris": 500,
     "prims": 1,
     "bytes": {
       "raw": 68128,
-      "optimized": 15216
+      "optimized": 10808
     },
     "hasTexture": true,
-    "contentHash": "2e67b00a5be2dba77d6281808a7087fc3fd50c885f7d09d8681082cc3bd738f4"
+    "contentHash": "4e127e39574959c88defe126c32dfc8da4a6b836102de5094446c839bf12e3fd"
   },
   {
     "id": "rock-band-poster",
@@ -714,10 +714,10 @@
     "prims": 1,
     "bytes": {
       "raw": 12676,
-      "optimized": 3932
+      "optimized": 3476
     },
     "hasTexture": true,
-    "contentHash": "6d601be506b1d270d812ac7c806d298c69bd8816ae2ec718b68883d8d1f12b3f"
+    "contentHash": "83aa221eb7613e0338f17825901458a41e44561517f4e55aaaea2c7266ca3343"
   },
   {
     "id": "roof-exit",
@@ -732,10 +732,10 @@
     "prims": 1,
     "bytes": {
       "raw": 19556,
-      "optimized": 5640
+      "optimized": 3844
     },
     "hasTexture": true,
-    "contentHash": "fce85cda6980474181622a12fd7e648adc0965fa269c079c0053eedbe3189fd5"
+    "contentHash": "cf829df15e4436585235b940a5206fb544707e9ce35d5328ffd728ed521645d7"
   },
   {
     "id": "sports-car-a",
@@ -746,14 +746,14 @@
       "h": 1.2030550129711628,
       "d": 3.9265329837799072
     },
-    "tris": 3148,
+    "tris": 1500,
     "prims": 1,
     "bytes": {
       "raw": 175100,
-      "optimized": 42660
+      "optimized": 9876
     },
     "hasTexture": true,
-    "contentHash": "34f140a1de06cbb933d503c713df32d9f4e35b2740d7865d8a659131a931e33d"
+    "contentHash": "280c35481dd85492ca62e159c237d2d031cbe5e6d584335aeb17fa9e1f6604eb"
   },
   {
     "id": "sports-car-b",
@@ -764,14 +764,14 @@
       "h": 1.8647261429548294,
       "d": 5.6551002094025
     },
-    "tris": 5802,
+    "tris": 1600,
     "prims": 2,
     "bytes": {
       "raw": 252528,
-      "optimized": 53528
+      "optimized": 14276
     },
     "hasTexture": true,
-    "contentHash": "ea4a9e35d448d7101012ebc956fd0c958893f2a0d6998b963dc611e3d74e60f2"
+    "contentHash": "6a807ba941c171ea42344c92be5fd87c912b8869c625b331fe4ebc8800d1c597"
   },
   {
     "id": "stop-sign",
@@ -800,14 +800,14 @@
       "h": 1.5278509762138128,
       "d": 4.209349155426025
     },
-    "tris": 3294,
+    "tris": 1492,
     "prims": 1,
     "bytes": {
       "raw": 181608,
-      "optimized": 44056
+      "optimized": 10036
     },
     "hasTexture": true,
-    "contentHash": "d46a0becdacb3c0066a09a9ccdbfd4b1f625d4fcaa8432d3455e09f948f2594e"
+    "contentHash": "17c8a5f5410ac7f57289bb341cf877221f4b15283af095f7a5aa79120f2648b3"
   },
   {
     "id": "traffic-light",
@@ -818,14 +818,14 @@
       "h": 4.663855323791605,
       "d": 1.9225988888877967
     },
-    "tris": 1369,
+    "tris": 699,
     "prims": 1,
     "bytes": {
       "raw": 63648,
-      "optimized": 14176
+      "optimized": 8120
     },
     "hasTexture": true,
-    "contentHash": "8579e85df013de346a189937f19e7c7a04398fe9ae33a2179e00d42039eea3b3"
+    "contentHash": "57af9bef5f482114fef13fd65aab0744d07122673de81975faf70c842e2f0653"
   },
   {
     "id": "trash-bag-grey",
@@ -840,10 +840,10 @@
     "prims": 1,
     "bytes": {
       "raw": 20368,
-      "optimized": 6184
+      "optimized": 2368
     },
     "hasTexture": false,
-    "contentHash": "2969b3b80d05d4ddf8e728ca31cd0951fa48cf703e3be5a503c3dc79d0ca67b5"
+    "contentHash": "f82d805a67cb95d37a4ce19293eb8bd107da6805efd52d18f19053f9349a51bb"
   },
   {
     "id": "trash-can",
@@ -858,10 +858,10 @@
     "prims": 1,
     "bytes": {
       "raw": 11816,
-      "optimized": 4164
+      "optimized": 2328
     },
     "hasTexture": false,
-    "contentHash": "71f075abf855c4af0e5ce0996b38836c6592f3c5642d291521d5dd7284240202"
+    "contentHash": "343d2125758f165244ab5661ed2f144bb7204c8cf2942afc5cc6e278091641ce"
   },
   {
     "id": "tree",
@@ -890,14 +890,14 @@
       "h": 34.32973050195142,
       "d": 80.23063659667969
     },
-    "tris": 1946,
+    "tris": 1200,
     "prims": 1,
     "bytes": {
       "raw": 44152,
-      "optimized": 16656
+      "optimized": 12412
     },
     "hasTexture": true,
-    "contentHash": "aa0909bce3bf55a1f8cb6dd7ccee77cda3e246fc51441f316a1370bae08d231e"
+    "contentHash": "a7020a83cfbf7a9ff5c6b580f7c991761408b773f0542b6f049f7354398a8cd6"
   },
   {
     "id": "washing-line",
@@ -912,10 +912,10 @@
     "prims": 1,
     "bytes": {
       "raw": 39396,
-      "optimized": 10112
+      "optimized": 4704
     },
     "hasTexture": true,
-    "contentHash": "a37dd02e09df13231172b91295a3c82cabc1cc0d9587a2055c8413651e83aa74"
+    "contentHash": "155894b0a3f4c6ef2cb9b28e04497234560385f0c3b4ca8f4bd6ed9805829276"
   },
   {
     "id": "yellow-post-it",
@@ -930,9 +930,9 @@
     "prims": 1,
     "bytes": {
       "raw": 2336,
-      "optimized": 2008
+      "optimized": 1548
     },
     "hasTexture": false,
-    "contentHash": "f9eb8de1f7ec0e591a193b72d60b0ddceb8126fb4e86789bf1379b6ad410f226"
+    "contentHash": "cedd066189e4a5295fdb1a3e9201f73d4437a4391de5742c67eb9861c15f3fe4"
   }
 ]

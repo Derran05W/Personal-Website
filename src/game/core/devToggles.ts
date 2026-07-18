@@ -54,11 +54,19 @@ export interface DevToggles {
    * and conditionally mounts the cluster. Default off — TorontoScene is byte-identical when off
    * (additive conditional only). Meaningful only with `torontoMap` on. */
   cityPackPreview: boolean;
-  /** Phase 25.5 (D8) A/B material arm for the city-pack preview: true → unlit-literal
-   * (MeshBasicMaterial + baked palette map, toneMapped=false); false → the GLBs' real lit
-   * materials under BlueHourRig. Default ON (the P23 unlit verdict is the prior, revisited by
-   * this phase's textured-asset A/B). No effect unless `cityPackPreview` is on. */
+  /** Phase 25.5 (D8) A/B material arm for the city-pack: true → unlit-literal (MeshBasicMaterial
+   * + baked palette map, toneMapped=false); false → the GLBs' real lit materials under
+   * BlueHourRig. Default ON (the P23/25.5 unlit verdict). Drives BOTH the 25.5 preview AND (25.6)
+   * the whole re-dressed city (frontage/furniture/parked). */
   cityPackUnlit: boolean;
+  /** Phase 25.6 layer toggles (default ON within the Toronto branch) for perf triage + A/B
+   * screenshots. Each gates one re-dress layer live without a world remount: frontage pack
+   * buildings + backdrop towers, street furniture rows, parked vehicles, and the traffic-light
+   * lamp cycling overlay. Meaningful only with `torontoMap` on. */
+  packBuildings: boolean;
+  packFurniture: boolean;
+  packParked: boolean;
+  packLightCycling: boolean;
 }
 
 const toggles: DevToggles = {
@@ -71,6 +79,10 @@ const toggles: DevToggles = {
   torontoMap: false,
   cityPackPreview: false,
   cityPackUnlit: true,
+  packBuildings: true,
+  packFurniture: true,
+  packParked: true,
+  packLightCycling: true,
 };
 const listeners = new Set<() => void>();
 

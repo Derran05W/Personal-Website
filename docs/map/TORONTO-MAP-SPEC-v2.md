@@ -88,6 +88,9 @@ Unchanged from v1: one class table, no scattered literals.
 
 Real arterials are ~20 m ≈ 13 wu; we draw 26–36. **Ratio ≈ 2–2.8× on roads.**
 
+> **SUPERSEDED 2026-07-18** by CLAUDE.md CITY-PACK REAPPROACH rule 4 (car-derived widths — see
+> `config/torontoMap.ts`).
+
 ### 3b. Building footprints
 `footprint_wu = real_m / 1.55 × 0.5` → buildings at **half** projected size.
 Net road:building ratio ≈ 4–5× vs reality = your "roads big, buildings small" brief.

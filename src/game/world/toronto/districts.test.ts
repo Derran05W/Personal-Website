@@ -4,6 +4,7 @@
 // every §6 row must be present with sane data, and the whole build must be deterministic.
 import { describe, expect, it } from 'vitest';
 import { TORONTO_DISTRICTS, type DistrictId } from '../../config/torontoDistricts';
+import { hasCityPackModel } from '../../assets/cityPackManifest';
 import { PLAYABLE_POLYGON, pointInPolygon, type MapVertex } from './polygon';
 import { ZONE_BOUNDARIES } from './projection';
 import { buildDistricts, districtAt, type MapRect } from './districts';
@@ -96,6 +97,67 @@ describe('buildDistricts — §6 rows present + config sanity', () => {
 
   it.each(TORONTO_DISTRICTS)('$id: density is one of dense/medium/sparse', (def) => {
     expect(['dense', 'medium', 'sparse']).toContain(def.density);
+  });
+});
+
+// Phase 25.6 (D10) — packStock config sanity, same it.each pattern as the block above.
+describe('buildDistricts — packStock (D10 city-pack model/tint mapping)', () => {
+  it.each(TORONTO_DISTRICTS)('$id: every models/cornerModels id is a real city-pack manifest id', (def) => {
+    for (const entry of [...def.packStock.models, ...def.packStock.cornerModels]) {
+      expect(hasCityPackModel(entry.id), `${def.id}: unknown city-pack id "${entry.id}"`).toBe(true);
+      expect(entry.weight, `${def.id}: ${entry.id} weight`).toBeGreaterThan(0);
+    }
+  });
+
+  it.each(TORONTO_DISTRICTS)('$id: models is non-empty; cornerModels is empty only for a backdropTowers district', (def) => {
+    expect(def.packStock.models.length, def.id).toBeGreaterThan(0);
+    if (def.packStock.cornerModels.length === 0) {
+      expect(def.packStock.backdropTowers, `${def.id}: empty cornerModels without backdropTowers`).toBe(true);
+    }
+  });
+
+  it.each(TORONTO_DISTRICTS)('$id: tints has 3+ near-white hex colours (every channel >= 0xb8, D11)', (def) => {
+    expect(def.packStock.tints.length).toBeGreaterThanOrEqual(3);
+    for (const hex of def.packStock.tints) {
+      expect(hex, def.id).toMatch(HEX_RE);
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      for (const channel of [r, g, b]) {
+        expect(channel, `${def.id} ${hex}`).toBeGreaterThanOrEqual(0xb8);
+      }
+    }
+  });
+
+  it.each(TORONTO_DISTRICTS)('$id: treeDensity is one of none/sparse/rows', (def) => {
+    expect(['none', 'sparse', 'rows']).toContain(def.packStock.treeDensity);
+  });
+
+  it('pizza-corner never exceeds weight 0.05 within any cornerModels pool, and is absent from financial', () => {
+    for (const def of TORONTO_DISTRICTS) {
+      const pizza = def.packStock.cornerModels.find((e) => e.id === 'pizza-corner');
+      if (def.id === 'financial') {
+        expect(pizza, 'financial must not carry pizza-corner').toBeUndefined();
+        continue;
+      }
+      if (pizza) expect(pizza.weight).toBeLessThanOrEqual(0.05);
+    }
+  });
+
+  it('rb-blank/gb-blank appear in every FAMILY district\'s filler mix (criterion: "7 types + 2 blanks")', () => {
+    // The three "big-building only" tower districts (D10's explicit carve-out, same set as
+    // backdropTowers) are the one documented exception — they have no street-level family/blank
+    // facades at all, just the standalone tower model.
+    for (const def of TORONTO_DISTRICTS) {
+      if (def.packStock.backdropTowers) continue;
+      const ids = new Set(def.packStock.models.map((e) => e.id));
+      expect(ids.has('rb-blank') || ids.has('gb-blank'), def.id).toBe(true);
+    }
+  });
+
+  it('exactly the three tower districts (financial/harbourfront/northYorkCentre) carry backdropTowers', () => {
+    const withTowers = TORONTO_DISTRICTS.filter((d) => d.packStock.backdropTowers === true).map((d) => d.id).sort();
+    expect(withTowers).toEqual(['financial', 'harbourfront', 'northYorkCentre'].sort());
   });
 });
 

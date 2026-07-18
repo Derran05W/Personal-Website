@@ -423,6 +423,13 @@ declare global {
        * the cluster additively without a world remount). Meaningful only with torontoMap on. */
       setCityPackPreview: (value: boolean) => void;
       setCityPackUnlit: (value: boolean) => void;
+      /** Phase 25.6: scripted mirrors of the "City Pack re-dress (P25.6)" layer toggles — gate the
+       * frontage buildings + backdrop towers / furniture rows / parked cars / lamp cycling live for
+       * perf attribution + A/B screenshots. Safe to flip live (additive mounts, no world remount). */
+      setPackBuildings: (value: boolean) => void;
+      setPackFurniture: (value: boolean) => void;
+      setPackParked: (value: boolean) => void;
+      setPackLightCycling: (value: boolean) => void;
       /** Phase 9 Task 4 debug: forces a GAMEOVER with reason 'busted' — see
        * forceBustedGameOver's doc comment above for exactly what this does and doesn't
        * stand in for. */
@@ -614,6 +621,10 @@ window.__smashy = {
   setTorontoMap: (value) => setDevToggle('torontoMap', value),
   setCityPackPreview: (value) => setDevToggle('cityPackPreview', value),
   setCityPackUnlit: (value) => setDevToggle('cityPackUnlit', value),
+  setPackBuildings: (value) => setDevToggle('packBuildings', value),
+  setPackFurniture: (value) => setDevToggle('packFurniture', value),
+  setPackParked: (value) => setDevToggle('packParked', value),
+  setPackLightCycling: (value) => setDevToggle('packLightCycling', value),
   forceBustedGameOver,
   sirenSnapshot: () => getSirenDebugSnapshot(),
   audioSnapshot,

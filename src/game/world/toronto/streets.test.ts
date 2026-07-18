@@ -8,6 +8,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { CAR_REF } from '../../config/cityPackScale';
 import { EDGE_PAD_WU, ROAD_CLASSES } from '../../config/torontoMap';
 import { PLAYABLE_POLYGON, pointInPolygon } from './polygon';
 import { TORONTO_PROJECTION } from './projection';
@@ -231,15 +232,31 @@ describe('spans resolve to referenced streets / zone edges — not magic numbers
   });
 });
 
-describe('config sanity — chosen widths sit inside the §3a ranges', () => {
-  it('spine 36∈[36,36], artery 33∈[32,34], major 28∈[26,30], minor 18∈[16,20]', () => {
-    expect(ROAD_CLASSES.spine).toBe(36);
-    expect(ROAD_CLASSES.artery).toBeGreaterThanOrEqual(32);
-    expect(ROAD_CLASSES.artery).toBeLessThanOrEqual(34);
-    expect(ROAD_CLASSES.major).toBeGreaterThanOrEqual(26);
-    expect(ROAD_CLASSES.major).toBeLessThanOrEqual(30);
-    expect(ROAD_CLASSES.minor).toBeGreaterThanOrEqual(16);
-    expect(ROAD_CLASSES.minor).toBeLessThanOrEqual(20);
+// Phase 25.6 (D4a): the old "§3a ranges" test pinned this describe block to the SUPERSEDED
+// spec table (spine 36 fixed, artery/major/minor picked from a [lo,hi] range — see
+// docs/map/TORONTO-MAP-SPEC-v2.md's §3a addendum). CLAUDE.md's CITY-PACK REAPPROACH rule 4
+// supersedes that table: widths are now whole-car multiples of CAR_REF.widthWu
+// (config/cityPackScale.ts), graded spine(7) > artery(6) > major(5) > minor(3.5). This block
+// pins the DERIVATION, not a bare literal, per the "re-derive, never hand-pin" policy (D4d).
+describe('config sanity — car-derived widths (§3a superseded, CLAUDE.md CITY-PACK REAPPROACH rule 4)', () => {
+  it('spine/artery/major/minor are exact whole-car multiples of CAR_REF.widthWu', () => {
+    expect(ROAD_CLASSES.spine).toBeCloseTo(7 * CAR_REF.widthWu, 9);
+    expect(ROAD_CLASSES.artery).toBeCloseTo(6 * CAR_REF.widthWu, 9);
+    expect(ROAD_CLASSES.major).toBeCloseTo(5 * CAR_REF.widthWu, 9);
+    expect(ROAD_CLASSES.minor).toBeCloseTo(3.5 * CAR_REF.widthWu, 9);
+  });
+
+  it('the class ordering still holds (spine widest, minor narrowest — §2 "spine reads first")', () => {
+    expect(ROAD_CLASSES.spine).toBeGreaterThan(ROAD_CLASSES.artery);
+    expect(ROAD_CLASSES.artery).toBeGreaterThan(ROAD_CLASSES.major);
+    expect(ROAD_CLASSES.major).toBeGreaterThan(ROAD_CLASSES.minor);
+  });
+
+  it('matches the plan-pinned current values (spine 15.4 / artery 13.2 / major 11.0 / minor 7.7)', () => {
+    expect(ROAD_CLASSES.spine).toBeCloseTo(15.4, 9);
+    expect(ROAD_CLASSES.artery).toBeCloseTo(13.2, 9);
+    expect(ROAD_CLASSES.major).toBeCloseTo(11.0, 9);
+    expect(ROAD_CLASSES.minor).toBeCloseTo(7.7, 9);
   });
 
   it('every street carries a width matching its class', () => {

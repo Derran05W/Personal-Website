@@ -56,6 +56,38 @@ function findCrossings(ns: readonly Street[], ew: readonly Street[]): Crossing[]
   return out;
 }
 
+/** One street crossing: MAP-space position (x, y — same convention as Street.centerline/span,
+ * NOT world/mapToWorld'd) + both streets' ids and classes. Phase 25.6 (D16): the public surface
+ * `findCrossings` never had — furniture.ts (traffic-light/stop-sign placement rules) and the
+ * road-paint builder (crosswalks, dash-skip) both key off this. */
+export interface Intersection {
+  readonly x: number;
+  readonly y: number;
+  readonly nsId: string;
+  readonly ewId: string;
+  readonly nsCls: RoadClass;
+  readonly ewCls: RoadClass;
+}
+
+/** Every street-centreline crossing, MAP-space, in a stable deterministic order (sorted by x
+ * then y — same convention buildTorontoRoadGraph uses for node ids). Pure function of the
+ * street table; no randomness. */
+export function listIntersections(streets: readonly Street[]): readonly Intersection[] {
+  const ns = streets.filter((s) => s.axis === 'ns');
+  const ew = streets.filter((s) => s.axis === 'ew');
+  const streetById = new Map(streets.map((s) => [s.id, s]));
+  return findCrossings(ns, ew)
+    .map((c): Intersection => ({
+      x: c.x,
+      y: c.y,
+      nsId: c.nsId,
+      ewId: c.ewId,
+      nsCls: streetById.get(c.nsId)!.cls,
+      ewCls: streetById.get(c.ewId)!.cls,
+    }))
+    .sort((a, b) => a.x - b.x || a.y - b.y);
+}
+
 const keyOf = (x: number, y: number): string => `${Math.round(x * KEY_Q)}:${Math.round(y * KEY_Q)}`;
 
 /**

@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { ROAD_CLASSES, ROAD_COLORS, WAYPOINT_SPACING_WU } from '../../config/torontoMap';
 import { PLAYABLE_POLYGON, pointInPolygon } from './polygon';
-import { buildRibbons, buildTorontoRoadGraph } from './roadGraph';
+import { buildRibbons, buildTorontoRoadGraph, listIntersections } from './roadGraph';
 import { buildStreets } from './streets';
 
 const { streets } = buildStreets();
@@ -143,6 +143,69 @@ describe('determinism — the graph is a pure function of the streets', () => {
     expect(g2.nodes).toEqual(nodes);
     expect(g2.edges).toEqual(edges);
     expect(g2.outEdges).toEqual(outEdges);
+  });
+});
+
+// Phase 25.6 (D16) — listIntersections was private (findCrossings); now a public MAP-space
+// crossing list furniture.ts's traffic-light/stop-sign rule keys off.
+describe('listIntersections — MAP-space crossing list', () => {
+  const intersections = listIntersections(streets);
+
+  it('count matches the same crossing count roadGraph itself derives intersection nodes from', () => {
+    let crossings = 0;
+    for (const a of nsStreets) {
+      for (const b of ewStreets) {
+        const x = a.centerline;
+        const y = b.centerline;
+        if (x >= b.span[0] - 1e-6 && x <= b.span[1] + 1e-6 && y >= a.span[0] - 1e-6 && y <= a.span[1] + 1e-6) {
+          crossings++;
+        }
+      }
+    }
+    expect(intersections.length).toBe(crossings);
+  });
+
+  it('every entry carries the correct nsId/ewId classes off the actual street table', () => {
+    const byId = new Map(streets.map((s) => [s.id, s]));
+    for (const c of intersections) {
+      expect(byId.get(c.nsId)!.cls).toBe(c.nsCls);
+      expect(byId.get(c.ewId)!.cls).toBe(c.ewCls);
+      expect(byId.get(c.nsId)!.axis).toBe('ns');
+      expect(byId.get(c.ewId)!.axis).toBe('ew');
+    }
+  });
+
+  it('every crossing position sits on both parent centrelines, inside both spans', () => {
+    const byId = new Map(streets.map((s) => [s.id, s]));
+    for (const c of intersections) {
+      const ns = byId.get(c.nsId)!;
+      const ew = byId.get(c.ewId)!;
+      expect(c.x).toBeCloseTo(ns.centerline, 6);
+      expect(c.y).toBeCloseTo(ew.centerline, 6);
+      expect(c.x).toBeGreaterThanOrEqual(ew.span[0] - 1e-6);
+      expect(c.x).toBeLessThanOrEqual(ew.span[1] + 1e-6);
+      expect(c.y).toBeGreaterThanOrEqual(ns.span[0] - 1e-6);
+      expect(c.y).toBeLessThanOrEqual(ns.span[1] + 1e-6);
+    }
+  });
+
+  it('is sorted deterministically by (x, then y)', () => {
+    for (let i = 1; i < intersections.length; i++) {
+      const a = intersections[i - 1];
+      const b = intersections[i];
+      expect(a.x < b.x || (a.x === b.x && a.y <= b.y)).toBe(true);
+    }
+  });
+
+  it('King x Bay is present and both classes are "major" (the D16 4-mast signalized example)', () => {
+    const kingBay = intersections.find((c) => (c.nsId === 'bay' && c.ewId === 'king') || (c.nsId === 'king' && c.ewId === 'bay'));
+    expect(kingBay).toBeDefined();
+    expect(kingBay!.nsCls).toBe('major');
+    expect(kingBay!.ewCls).toBe('major');
+  });
+
+  it('determinism — two independent calls are deep-equal', () => {
+    expect(listIntersections(buildStreets().streets)).toEqual(intersections);
   });
 });
 

@@ -1,23 +1,26 @@
 // Toronto map v2 — road-class widths, render colours, graph tuning, and the spawn point.
-// Single source of truth for the "thermometer" street grid (docs/map/TORONTO-MAP-SPEC-v2.md
-// §3a). Consumed by world/toronto/streets.ts (street table + ribbons) and roadGraph.ts
-// (traffic graph). Pure data, no three/react — deterministic.
+// Single source of truth for the "thermometer" street grid. Consumed by world/toronto/streets.ts
+// (street table + ribbons) and roadGraph.ts (traffic graph). Pure data, no three/react —
+// deterministic.
 //
-// A.6 (spec) explicitly DEFERS exact road widths to playtest: the §3a table gives ranges
-// (artery 32–34, major 26–30, minor 16–20); we pick the midpoints here and leave them
-// live-tunable. If the minor class clips during drifts on the King & Bay / Yonge drive,
-// widen `minor` to 20 and re-test before touching anything else (A.6's rule).
+// PHASE 25.6 SUPERSESSION (D1, CLAUDE.md CITY-PACK REAPPROACH rule 4): the spec's §3a width
+// table (docs/map/TORONTO-MAP-SPEC-v2.md — see the addendum at that table) and its A.6
+// "defer exact widths to playtest" note are formally superseded. Widths are now DERIVED from
+// CAR_REF.widthWu (config/cityPackScale.ts — the same sedan-envelope reference the city-pack
+// scale system uses), whole-car-graded so every class reads as an intuitive "N cars wide" and
+// the class ordering (spine > artery > major > minor) still makes Yonge read first (§2). A.6's
+// tune path survives in spirit: if the 3.5-car minor (7.7 wu) clips during drifts, widen it to
+// 4 cars (8.8) and re-test before touching anything else — nothing downstream is hand-pinned
+// (streets/districts/roadGraph/named/places/tunnel are all street-referenced, so a width edit
+// here alone re-flows the whole map).
 
-/**
- * Road-class ribbon widths in world-units (§3a). Deliberately oversized (~2–2.8× real) so
- * arcade Smashy-Road handling has room. `spine` (Yonge) is the widest — it must read as the
- * legible vertical that anchors the whole shape (§2).
- */
+import { CAR_REF } from './cityPackScale';
+
 export const ROAD_CLASSES = {
-  spine: 36, // Yonge — §3a fixed 36
-  artery: 33, // University, Bloor, Spadina — §3a 32–34 midpoint
-  major: 28, // King/Queen/Dundas/College/Front/Bay/Church/Jarvis/Bathurst/Finch/Sheppard/QueensQuay — §3a 26–30 midpoint
-  minor: 18, // Richmond/Adelaide/John/Portland/York/Bremner/ParkHome — §3a 16–20 midpoint
+  spine: CAR_REF.widthWu * 7, // Yonge — 7 player-car widths = 15.4
+  artery: CAR_REF.widthWu * 6, // University, Bloor, Spadina — 6 cars = 13.2
+  major: CAR_REF.widthWu * 5, // King/Queen/Dundas/College/Front/Bay/Church/Jarvis/Bathurst/Finch/Sheppard/QueensQuay — 5 cars = 11.0
+  minor: CAR_REF.widthWu * 3.5, // Richmond/Adelaide/John/Portland/York/Bremner/ParkHome — 3.5 cars = 7.7
 } as const;
 
 export type RoadClass = keyof typeof ROAD_CLASSES;
@@ -37,23 +40,70 @@ export const ROAD_COLORS = {
 } as const satisfies Record<RoadClass, string>;
 
 /**
- * Light curb strips along each ribbon's long edges (Phase 22 live-pass finding): §3a roads
- * are deliberately wider (36 wu spine) than the fixed camera's ~20-40 wu near footprint, so
- * ON the road the frame is a single flat colour — without edge lines there is literally
- * nothing to read. Rendered into the same merged unlit geometry as the ribbons.
+ * Light curb strips along each ribbon's long edges (Phase 22 live-pass finding, re-graded
+ * Phase 25.6 D2 for the car-derived ribbon widths): even at the narrower 15.4 wu spine, ON the
+ * road the frame is close to a single flat colour without edge lines. Rendered into the same
+ * merged unlit geometry as the ribbons.
+ *
+ * D2 re-grain: curb 1.4 -> 0.8 and the dash proportionally thinner (0.4 wu wide total —
+ * previously a full 1.1 wu, literally half a car) — both scaled down with the narrower
+ * ribbons so the paint doesn't dominate a 7.7 wu minor the way it did a 36 wu spine.
  */
 export const ROAD_EDGE = {
-  widthWu: 1.4,
+  widthWu: 0.8,
   color: '#7e8791',
   // Centre-line dashes: the near-frame readability anchor — curbs sit at the frame edges
   // on the 36 wu spine, but the dashes stay dead-centre under the car at every speed.
+  // 4/5 wu length/gap pattern, 0.4 wu total width (2 x halfWidthWu).
   dash: {
-    lengthWu: 6,
-    gapWu: 7,
-    halfWidthWu: 0.55,
+    lengthWu: 4,
+    gapWu: 5,
+    halfWidthWu: 0.2,
     color: '#b8a86a',
   },
 } as const;
+
+/**
+ * Sidewalk band along every ribbon edge, OUTSIDE the curb strip (Phase 25.6 D2/D20 seam #2).
+ * Not part of the road ribbon itself — a flat merged quad strip that gives pack-building
+ * frontage rows (D6) and street furniture (D16) a surface to sit on, and the near-frame
+ * readability the narrower re-grained ribbons need at street edges. Contrast ladder (unlit
+ * palette, TorontoScene): canvas void (#121a2b) < asphalt (ROAD_COLORS) < ground (#454b54) <
+ * sidewalk (below) < curb (ROAD_EDGE.color, brightest, right at the road/sidewalk seam).
+ */
+export const SIDEWALK = {
+  widthWu: 4,
+  color: '#565e68',
+} as const;
+
+/**
+ * Painted crosswalk band across each SIGNALIZED intersection approach (Phase 25.6 D2, D20 seam
+ * #1). This constant owns only the stripe geometry/colour numbers — placement is derived at
+ * mount time from roadGraph.ts's `listIntersections` (the crossing point + both streets'
+ * classes) by the road-paint builder, keyed the same way MegaKit's road-paint decal meshes
+ * would eventually replace this quad emission. The band sits just outside the intersection box
+ * (see the dash-skip rule below) and spans the full ribbon width of the approach it belongs to.
+ */
+export const CROSSWALK = {
+  /** Depth of the painted band along the direction of travel (wu). */
+  bandWu: 3,
+  /** Individual stripe width, stripes run parallel to the direction of travel (wu). */
+  stripeWidthWu: 0.5,
+  /** Gap between adjacent stripes (wu). */
+  stripeGapWu: 0.5,
+  /** Gap left between the intersection box edge and the near edge of the band (wu). */
+  setbackWu: 1,
+  color: '#c7c4ba',
+} as const;
+
+/**
+ * Dash-skip rule (Phase 25.6 D2): centre-line dashes are OMITTED inside every intersection box
+ * — for a street being dashed, that's the region within the CROSS street's halfWidth of the
+ * crossing point (`ROAD_CLASSES[crossStreet.cls] / 2` on each side). Deliberately not its own
+ * constant: the box is derived from the same ROAD_CLASSES table the ribbons themselves use, so
+ * there stays exactly one source for "how wide is an intersection". Applied by the road-paint
+ * builder against roadGraph.ts's `listIntersections`.
+ */
 
 /** Target spacing (wu) between adjacent traffic-graph nodes along a street between crossings. */
 export const WAYPOINT_SPACING_WU = 40;

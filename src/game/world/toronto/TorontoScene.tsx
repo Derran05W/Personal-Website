@@ -43,12 +43,14 @@ import {
 } from 'three';
 import { BOUNDARY, interactionGroups } from '../../config';
 import { CAMERA_CLAMP_PADDING_WU, clampToPolygon } from './polygon';
-import { ROAD_CLASSES, ROAD_EDGE } from '../../config/torontoMap';
 import { WINDOW_PATTERN } from '../../config/torontoMaterials';
+import { CORRIDOR_HALF_WIDTH_WU } from '../../config/tunnel';
 import { buildStreets } from './streets';
-import { buildRibbons, type Ribbon } from './roadGraph';
+import { listIntersections } from './roadGraph';
 import { buildDistricts } from './districts';
-import { buildMassing } from './massing';
+import { buildFrontage } from './frontage';
+import { buildFurniture } from './furniture';
+import { buildRoadGeometry } from './roadPaint';
 import { HERO_LOTS, buildNamedBuildings, type CrownDecal, type NamedBox, type NamedPlacement } from './namedBuildings';
 import { buildCnTowerGeometry, buildRogersGeometry } from './heroes';
 import { needsTransparent, occlusionFader, occlusionRegistry } from './occlusionFade';
@@ -71,7 +73,9 @@ import { computeLookTarget, type Vec3 } from '../../fx/cameraRig';
 import { BlueHourRig } from '../BlueHourRig';
 import { RunLoopSystem } from '../../combat/runLoop';
 import { useDevToggle } from '../../core/devToggles';
+import { preloadCityPack } from '../../assets/cityPack';
 import { CityPackPreview } from './cityPack/CityPackPreview';
+import { CityDress } from './cityPack/CityDress';
 import {
   GROUND_RECTS,
   SIGNPOSTS,
@@ -83,7 +87,6 @@ import {
 // --- layout constants (visual-only y offsets; physics uses the collider slab below) ---------
 const GROUND_Y = 0; // merged ground quads at the collider top face
 const GROUND_TINT_Y = 0.008; // district groundTint quads, just above the base ground, below roads
-const ROAD_Y = 0.02; // ribbons a hair above ground (§ plan) — no z-fight
 const WATER_Y = 0.05; // lake plane above the ribbons
 const GROUND_HALF_THICK = BOUNDARY.groundThicknessM / 2; // slab extends downward only; top at y=0
 const POST_H = 6; // signpost pole height (m)
@@ -171,52 +174,6 @@ function buildGroundTintGeometry(): BufferGeometry {
       // rect is map space; mapToWorld is the identity swap, so min/max X,Y ARE world x/z.
       pushQuad(positions, normals, rect.minX, rect.minY, rect.maxX, rect.maxY, GROUND_TINT_Y);
       for (let i = 0; i < 6; i++) colors.push(c.r, c.g, c.b);
-    }
-  }
-  const g = new BufferGeometry();
-  g.setAttribute('position', new Float32BufferAttribute(positions, 3));
-  g.setAttribute('normal', new Float32BufferAttribute(normals, 3));
-  g.setAttribute('color', new Float32BufferAttribute(colors, 3));
-  g.computeBoundingSphere();
-  return g;
-}
-
-/** Merged road ribbons + curb strips, per-vertex coloured (single draw call, vertexColors).
- * Ribbons are already WORLD-space (buildRibbons applied mapToWorld). Curb strips run along
- * each ribbon's LONG edges a hair above the asphalt — the live pass proved that §3a's
- * oversized roads fill the camera's whole near footprint, so an unmarked ribbon reads as a
- * void, not a road (see ROAD_EDGE's doc). */
-function buildRibbonGeometry(ribbons: readonly Ribbon[]): BufferGeometry {
-  const positions: number[] = [];
-  const normals: number[] = [];
-  const colors: number[] = [];
-  const c = new Color();
-  const pushColored = (hex: string, x0: number, z0: number, x1: number, z1: number, y: number): void => {
-    pushQuad(positions, normals, x0, z0, x1, z1, y);
-    c.set(hex);
-    for (let i = 0; i < 6; i++) colors.push(c.r, c.g, c.b);
-  };
-  const e = ROAD_EDGE.widthWu;
-  const d = ROAD_EDGE.dash;
-  for (const r of ribbons) {
-    pushColored(r.color, r.minX, r.minZ, r.maxX, r.maxZ, ROAD_Y);
-    if (r.maxX - r.minX >= r.maxZ - r.minZ) {
-      // long axis = X (east-west street): curbs along the north/south edges.
-      pushColored(ROAD_EDGE.color, r.minX, r.minZ, r.maxX, r.minZ + e, ROAD_Y + 0.005);
-      pushColored(ROAD_EDGE.color, r.minX, r.maxZ - e, r.maxX, r.maxZ, ROAD_Y + 0.005);
-      // centre-line dashes (always inside the camera's near footprint while driving).
-      const cz = (r.minZ + r.maxZ) / 2;
-      for (let x = r.minX + d.gapWu; x + d.lengthWu < r.maxX; x += d.lengthWu + d.gapWu) {
-        pushColored(d.color, x, cz - d.halfWidthWu, x + d.lengthWu, cz + d.halfWidthWu, ROAD_Y + 0.005);
-      }
-    } else {
-      // long axis = Z (north-south street): curbs along the west/east edges.
-      pushColored(ROAD_EDGE.color, r.minX, r.minZ, r.minX + e, r.maxZ, ROAD_Y + 0.005);
-      pushColored(ROAD_EDGE.color, r.maxX - e, r.minZ, r.maxX, r.maxZ, ROAD_Y + 0.005);
-      const cx = (r.minX + r.maxX) / 2;
-      for (let z = r.minZ + d.gapWu; z + d.lengthWu < r.maxZ; z += d.lengthWu + d.gapWu) {
-        pushColored(d.color, cx - d.halfWidthWu, z, cx + d.halfWidthWu, z + d.lengthWu, ROAD_Y + 0.005);
-      }
     }
   }
   const g = new BufferGeometry();
@@ -989,50 +946,47 @@ export function TorontoScene() {
   const cityPackPreview = useDevToggle('cityPackPreview');
   const cityPackUnlit = useDevToggle('cityPackUnlit');
 
-  // Street table + ribbons: pure, deterministic, built once.
-  const ribbons = useMemo(() => buildRibbons(buildStreets().streets), []);
+  // Street table + intersections: pure, deterministic, built once. The road geometry now folds the
+  // ribbons + curbs + sidewalk bands + crosswalks + dash-skip into ONE merged mesh (roadPaint.ts).
+  const streets = useMemo(() => buildStreets().streets, []);
+  const intersections = useMemo(() => listIntersections(streets), [streets]);
   const groundGeometry = useMemo(() => buildGroundGeometry(), []);
   useEffect(() => () => groundGeometry.dispose(), [groundGeometry]);
   const tintGeometry = useMemo(() => buildGroundTintGeometry(), []);
   useEffect(() => () => tintGeometry.dispose(), [tintGeometry]);
-  const roadGeometry = useMemo(() => buildRibbonGeometry(ribbons), [ribbons]);
+  const roadGeometry = useMemo(() => buildRoadGeometry(streets, intersections), [streets, intersections]);
   useEffect(() => () => roadGeometry.dispose(), [roadGeometry]);
 
-  // Phase 23 filler massing: seeded extruded coloured boxes (§6 stock, §3c heights) — the
-  // downtown-at-a-glance look. One InstancedMesh (per-instance matrix + colour) + one fixed
-  // RigidBody of BUILDING colliders. Deterministic per seed, memoized so a re-render never
-  // rebuilds the ~700 boxes.
   // Phase 24 named landmarks: street-referenced, seed-independent (pure function of the street
-  // table). Built once; their footprints + the reserved hero lots feed buildMassing as exclusions
-  // so filler never collides with a landmark or the P25 CN Tower / Rogers lots.
+  // table). Their footprints + the reserved hero lots feed the frontage engine as exclusions so
+  // pack filler never collides with a landmark or the P25 CN Tower / Rogers lots.
   const named = useMemo(() => buildNamedBuildings(), []);
-  // Phase 26 places / nostalgia layer: street-referenced, seed-independent (pure function of the
-  // street table + named). Its storefront/Sam/Sankofa footprints join the named exclusions so
-  // filler never collides with a place box (or drives a filler box through a vibe prop).
+  // Phase 26 places / nostalgia layer: street-referenced, seed-independent. Its storefront/Sam/
+  // Sankofa footprints join the named exclusions (frontage.ts + furniture.ts consume both).
   const places = useMemo(() => buildPlacesLayer(named), [named]);
-  const massing = useMemo(
-    () => buildMassing(seed, [...named.exclusions, ...places.exclusions]),
-    [seed, named, places],
-  );
-  const buildingsRef = useRef<InstancedMesh>(null);
+
+  // Phase 25.6 re-dress: pack-building frontage (retires the box-lattice massing) + street
+  // furniture + parked cars. Both are pure/deterministic and read the SAME named+places exclusions
+  // internally, so a re-render never rebuilds them and the same seed reproduces the exact city.
+  const frontage = useMemo(() => buildFrontage(seed), [seed]);
+  const furniture = useMemo(() => buildFurniture(seed), [seed]);
+
+  // Preload every used pack GLB once the slice mounts (never at module scope — a `torontoMap`-off
+  // load fetches nothing). Covers frontage buildings, furniture props, parked cars, traffic lights.
   useEffect(() => {
-    const mesh = buildingsRef.current;
-    if (!mesh) return;
-    const dummy = new Object3D();
-    const color = new Color();
-    massing.instances.forEach((inst, i) => {
-      dummy.position.set(inst.x, inst.hy, inst.z); // box floor at y=0, centre at half-height
-      dummy.rotation.set(0, 0, 0);
-      dummy.scale.set(inst.hx * 2, inst.hy * 2, inst.hz * 2);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-      color.set(inst.color);
-      mesh.setColorAt(i, color);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    mesh.computeBoundingSphere();
-  }, [massing]);
+    const ids = new Set<string>(frontage.modelIds);
+    ids.add('traffic-light');
+    ids.add('tree');
+    ids.add('fire-hydrant');
+    ids.add('bench');
+    ids.add('trash-can');
+    ids.add('bus-stop');
+    ids.add('power-box');
+    ids.add('stop-sign');
+    ids.add('manhole-cover');
+    for (const car of furniture.parked.items) ids.add(car.modelId);
+    preloadCityPack([...ids]);
+  }, [frontage, furniture]);
 
   // Publish this slice's spawn pose so devPanel's "teleport reset" (and the fell-out net below)
   // send the car back to Finch, not the legacy map centre — the Toronto equivalent of
@@ -1064,7 +1018,7 @@ export function TorontoScene() {
   // player's MAP position each step (world [x,z] → map {x,y}, the inverse identity swap);
   // fires only inside the Yonge corridor and only on ENTERING the fold band (tunnel.ts).
   const foldTrigger = useRef<FoldTrigger | null>(null);
-  if (foldTrigger.current === null) foldTrigger.current = createFoldTrigger(ROAD_CLASSES.spine / 2);
+  if (foldTrigger.current === null) foldTrigger.current = createFoldTrigger(CORRIDOR_HALF_WIDTH_WU);
   useAfterPhysicsStep(() => {
     if (getGameState().machine !== 'PLAYING') return;
     const model = playerVehicle.current;
@@ -1195,38 +1149,15 @@ export function TorontoScene() {
         })}
       </RigidBody>
 
-      {/* Filler massing (Phase 23): the seeded box-city. ONE InstancedMesh (per-instance matrix
-          + colour, single draw call). A/B RESULT (this session's live pass): a LIT
-          MeshLambertMaterial — the plan's first choice — crushed the boxes to near-black in the
-          headless renderer, the SAME way the P22 note reported for Standard materials (the legacy
-          world only reads because its EMISSIVE windows carry it; our filler has none until Phase
-          24). Swapping to UNLIT-literal (meshBasicMaterial + instanceColor, toneMapped={false})
-          — the exact mitigation the roads/ground already use — makes the authored §6 stock colours
-          the on-screen colours: the saturated/pale districts (North York glass-green, Yorkville
-          limestone, Harbourfront blue, storefront greys) read clearly as buildings, while the
-          near-black glass stock (Financial) stays an authored-dark silhouette. Phase 24 brings the
-          real lit palette + emissive-window pipeline; a real-GPU check of lit Lambert is owed to
-          the user (the standing P22 item). castShadow stays so Phase 24's lit ground receives the
-          skyline's dusk shadows the moment the materials flip back. */}
-      {massing.instances.length > 0 ? (
-        <instancedMesh
-          ref={buildingsRef}
-          args={[undefined, undefined, massing.instances.length]}
-          castShadow
-          frustumCulled={false}
-        >
-          <boxGeometry args={[1, 1, 1]} />
-          <meshBasicMaterial toneMapped={false} />
-        </instancedMesh>
-      ) : null}
-      {/* Indestructible fixed BUILDING colliders — one CuboidCollider per box, grouped under a
-          single fixed RigidBody exactly like world/CityColliders.tsx. No registry entries this
-          slice (no combat on the Toronto branch yet — plan Task 2/3). */}
-      <RigidBody type="fixed" colliders={false} collisionGroups={BUILDING_GROUPS}>
-        {massing.colliders.map((c, i) => (
-          <CuboidCollider key={i} args={[c.hx, c.hy, c.hz]} position={[c.x, c.y, c.z]} />
-        ))}
-      </RigidBody>
+      {/* Phase 25.6 re-dress: the pack-building frontage (retires the box-lattice massing) +
+          street furniture + parked cars + traffic-light lamp overlay. Frontage buildings + all
+          furniture render through per-model-type BatchedMeshes with per-instance frustum culling
+          (world/toronto/cityPack) — one draw call per model at any count, only in-frustum instances
+          submit triangles (the 25.6 tri-budget lever). Parked cars are sleeping dynamic bodies that
+          shove when rammed. Every layer gates on its own devToggle; `cityPackUnlit` is the material
+          A/B arm. Fixed BUILDING colliders (frontage buildings, tree trunks, bus-stops, backdrop
+          towers) mount inside CityDress. */}
+      <CityDress frontage={frontage} furniture={furniture} />
 
       {/* Named landmarks (Phase 24): the §3c skyline (TD/RBC/Scotia/FCP/… towers, Royal York,
           Union, The Well, Eaton galleria, Aura, the Yonge×Sheppard twins, NY Civic Centre) as

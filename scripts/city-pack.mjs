@@ -22,6 +22,15 @@
 // (verified manually per the plan's "Verify idempotency" done-when; if gltf-transform ever
 // turns out not to be byte-stable across runs, the manifest's contentHash regenerates WITH
 // the files every time, so the drift guard in cityPackManifest.test.ts stays sound either way).
+//
+// Phase 25.6 Task 2 (D15) — SIMPLIFY stage: the 25.5 tri-budget arithmetic showed even a
+// per-instance-culled pack blows the desktop-med budget on ornate models (buildings especially
+// — see phase-25.6-plan.md's "tri-budget arithmetic"). A `simplify()` pass now runs BEFORE
+// quantize/meshopt (simplifying post-quantized/meshopt-reordered index buffers would fight the
+// GPU-cache-friendly reorder meshopt() just did), driven by ./city-pack-budgets.json's per-id
+// triangle caps — the SAME json a vitest test (cityPackBudgets.test.ts) asserts the shipped
+// manifest never drifts back over. Ids absent from the budgets file, or in its `optOut` list,
+// pass through unchanged (either already small, or a documented silhouette-break exception).
 
 import { NodeIO, Primitive, Logger, Verbosity } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
@@ -34,10 +43,11 @@ import {
   weld,
   quantize,
   meshopt,
+  simplify,
   textureCompress,
   getBounds,
 } from '@gltf-transform/functions';
-import { MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer';
+import { MeshoptEncoder, MeshoptDecoder, MeshoptSimplifier } from 'meshoptimizer';
 import sharp from 'sharp';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -51,6 +61,68 @@ const SOURCE_DIR = path.join(root, 'City Pack.undefined-glb');
 const NORMALIZED_DIR = path.join(root, 'assets/city-pack');
 const OPTIMIZED_DIR = path.join(root, 'public/assets/city-pack');
 const MANIFEST_PATH = path.join(root, 'src/game/assets/cityPackManifest.json');
+const BUDGETS_PATH = path.join(root, 'scripts/city-pack-budgets.json');
+
+/** Simplify tuning (D15). The plan's single `error: 0.008` is the first (tightest) rung here;
+ * kept as a schedule rather than one value as a safety margin now that
+ * stripNormalsForUnlitPipeline() has fixed the REAL blocker (below) — a model with genuinely
+ * fine detail that still can't reach its cap at 0.008 gets a few looser attempts (up to 8%,
+ * still sub-centimetre on a ~2-4 wu building) before the pipeline reports a cap violation
+ * instead of silently shipping an over-budget model. `lockBorder` keeps open mesh-boundary
+ * edges intact throughout (prevents cracks). */
+const ERROR_SCHEDULE = [0.008, 0.02, 0.05, 0.08];
+const SIMPLIFY_MAX_PASSES_PER_ERROR = 2;
+
+async function loadBudgets() {
+  const raw = JSON.parse(await readFile(BUDGETS_PATH, 'utf-8'));
+  return { caps: raw.caps ?? {}, optOut: new Set(raw.optOut ?? []) };
+}
+
+/** Sum of TRIANGLES-mode primitive triangles across the whole document — same counting rule as
+ * measureGeometry() below, factored out so the simplify stage can re-measure mid-pipeline
+ * without pulling in prim/material bookkeeping it doesn't need. */
+function countTris(document) {
+  let tris = 0;
+  for (const mesh of document.getRoot().listMeshes()) {
+    for (const prim of mesh.listPrimitives()) {
+      if (prim.getMode() !== Primitive.Mode.TRIANGLES) continue;
+      const indices = prim.getIndices();
+      const position = prim.getAttribute('POSITION');
+      const vertCount = indices ? indices.getCount() : position ? position.getCount() : 0;
+      tris += Math.floor(vertCount / 3);
+    }
+  }
+  return tris;
+}
+
+/** Runs simplify() against `cap`, walking ERROR_SCHEDULE from tightest to loosest and stopping
+ * as soon as the cap is hit. Within one error level, up to SIMPLIFY_MAX_PASSES_PER_ERROR passes
+ * re-target the ratio against whatever tri count was actually reached (meshopt can stop short
+ * of the requested ratio); a level that makes no progress at all is abandoned immediately
+ * rather than burning passes. No-ops (0 passes) if already at/under cap. Returns
+ * { before, after, passes, finalError } for the report. */
+async function simplifyToBudget(document, cap) {
+  const before = countTris(document);
+  let current = before;
+  let passes = 0;
+  let finalError = null;
+  for (const errorLevel of ERROR_SCHEDULE) {
+    if (current <= cap) break;
+    for (let i = 0; i < SIMPLIFY_MAX_PASSES_PER_ERROR; i++) {
+      const ratio = cap / current;
+      await document.transform(
+        simplify({ simplifier: MeshoptSimplifier, ratio, error: errorLevel, lockBorder: true }),
+      );
+      const next = countTris(document);
+      passes += 1;
+      finalError = errorLevel;
+      if (next >= current) break; // no further progress at this error level — try the next one.
+      current = next;
+      if (current <= cap) break;
+    }
+  }
+  return { before, after: current, passes, finalError };
+}
 
 // Re-exported so anything importing THIS module (there shouldn't be — see
 // scripts/lib/cityPackNaming.mjs's header) still sees the same names as before the split.
@@ -84,6 +156,30 @@ function measureGeometry(document) {
   return { tris, prims, materialCount: materials.size };
 }
 
+/** MEASURED DEVIATION (D15, discovered building this task): every model in the pack is
+ * flat-shaded — each triangle owns its own NORMAL values, so no two triangles share a vertex
+ * once NORMAL is part of the weld key, even at a shared geometric edge (`weld()` correctly
+ * refuses to merge vertices that disagree on any attribute, not just position). Firing
+ * simplify() against that topology gets almost nothing to work with: every edge looks like an
+ * open mesh boundary, so the requested ratio stalls a few percent in regardless of `error`
+ * (measured: building-red only reached 2291 -> 2075 against a 1100 cap at error up to 0.08).
+ * Since world/toronto renders the entire city-pack UNLIT (phase-25.5 binding verdict —
+ * meshBasicMaterial, no lighting, so NORMAL is never sampled at runtime), it costs nothing to
+ * drop NORMAL/TANGENT before weld()+simplify(): weld can then merge purely on position (+
+ * remaining UV), collapsing e.g. building-red from 3967 to 1590 vertices for the SAME 2291
+ * triangles, and simplify() reaches every D15 cap cleanly in one error-schedule pass. Applied
+ * to every model (not just capped ones) for the same file-size win; harmless if a future phase
+ * ever re-lights the pack (three's `computeVertexNormals()` regenerates them trivially, or a
+ * pipeline re-run can re-derive faceted normals from the still-present flat geometry). */
+function stripNormalsForUnlitPipeline(document) {
+  for (const mesh of document.getRoot().listMeshes()) {
+    for (const prim of mesh.listPrimitives()) {
+      if (prim.getAttribute('NORMAL')) prim.setAttribute('NORMAL', null);
+      if (prim.getAttribute('TANGENT')) prim.setAttribute('TANGENT', null);
+    }
+  }
+}
+
 /** See the call site in optimizeOne() for the full rationale. No-op unless the document
  * actually mixes alphaModes (BLEND/MASK alongside OPAQUE). */
 function harmonizeAlphaForPalette(document) {
@@ -109,9 +205,10 @@ function makeIO() {
     .setLogger(new Logger(Verbosity.WARN));
 }
 
-/** Runs the full D3 pipeline on one GLB. Returns the measured before/after report row; throws
- * on a hard pipeline failure (caller catches per-file so one bad model doesn't kill the run). */
-async function optimizeOne(id, inputPath, outputPath) {
+/** Runs the full D3(+D15) pipeline on one GLB. Returns the measured before/after report row;
+ * throws on a hard pipeline failure (caller catches per-file so one bad model doesn't kill the
+ * run). `budgets` is the parsed city-pack-budgets.json ({ caps, optOut }). */
+async function optimizeOne(id, inputPath, outputPath, budgets) {
   const io = makeIO();
   const document = await io.read(inputPath);
 
@@ -138,10 +235,27 @@ async function optimizeOne(id, inputPath, outputPath) {
   // return and are completely untouched.
   harmonizeAlphaForPalette(document);
 
+  await document.transform(palette({ min: 2 }), join());
+
+  // D15 (measured deviation — see stripNormalsForUnlitPipeline's own doc comment): drop
+  // NORMAL/TANGENT before weld() so weld can merge purely on position, giving simplify() an
+  // actually-collapsible topology instead of a flat-shaded mesh that looks all-seams to it.
+  stripNormalsForUnlitPipeline(document);
+  await document.transform(prune(), weld());
+
+  // D15: simplify BEFORE quantize/meshopt (simplifying already-quantized/reordered geometry
+  // fights meshopt's GPU-cache reorder). Only for ids with a budgets.json cap, not opted out,
+  // and only if the post-join/weld tri count is actually over that cap.
+  let simplifyReport = null;
+  const cap = budgets.caps[id];
+  if (cap !== undefined && !budgets.optOut.has(id)) {
+    const before = countTris(document);
+    if (before > cap) {
+      simplifyReport = await simplifyToBudget(document, cap);
+    }
+  }
+
   await document.transform(
-    palette({ min: 2 }),
-    join(),
-    weld(),
     quantize(),
     meshopt({ encoder: MeshoptEncoder, level: 'high' }),
     textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [512, 512] }),
@@ -154,7 +268,7 @@ async function optimizeOne(id, inputPath, outputPath) {
   const optimizedBytes = (await stat(outputPath)).size;
   const contentHash = createHash('sha256').update(await readFile(outputPath)).digest('hex');
 
-  return { id, nativeDims, ...geometry, hasTexture, optimizedBytes, contentHash };
+  return { id, nativeDims, ...geometry, hasTexture, optimizedBytes, contentHash, simplifyReport };
 }
 
 async function main() {
@@ -168,8 +282,11 @@ async function main() {
   await mkdir(NORMALIZED_DIR, { recursive: true });
   await mkdir(OPTIMIZED_DIR, { recursive: true });
 
+  const budgets = await loadBudgets();
+
   await MeshoptEncoder.ready;
   await MeshoptDecoder.ready;
+  await MeshoptSimplifier.ready;
 
   const allBasenames = (await readdir(SOURCE_DIR)).filter((f) => f.toLowerCase().endsWith('.glb'));
   const included = allBasenames.filter((f) => !EXCLUDE_BASENAMES.has(f));
@@ -199,7 +316,7 @@ async function main() {
 
       // 2. Optimize: pipeline reads the NORMALIZED copy (never the raw source), writes the
       // runtime GLB to public/assets/city-pack/.
-      const measured = await optimizeOne(id, normalizedPath, optimizedPath);
+      const measured = await optimizeOne(id, normalizedPath, optimizedPath, budgets);
       totalOptimized += measured.optimizedBytes;
 
       const category = categoryFor(id);
@@ -250,6 +367,35 @@ async function main() {
     }
   }
 
+  // Simplify (D15) before/after report -----------------------------------------------------
+  const simplified = rows.filter((r) => r.simplifyReport !== null);
+  const capViolations = [];
+  console.log('');
+  console.log(`SIMPLIFY (D15) — ${simplified.length} model(s) over their city-pack-budgets.json cap:`);
+  if (simplified.length > 0) {
+    console.log('id                     before  ->  after   cap    passes  error   reduction');
+    console.log('-'.repeat(80));
+    for (const row of simplified.sort((a, b) => a.id.localeCompare(b.id))) {
+      const cap = budgets.caps[row.id];
+      const { before, after, passes, finalError } = row.simplifyReport;
+      const pct = (((before - after) / before) * 100).toFixed(0);
+      console.log(
+        `${row.id.padEnd(23)}${String(before).padStart(6)}  -> ${String(after).padStart(6)}  ${String(cap).padStart(5)}  ${String(passes).padStart(6)}  ${String(finalError).padStart(6)}  ${pct.padStart(7)}%`,
+      );
+      if (after > cap) capViolations.push(`${row.id}: ${after} tris > cap ${cap} (simplifier stalled even at the loosest error level, ${ERROR_SCHEDULE[ERROR_SCHEDULE.length - 1]})`);
+    }
+  }
+  const optedOutOverCap = rows.filter((r) => budgets.optOut.has(r.id) && budgets.caps[r.id] !== undefined && r.tris > budgets.caps[r.id]);
+  if (optedOutOverCap.length > 0) {
+    console.log('');
+    console.log(`OPT-OUT (over cap, expected): ${optedOutOverCap.map((r) => `${r.id} (${r.tris})`).join(', ')}`);
+  }
+  if (capViolations.length > 0) {
+    console.log('');
+    console.log(`SIMPLIFY CAP VIOLATIONS (${capViolations.length}) — simplifier could not reach the cap within the error bound:`);
+    for (const v of capViolations) console.log(`  FAIL ${v}`);
+  }
+
   // Manifest -------------------------------------------------------------------------------
   const manifestEntries = rows
     .sort((a, b) => a.id.localeCompare(b.id))
@@ -270,7 +416,7 @@ async function main() {
   console.log('');
   console.log(`OK: wrote ${path.relative(root, MANIFEST_PATH)} (${manifestEntries.length} entries)`);
 
-  if (failures.length > 0 || assertionFailures.length > 0) {
+  if (failures.length > 0 || assertionFailures.length > 0 || capViolations.length > 0) {
     process.exitCode = 1;
   }
 }
