@@ -31,6 +31,7 @@ import { PLAYER_CARS } from '../config';
 import { filledStarCount, formatScore, hpColor, hpFillPercent } from './hudFormat';
 import { PauseMenu } from './PauseMenu';
 import { TouchControls } from './touch/TouchControls';
+import TunnelOverlay from './TunnelOverlay';
 import './Hud.css';
 
 const STAR_COUNT = 5;
@@ -488,31 +489,41 @@ export default function Hud() {
   // screen is a separate future surface (Phase 9), and showing the run HUD underneath it
   // would just be visual noise once the run has ended.
   const visible = machine === 'PLAYING' || machine === 'PAUSED';
-  if (!visible) return null;
 
   return (
-    <div style={rootStyle} data-testid="hud-root">
-      {/* First child: the BUSTED wash paints BEHIND every HUD chip (DOM order = paint order,
-          no z-index) so the score/stars stay legible on top of the arrest strobe. */}
-      <BustedWash active={bustedWashActive} />
-      <WantedStars tier={tier} />
-      {allDark ? <DarkCityIndicator /> : null}
-      <ScoreDisplay score={score} />
-      <HpSilhouette hp={playerHp} maxHp={PLAYER_CARS[selectedCarId].hp} />
-      <ControlHints />
-      {import.meta.env.DEV ? <SeedReadout seed={seed} /> : null}
-      <DarkCityBanner visible={bannerVisible} />
-      <DamageVignette />
-      {/* Touch controls (Phase 18 Task 1): self-gates on coarse-pointer + PLAYING, so this
-          is a no-op render on desktop / outside a run. Painted above every read-only chip
-          above (it needs real pointer events — PauseMenu below is the only other exception
-          to this tree's pointerEvents:'none' default), below the pause menu itself since
-          the two are mutually exclusive machine states anyway. */}
-      <TouchControls />
-      {/* Very last child: the pause menu (Phase 17) paints above absolutely everything
-          else in this tree, including the damage vignette — it's the one surface here
-          that accepts pointer events (PauseMenu.tsx's own backdrop style). */}
-      {machine === 'PAUSED' ? <PauseMenu /> : null}
-    </div>
+    <>
+      {/* Mounted UNCONDITIONALLY (outside the `visible` gate below), so its `tunnelTransit`
+          subscription (state/events.ts) is live for the whole game session, not just while
+          machine is PLAYING/PAUSED — see hud/TunnelOverlay.tsx's own "mount contract" doc
+          comment. It owns its own visibility (renders null with nothing to show), exactly
+          like hud/ContextLossOverlay.tsx below it in game/index.tsx's mount list, so this
+          costs nothing when idle. */}
+      <TunnelOverlay />
+      {visible ? (
+        <div style={rootStyle} data-testid="hud-root">
+          {/* First child: the BUSTED wash paints BEHIND every HUD chip (DOM order = paint
+              order, no z-index) so the score/stars stay legible on top of the arrest strobe. */}
+          <BustedWash active={bustedWashActive} />
+          <WantedStars tier={tier} />
+          {allDark ? <DarkCityIndicator /> : null}
+          <ScoreDisplay score={score} />
+          <HpSilhouette hp={playerHp} maxHp={PLAYER_CARS[selectedCarId].hp} />
+          <ControlHints />
+          {import.meta.env.DEV ? <SeedReadout seed={seed} /> : null}
+          <DarkCityBanner visible={bannerVisible} />
+          <DamageVignette />
+          {/* Touch controls (Phase 18 Task 1): self-gates on coarse-pointer + PLAYING, so
+              this is a no-op render on desktop / outside a run. Painted above every
+              read-only chip above (it needs real pointer events — PauseMenu below is the
+              only other exception to this tree's pointerEvents:'none' default), below the
+              pause menu itself since the two are mutually exclusive machine states anyway. */}
+          <TouchControls />
+          {/* Very last child: the pause menu (Phase 17) paints above absolutely everything
+              else in this tree, including the damage vignette — it's the one surface here
+              that accepts pointer events (PauseMenu.tsx's own backdrop style). */}
+          {machine === 'PAUSED' ? <PauseMenu /> : null}
+        </div>
+      ) : null}
+    </>
   );
 }

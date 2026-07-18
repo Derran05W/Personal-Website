@@ -1,0 +1,115 @@
+{
+  "streets": [
+    {
+      "id": "bathurst-lon",
+      "street": "Bathurst St",
+      "need": "lon",
+      "lat": 43.6661,
+      "lon": -79.4111,
+      "src": "Wikipedia/Wikidata",
+      "proxy": "Bathurst subway station (Bloor St W & Bathurst)",
+      "status": "verified"
+    },
+    {
+      "id": "spadina-lon",
+      "street": "Spadina Ave",
+      "need": "lon",
+      "lat": 43.6597,
+      "lon": -79.4008,
+      "src": "Wikipedia/Wikidata",
+      "proxy": "1 Spadina Crescent",
+      "status": "verified"
+    },
+    {
+      "id": "john-lon",
+      "street": "John St",
+      "need": "lon",
+      "lat": null,
+      "lon": null,
+      "src": "Wikipedia (address verified; coordinates unavailable)",
+      "proxy": "TIFF Lightbox (350 King St W, at John) — Wikidata entry exists but coords not returned in search",
+      "status": "needs_agent",
+      "notes": "Street address confirmed; Wikidata Q2384310 exists but coordinate data not extracted within budget"
+    },
+    {
+      "id": "portland-lon",
+      "street": "Portland St",
+      "need": "lon",
+      "lat": null,
+      "lon": null,
+      "src": null,
+      "proxy": "Not searched within budget",
+      "status": "needs_agent",
+      "notes": "No search performed for Portland St proxy — reserve for follow-up"
+    },
+    {
+      "id": "york-lon",
+      "street": "York St",
+      "need": "lon",
+      "lat": 43.6455,
+      "lon": -79.3816,
+      "src": "Wikipedia/Wikidata",
+      "proxy": "Fairmont Royal York (100 Front St W, at York)",
+      "status": "verified"
+    },
+    {
+      "id": "university-lon",
+      "street": "University Ave",
+      "need": "lon",
+      "lat": 43.6528,
+      "lon": -79.3878,
+      "src": "Wikipedia/Wikidata",
+      "proxy": "US Consulate General (360 University Ave)",
+      "status": "verified"
+    },
+    {
+      "id": "richmond-lat",
+      "street": "Richmond St W",
+      "need": "lat",
+      "lat": null,
+      "lon": null,
+      "src": null,
+      "proxy": "Not searched within budget",
+      "status": "needs_agent",
+      "notes": "No search performed for Richmond St proxy — reserve for follow-up; nearby St. Lawrence Hall (King & Jarvis) found at 43.6503 but different street"
+    },
+    {
+      "id": "adelaide-lat",
+      "street": "Adelaide St W",
+      "need": "lat",
+      "lat": null,
+      "lon": null,
+      "src": null,
+      "proxy": "Not searched within budget",
+      "status": "needs_agent",
+      "notes": "No search performed for Adelaide St proxy — reserve for follow-up"
+    },
+    {
+      "id": "bremner-lat",
+      "street": "Bremner Blvd",
+      "need": "lat",
+      "lat": 43.6425,
+      "lon": -79.3860,
+      "src": "Wikipedia/Wikidata",
+      "proxy": "Ripley's Aquarium of Canada (288 Bremner Blvd)",
+      "status": "verified"
+    },
+    {
+      "id": "parkhome-lat",
+      "street": "Park Home Ave",
+      "need": "lat",
+      "lat": 43.7697,
+      "lon": -79.4147,
+      "src": "Wikipedia/Wikidata",
+      "proxy": "Gibson House Museum (5172 Yonge St)",
+      "status": "verified",
+      "notes": "North York; crosses Yonge just north of North York Centre"
+    }
+  ],
+  "summary": {
+    "total": 10,
+    "verified": 6,
+    "needs_agent": 4,
+    "budget_used": 10
+  }
+}

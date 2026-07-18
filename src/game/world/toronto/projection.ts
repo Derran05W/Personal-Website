@@ -112,7 +112,9 @@ const M_PER_DEG_LON = 111320 * Math.cos((REF_LAT_DEG * Math.PI) / 180);
 const EW_M_PER_WU = 1.55; // §2: uniform E-W scale across every zone
 // lon-offset (degrees) → wu: metres = Δlon · M_PER_DEG_LON, then wu = metres / EW_M_PER_WU.
 const WU_PER_DEG_LON = M_PER_DEG_LON / EW_M_PER_WU;
-const YONGE_X = 1500; // §2: the spine is pinned here everywhere
+/** §2: the Yonge spine is pinned at this map-x everywhere (exported — tunnel corridor and
+ * the road grid centre themselves on it; never restate 1500 elsewhere). */
+export const YONGE_X = 1500;
 
 interface Node2 {
   readonly k: number;

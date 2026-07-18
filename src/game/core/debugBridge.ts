@@ -412,6 +412,10 @@ declare global {
        * module's doc comment for the handoff — this flag alone changes no behavior until
        * combat/damage.ts's applyPlayerDamage() is wired to read it. */
       setInvincible: (value: boolean) => void;
+      /** Phase 22: scripted mirror of the devPanel "Toronto map (P22)" toggle (leva DOM
+       * is canvas-occluded in headless). Flip in GARAGE — it changes the world remount
+       * key, so a live run would be torn down. */
+      setTorontoMap: (value: boolean) => void;
       /** Phase 9 Task 4 debug: forces a GAMEOVER with reason 'busted' — see
        * forceBustedGameOver's doc comment above for exactly what this does and doesn't
        * stand in for. */
@@ -595,6 +599,7 @@ window.__smashy = {
   forceSpawnPolice: () => unitsRef.current?.forceSpawn('police' satisfies UnitKind) ?? false,
   forceSpawnUnit: (kind) => (isUnitKind(kind) ? (unitsRef.current?.forceSpawn(kind) ?? false) : false),
   setInvincible: (value) => setDevToggle('invincible', value),
+  setTorontoMap: (value) => setDevToggle('torontoMap', value),
   forceBustedGameOver,
   sirenSnapshot: () => getSirenDebugSnapshot(),
   audioSnapshot,

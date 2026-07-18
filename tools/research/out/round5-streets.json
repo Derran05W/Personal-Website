@@ -1,0 +1,24 @@
+{
+  "streets": [
+    {
+      "id": "richmond-lat",
+      "street": "Richmond St E",
+      "need": "lat",
+      "lat": 43.6519,
+      "lon": -79.3786,
+      "src": "Wikidata Q5159787",
+      "proxy": "Confederation Life Building (14 Richmond St E at Yonge/Victoria)",
+      "status": "verified"
+    },
+    {
+      "id": "adelaide-lat",
+      "street": "Adelaide St E",
+      "need": "lat",
+      "lat": 43.6505,
+      "lon": -79.3778,
+      "src": "Google Maps (6 Adelaide St E)",
+      "proxy": "Lumsden Building (2-6 Adelaide St E at Yonge/Victoria)",
+      "status": "verified"
+    }
+  ]
+}

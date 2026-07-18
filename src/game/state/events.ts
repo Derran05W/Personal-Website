@@ -7,6 +7,7 @@
 // fields (e.g. `unitWrecked` gaining a position) but must not bypass the emitter or
 // add ad-hoc side channels.
 import type { PlayerCarId } from '../config/vehicles';
+import type { FoldDirection } from '../world/toronto/tunnel';
 
 export interface GameEventMap {
   heatChanged: { heat: number; delta: number };
@@ -47,6 +48,12 @@ export interface GameEventMap {
    * state/store.ts's module-scope subscription folds these into `unlockedCarIds`;
    * hud/GameOver.tsx queues the car names for its "UNLOCKED: <name>" toast. */
   carUnlocked: { carId: PlayerCarId };
+  /** Midtown fold "Line 1" transition (TORONTO-MAP-SPEC-v2.md §2): the player just crossed
+   * INTO the fold band on Yonge (world/toronto/tunnel.ts's createFoldTrigger detects the
+   * crossing; the Toronto driving scene owns calling `.step()` per frame and emitting this
+   * — a separate task from this event/HUD wiring). Presentation-only: the car keeps
+   * driving, nothing here ever moves it. hud/TunnelOverlay.tsx is the sole subscriber. */
+  tunnelTransit: { direction: FoldDirection };
 }
 
 type Handler<K extends keyof GameEventMap> = (payload: GameEventMap[K]) => void;

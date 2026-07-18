@@ -1,0 +1,123 @@
+/* Line 1 fold-transition overlay (hud/TunnelOverlay.tsx). Layout/color stay inline where
+   they can (same "game/ uses inline styles" split as Hud.css/GameOver.css); only the
+   keyframe motion + the fade transition timings (which must stay in sync with
+   config/tunnel.ts's TUNNEL_OVERLAY durations — see the comments below) live here. */
+
+.tunnel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 22; /* above Hud's base chips (20), below GameOver/PauseMenu/ContextLoss (25/30) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  /* Duration must match config/tunnel.ts's TUNNEL_OVERLAY.fadeInMs. */
+  transition: opacity 300ms ease;
+}
+
+.tunnel-overlay--active {
+  opacity: 1;
+}
+
+.tunnel-overlay--leaving {
+  opacity: 0;
+  /* Duration must match config/tunnel.ts's TUNNEL_OVERLAY.fadeOutMs. */
+  transition: opacity 400ms ease;
+}
+
+.tunnel-overlay__wash {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at center, rgba(8, 10, 16, 0.35) 0%, rgba(3, 4, 8, 0.92) 75%),
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.03) 0,
+      rgba(255, 255, 255, 0.03) 2px,
+      transparent 2px,
+      transparent 64px
+    );
+}
+
+.tunnel-overlay__marquee {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  padding: 2rem 0;
+}
+
+.tunnel-overlay__badge {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(1.1rem, 2.5vw, 1.6rem);
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: #f5f5f5;
+  background: rgba(220, 38, 38, 0.85);
+  border-radius: 999px;
+  padding: 0.3rem 1.1rem;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+
+.tunnel-overlay__stations {
+  display: flex;
+  align-items: baseline;
+  gap: 3.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(1.5rem, 5vw, 3rem);
+  color: rgba(245, 245, 245, 0.92);
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.7);
+  transform: translateX(100%);
+  /* Duration must match config/tunnel.ts's TUNNEL_OVERLAY.durationMs — the ticker sweeps
+     the whole visible window, arriving at the last station roughly as the overlay itself
+     starts fading out. */
+  animation: tunnel-stations-scroll 2500ms linear forwards;
+}
+
+.tunnel-overlay__station {
+  opacity: 0.85;
+}
+
+@keyframes tunnel-stations-scroll {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+/* Static fade instead of motion — TWO independent triggers land here (see
+   hud/TunnelOverlay.tsx's file header): the OS-level `prefers-reduced-motion` media query
+   below, and this explicit class the component applies when `settings.reducedShake` (the
+   project's only in-game motion toggle) is on. Both replace the "flying past" ticker sweep
+   — real, large-scale motion across the whole viewport — with the full station list shown
+   at rest, no scroll. The wash's opacity fade is untouched either way (a plain crossfade,
+   not the vestibular-motion concern). */
+.tunnel-overlay__stations--static {
+  animation: none;
+  transform: none;
+  flex-wrap: wrap;
+  justify-content: center;
+  white-space: normal;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tunnel-overlay__stations {
+    animation: none;
+    transform: none;
+    flex-wrap: wrap;
+    justify-content: center;
+    white-space: normal;
+  }
+}

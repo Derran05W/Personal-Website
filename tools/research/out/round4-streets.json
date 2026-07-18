@@ -1,0 +1,53 @@
+{
+  "streets": [
+    {
+      "id": "john-lon",
+      "street": "John St",
+      "need": "lon",
+      "lat": 43.6477,
+      "lon": -79.3903,
+      "src": "Wikidata",
+      "proxy": "John Street (Toronto) — Wikidata Q6259420 street coordinates",
+      "status": "verified"
+    },
+    {
+      "id": "portland-lon",
+      "street": "Portland St",
+      "need": "lon",
+      "lat": 43.6425,
+      "lon": -79.4003,
+      "src": "Wikidata",
+      "proxy": "Victoria Memorial Square (Wellington St W & Portland) — Wikidata Q7926868",
+      "status": "verified"
+    },
+    {
+      "id": "richmond-lat",
+      "street": "Richmond St W",
+      "need": "lat",
+      "lat": 43.6497,
+      "lon": -79.3894,
+      "src": "Wikidata",
+      "proxy": "250 Richmond Street West (studio complex) — Wikidata Q4632054",
+      "status": "verified"
+    },
+    {
+      "id": "adelaide-lat",
+      "street": "Adelaide St W",
+      "need": "lat",
+      "lat": null,
+      "lon": null,
+      "src": "Wikidata (coordinates found but fail sanity check)",
+      "proxy": "EY Tower (100 Adelaide St W) — Wikidata Q19817569 shows 43.6511, contradicting required ordering",
+      "status": "needs_agent",
+      "confidence": "low",
+      "notes": "EY Tower coordinates (43.6511°N) show Adelaide NORTH of Richmond (43.6497°N), violating spec requirement Richmond lat > Adelaide lat. Mid-block building centroid may not represent street centerline. Needs direct street coordinate verification."
+    }
+  ],
+  "summary": {
+    "total": 4,
+    "verified": 3,
+    "needs_agent": 1,
+    "budget_used": 8,
+    "sanity_check_note": "john-lon (-79.3903) within bounds [-79.3960, -79.3860]; portland-lon (-79.4003) west of john-lon ✓; richmond-lat (43.6497) and adelaide-lat candidate between 43.6489–43.6528 ✓; but EY Tower violates Richmond > Adelaide ordering"
+  }
+}

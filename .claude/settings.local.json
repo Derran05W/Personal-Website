@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm dev *)",
+      "Bash(command -v nvm)",
+      "Read(//Users/derranw/.nvm/versions/**)",
+      "Bash(command -v volta)",
+      "Bash(command -v fnm)",
+      "Bash(command -v n)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
+}

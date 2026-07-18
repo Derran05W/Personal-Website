@@ -74,7 +74,9 @@ function assertOneOf<T extends string>(value: unknown, allowed: readonly T[], pa
 // checks STRUCTURE only — never entry counts, ordering, or specific coordinate values (see
 // data.test.ts's header note for why).
 
-export const ANCHOR_KINDS = ['yonge_line', 'cross_lon', 'shore'] as const;
+// 'street_ref' (Phase 22): a landmark-proxy point ON a named street, used to derive that
+// street's fixed x (N-S streets, need=lon) or y (E-W streets, need=lat) for the road grid.
+export const ANCHOR_KINDS = ['yonge_line', 'cross_lon', 'shore', 'street_ref'] as const;
 export type AnchorKind = (typeof ANCHOR_KINDS)[number];
 
 export const ANCHOR_STATUSES = ['verified', 'needs_agent'] as const;

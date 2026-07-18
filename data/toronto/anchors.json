@@ -225,6 +225,109 @@
       "src": "google-maps",
       "proxy": "Jack Layton Ferry Terminal, 9 Queens Quay W",
       "status": "verified"
+    },
+    {
+      "id": "street-bathurst",
+      "name": "Bathurst St (N-S, need lon)",
+      "kind": "street_ref",
+      "lat": 43.6661,
+      "lon": -79.4111,
+      "src": "en.wikipedia.org",
+      "proxy": "Bathurst station (Bloor & Bathurst; street is straight Bloor→lake)",
+      "status": "verified",
+      "notes": "Rounds 3-4 (Phase 22): street_ref anchors feed the road grid; x/y derived via project(proxy) — see world/toronto/streets.ts."
+    },
+    {
+      "id": "street-spadina",
+      "name": "Spadina Ave (N-S, need lon)",
+      "kind": "street_ref",
+      "lat": 43.6597,
+      "lon": -79.4008,
+      "src": "en.wikipedia.org",
+      "proxy": "1 Spadina Crescent",
+      "status": "verified"
+    },
+    {
+      "id": "street-university",
+      "name": "University Ave (N-S, need lon)",
+      "kind": "street_ref",
+      "lat": 43.6528,
+      "lon": -79.3878,
+      "src": "en.wikipedia.org",
+      "proxy": "US Consulate General, 360 University Ave (mid-avenue, Queen-level latitude — beats the Osgoode east-bias)",
+      "status": "verified"
+    },
+    {
+      "id": "street-york",
+      "name": "York St (N-S, need lon)",
+      "kind": "street_ref",
+      "lat": 43.6455,
+      "lon": -79.3816,
+      "src": "en.wikipedia.org",
+      "proxy": "Fairmont Royal York, 100 Front St W (centroid spans York→Piper; ~50 wu west bias possible)",
+      "status": "verified",
+      "confidence": "medium"
+    },
+    {
+      "id": "street-john",
+      "name": "John St (N-S, need lon)",
+      "kind": "street_ref",
+      "lat": 43.6477,
+      "lon": -79.3903,
+      "src": "wikidata.org",
+      "proxy": "John Street (Toronto), Wikidata Q6259420 street coordinate",
+      "status": "verified"
+    },
+    {
+      "id": "street-portland",
+      "name": "Portland St (N-S, need lon)",
+      "kind": "street_ref",
+      "lat": 43.6425,
+      "lon": -79.4003,
+      "src": "wikidata.org",
+      "proxy": "Victoria Memorial Square (Wellington & Portland), Q7926868",
+      "status": "verified"
+    },
+    {
+      "id": "street-bremner",
+      "name": "Bremner Blvd (E-W, need lat)",
+      "kind": "street_ref",
+      "lat": 43.6425,
+      "lon": -79.386,
+      "src": "en.wikipedia.org",
+      "proxy": "Ripley's Aquarium of Canada, 288 Bremner Blvd",
+      "status": "verified"
+    },
+    {
+      "id": "street-parkhome",
+      "name": "Park Home Ave (E-W, need lat)",
+      "kind": "street_ref",
+      "lat": 43.7697,
+      "lon": -79.4147,
+      "src": "en.wikipedia.org",
+      "proxy": "Gibson House Museum, 5172 Yonge St (at Park Home)",
+      "status": "verified"
+    },
+    {
+      "id": "street-richmond",
+      "name": "Richmond St (E-W, need lat)",
+      "kind": "street_ref",
+      "lat": 43.6519,
+      "lon": -79.3786,
+      "src": "wikidata.org",
+      "proxy": "Confederation Life Building, 14 Richmond St E (at Yonge). Round-4's 250 Richmond W proxy was rejected: west-end latitude, ~2-block south bias.",
+      "status": "verified"
+    },
+    {
+      "id": "street-adelaide",
+      "name": "Adelaide St (E-W, need lat)",
+      "kind": "street_ref",
+      "lat": 43.6505,
+      "lon": -79.3778,
+      "src": "google-maps",
+      "src2": "tayloronhistory.com",
+      "proxy": "Lumsden Building, 2-6 Adelaide St E (at Yonge). Round-4's EY Tower proxy rejected (off-axis ordering violation).",
+      "status": "verified"
     }
   ]
 }

@@ -69,6 +69,11 @@ import { PlayerVehicle } from './vehicles/PlayerVehicle';
 import { PlayerCarMesh } from './vehicles/PlayerCarMesh';
 import { applyDetectedQuality } from './core/quality';
 import { GarageOverlay } from './GarageOverlay';
+// Phase 22: drivable Toronto "thermometer" dev slice. Swapped in for the whole legacy world
+// subtree behind the `torontoMap` leva toggle (dev-only; never set in prod). Ships in the game
+// chunk like the dev viz overlays — small, pure geometry.
+import { TorontoScene } from './world/toronto/TorontoScene';
+import { TORONTO_SPAWN_POSE } from './world/toronto/torontoSceneHelpers';
 // Dependency-free (no leva/three-heavy deps), same as core/renderOwner.ts — safe to import
 // unconditionally here even though this file ships in every build; only the DEV-gated
 // components below (Minimap, GraphViz) that CONSUME these are what actually get stripped
@@ -150,6 +155,10 @@ export default function Game() {
   const graphVizOn = useDevToggle('graphViz');
   const aimVizOn = useDevToggle('aimViz');
   const squadVizOn = useDevToggle('squadViz');
+  // Phase 22: swap the legacy world for the Toronto dev slice. Dev-only (never set in prod),
+  // so this is a no-op false there. Joined to worldKey below so flipping it forces a full
+  // physical-world remount (colliders differ), and drives the spawn override + the subtree swap.
+  const torontoOn = useDevToggle('torontoMap');
 
   // The generated city (TDD §5.4): pure data, ~1–2 ms, memoized per seed. Changing the
   // store seed (leva "World" folder / future garage UI) regenerates here, and the
@@ -164,9 +173,17 @@ export default function Game() {
   // remounts the vehicle with that car's collider/controller params. Safe to subscribe
   // here — it only ever changes outside PLAYING (garage/dev bridge), never per frame.
   const selectedCarId = useGameStore((s) => s.selectedCarId);
-  const worldKey = `${seed}-${runId}`;
+  // Phase 22: the toggle joins the remount key so ON↔OFF fully rebuilds the physical world
+  // (legacy colliders vs Toronto colliders). OFF keeps the exact same keyed subtree as before,
+  // just with a `-legacy` suffix.
+  const worldKey = `${seed}-${runId}-${torontoOn ? 'toronto' : 'legacy'}`;
   const world = useMemo(() => generate(seed), [seed]);
-  const spawn = useMemo(() => getSpawnPose(world), [world]);
+  const legacySpawn = useMemo(() => getSpawnPose(world), [world]);
+  // Player spawn: Yonge just south of Finch (map TORONTO_SPAWN → world) when the slice is on;
+  // the legacy road-nearest-centre pose otherwise. Read once at PlayerVehicle mount (keyed on
+  // worldKey, so the toggle remounts the vehicle at the right spawn). TorontoScene itself
+  // publishes this pose to spawnPoseRef so devPanel teleports stay coherent.
+  const spawn = torontoOn ? TORONTO_SPAWN_POSE : legacySpawn;
 
   // drei asset-load progress (TDD §4.3). No real assets stream this phase, so `active`
   // is false from the start and LOADING resolves to GARAGE in the next tick — the seam
@@ -267,72 +284,94 @@ export default function Game() {
                 Needs only R3F's gl — mounted with the frame-order systems. */}
             <ContextLossSystem />
 
-            <CityScape key={`city-${worldKey}`} world={world} />
-            {/* Pooled dynamic lights (Phase 13 Task 3): a handful of real PointLights trail
+            {/* Phase 22: ON → the Toronto dev slice replaces the ENTIRE 64×64 legacy world
+                subtree (every world-consumer: city, lights, damage/props, traffic, landmarks,
+                streetcars, pursuit/combat/heli/powergrid). OFF → the legacy subtree below,
+                byte-identical (additive conditional only — nothing here reordered or reprop'd).
+                Frame-order systems (above) + PlayerVehicle (below) stay mounted in both
+                branches; TorontoScene carries its own RunLoopSystem for the water-death path. */}
+            {torontoOn ? (
+              <TorontoScene key={`toronto-${worldKey}`} />
+            ) : (
+              <>
+                <CityScape key={`city-${worldKey}`} world={world} />
+                {/* Pooled dynamic lights (Phase 13 Task 3): a handful of real PointLights trail
                 the player and light the nearest LIT streetlights; blacked-out districts never
                 receive one. Keyed on the world so a regenerate drops the pool with its city. */}
-            <LightPool key={`lightpool-${worldKey}`} world={world} />
-            {/* Destruction spine (Phase 6): impacts flow contacts→damage/propDynamics.
+                <LightPool key={`lightpool-${worldKey}`} world={world} />
+                {/* Destruction spine (Phase 6): impacts flow contacts→damage/propDynamics.
                 Keyed on seed like the city — a regenerate must reset the pool + hp state
                 with the world it belongs to. */}
-            <DamageSystem key={`damage-${worldKey}`} />
-            <PropDynamics key={`props-${worldKey}`} source={onImpact} />
-            {/* Civilian traffic (Phase 7): kinematic graph-followers + hit conversion.
+                <DamageSystem key={`damage-${worldKey}`} />
+                <PropDynamics key={`props-${worldKey}`} source={onImpact} />
+                {/* Civilian traffic (Phase 7): kinematic graph-followers + hit conversion.
                 Same seed-keyed remount contract as the city/pool systems. */}
-            <Traffic key={`traffic-${worldKey}`} graph={world.graph} seed={seed} source={onImpact} />
-            <TrafficMesh key={`traffic-mesh-${worldKey}`} />
-            {/* Toronto layer (Phase 19): landmark buildings (defensive — render nothing if
+                <Traffic
+                  key={`traffic-${worldKey}`}
+                  graph={world.graph}
+                  seed={seed}
+                  source={onImpact}
+                />
+                <TrafficMesh key={`traffic-mesh-${worldKey}`} />
+                {/* Toronto layer (Phase 19): landmark buildings (defensive — render nothing if
                 world.landmarks is absent) + streetcars looping the two longest arterials. */}
-            <CnTower world={world} />
-            <Stadium world={world} />
-            <Flatiron world={world} />
-            <StreetcarTraffic key={`streetcar-${worldKey}`} world={world} seed={seed} source={onImpact} />
-            <StreetcarMesh key={`streetcar-mesh-${worldKey}`} />
-            {/* Pursuit (Phase 9): PoliceMesh registers the unit factory + drives the
+                <CnTower world={world} />
+                <Stadium world={world} />
+                <Flatiron world={world} />
+                <StreetcarTraffic
+                  key={`streetcar-${worldKey}`}
+                  world={world}
+                  seed={seed}
+                  source={onImpact}
+                />
+                <StreetcarMesh key={`streetcar-mesh-${worldKey}`} />
+                {/* Pursuit (Phase 9): PoliceMesh registers the unit factory + drives the
                 per-step tick list; the director owns spawn/despawn/caps. Run-loop owns
                 WRECKED/BUSTED/water → GAMEOVER. All keyed on the retry nonce. */}
-            <PoliceMesh key={`police-${worldKey}`} />
-            <ArmoredMesh key={`armored-${worldKey}`} />
-            <SwatMesh key={`swat-${worldKey}`} />
-            <GunTruckMesh key={`guntruck-${worldKey}`} />
-            {/* NOTE (Phase 16 integration): TankMesh + Explosions + TankTelegraph shipped in
+                <PoliceMesh key={`police-${worldKey}`} />
+                <ArmoredMesh key={`armored-${worldKey}`} />
+                <SwatMesh key={`swat-${worldKey}`} />
+                <GunTruckMesh key={`guntruck-${worldKey}`} />
+                {/* NOTE (Phase 16 integration): TankMesh + Explosions + TankTelegraph shipped in
                 Phase 12 and were verified live that session, but the index.tsx wiring never
                 made the commit — the same integration-gap class Phase 14 hit with the heli
                 trio above. Without TankMesh no 'tank' factory registers (★5 spawns only 9 of
                 10 units); without Explosions no blast flash/light/scorch/shake renders even
                 though damage + impulses apply. Wired here for good. */}
-            <TankMesh key={`tank-${worldKey}`} />
-            {/* Tank-shell system (Phase 12): pure-point shell pool + explosion resolver.
+                <TankMesh key={`tank-${worldKey}`} />
+                {/* Tank-shell system (Phase 12): pure-point shell pool + explosion resolver.
                 Keyed like the other systems so a regenerate/retry drops in-flight shells. */}
-            <ProjectilesMount key={`projectiles-${worldKey}`} />
-            <Tracers key={`tracers-${worldKey}`} />
-            <Explosions key={`explosions-${worldKey}`} />
-            <TankTelegraph />
-            {/* Phase 16: the ONE instanced particle system (2 draw calls) draining the
+                <ProjectilesMount key={`projectiles-${worldKey}`} />
+                <Tracers key={`tracers-${worldKey}`} />
+                <Explosions key={`explosions-${worldKey}`} />
+                <TankTelegraph />
+                {/* Phase 16: the ONE instanced particle system (2 draw calls) draining the
                 particle feed, and the damage-visual poller (tints + smoke/fire emitters).
                 Keyed so a retry/regenerate starts with an empty pool and fresh tint state. */}
-            <ParticlesMount key={`particles-${worldKey}`} />
-            <DamageStatesMount key={`dmgstates-${worldKey}`} />
-            <SpawnDirector key={`director-${worldKey}`} world={world} seed={seed} />
-            {/* SWAT-squad flank coordinator (Phase 10): publishes flank-slot claims SWAT units
+                <ParticlesMount key={`particles-${worldKey}`} />
+                <DamageStatesMount key={`dmgstates-${worldKey}`} />
+                <SpawnDirector key={`director-${worldKey}`} world={world} seed={seed} />
+                {/* SWAT-squad flank coordinator (Phase 10): publishes flank-slot claims SWAT units
                 read to box in the player. Gameplay infra (ships), keyed like the director. */}
-            <SquadMount key={`squad-${worldKey}`} world={world} />
-            <RunLoopSystem key={`runloop-${worldKey}`} />
-            {/* Heat/score accrual runs in fixed-step land (Phase 8) — pausing Physics
+                <SquadMount key={`squad-${worldKey}`} world={world} />
+                <RunLoopSystem key={`runloop-${worldKey}`} />
+                {/* Heat/score accrual runs in fixed-step land (Phase 8) — pausing Physics
                 pauses accrual for free. */}
-            <HeatScoreSystem />
-            {/* Ambient helicopters (Phase 14): HeliMount drives the flight controller and
+                <HeatScoreSystem />
+                {/* Ambient helicopters (Phase 14): HeliMount drives the flight controller and
                 populates heliRef (the HeliSlot seam) from a priority-0 useFrame, keyed off
                 wanted tier; HeliMesh renders the fuselage/rotor instances + shadow blob and
                 Searchlight the lead heli's spotlight/cone. Phase 15 Task 3's rotor audio tracks
                 the same heliRef slots. NOTE: this whole trio was missing from the tree (Phase 14
                 integration gap — the components shipped + were unit-tested but never mounted);
                 wired here so helicopters actually fly, render, and sound at runtime. */}
-            <HeliMount />
-            <HeliMesh />
-            <Searchlight />
-            <PowerGridSystem key={`grid-${worldKey}`} />
-            <SkidMarks />
+                <HeliMount />
+                <HeliMesh />
+                <Searchlight />
+                <PowerGridSystem key={`grid-${worldKey}`} />
+                <SkidMarks />
+              </>
+            )}
             {/* key: spawn position is read once at body create (PlayerVehicle contract),
                 and (Phase 17) the car's collider/controller params are resolved once at
                 mount from getSelectedCarDef() — so the key carries BOTH the world/run

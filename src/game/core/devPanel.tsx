@@ -708,6 +708,22 @@ export default function DevPanel() {
     [],
   );
 
+  // --- Toronto map (P22): drivable dev slice toggle -----------------------------------------
+  // Swaps the 64×64 legacy world for world/toronto/TorontoScene.tsx (game/index.tsx reads the
+  // devToggles flag, joins it to the world remount key, and renders the slice when on). Same
+  // leva-free devToggles seam as the World folder's minimap/graphViz toggles.
+  useControls(
+    'Toronto map (P22)',
+    () => ({
+      torontoMap: {
+        value: getDevToggles().torontoMap,
+        onChange: (value: boolean) => setDevToggle('torontoMap', value),
+      },
+      note: { value: 'drivable dev slice; legacy world untouched when off', disabled: true },
+    }),
+    [],
+  );
+
   // --- Audio folder: Phase 15 Task 4 sound-test board ---------------------------------------
   // registerAllEventSounds() is idempotent (audio/eventMap.ts) and cheap (no audio plays until
   // a button is actually clicked) — calling it here means this folder works standalone even

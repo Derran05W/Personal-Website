@@ -43,6 +43,12 @@ export interface DevToggles {
    * doc comment for the data source, a stub returning [] until powergrid/lightPool.ts
    * (Task 3, concurrent this wave) lands). Default off. */
   lightPoolViz: boolean;
+  /** Phase 22 dev tool: swap the 64×64 legacy world for the drivable Toronto "thermometer"
+   * dev slice (world/toronto/TorontoScene.tsx). game/index.tsx reads this, joins it to the
+   * world remount key, and renders TorontoScene instead of the legacy world subtree when set.
+   * Default off — the legacy world is byte-identical when off (additive conditional only). A
+   * dev-only seam; the real WORLD_SOURCE switch replaces it at the Phase 23 parity flip. */
+  torontoMap: boolean;
 }
 
 const toggles: DevToggles = {
@@ -52,6 +58,7 @@ const toggles: DevToggles = {
   invincible: false,
   aimViz: false,
   lightPoolViz: false,
+  torontoMap: false,
 };
 const listeners = new Set<() => void>();
 

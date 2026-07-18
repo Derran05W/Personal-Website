@@ -423,6 +423,7 @@ export const EVENT_SOUND_DOC: Record<keyof GameEventMap, string> = {
   darkCity: 'ambience swap city -> crickets (nextAmbience)',
   enteredWater: 'impact, low velocity trim (splash-ish stand-in — no dedicated splash synth exists in this pass; a real watery variant is a reasonable Task 2/16 follow-up)',
   carUnlocked: 'no-op in the audio map — the unlock cue (score-screen toast + garage badge; a uiTick if the garage/HUD layer wants one) is owned there, not here. No dedicated unlock jingle in this pass; adding one is a clean follow-up.',
+  tunnelTransit: 'no-op — the "Line 1" fold transition (TORONTO-MAP-SPEC-v2.md §2) is a silent visual joke (dark tunnel wash + station names), not a sound beat; the engine/ambience loops keep running underneath it since the car never actually stops. A muffled-tunnel ambience dip would be a reasonable follow-up, not this pass\'s.',
 };
 
 // ============================================================================================
