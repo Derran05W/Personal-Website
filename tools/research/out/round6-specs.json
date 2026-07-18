@@ -1,0 +1,61 @@
+{
+  "buildings": [
+    {
+      "id": "cibc-square",
+      "height_m": 241.3,
+      "floors": 49,
+      "note": "South tower at 81 Bay Street. North tower is 243.1 m / 50 floors.",
+      "src": "SkyscraperCity forum + SkraperCenter, multiple sources",
+      "status": "verified",
+      "matches_current": true
+    },
+    {
+      "id": "the-well-wellington",
+      "height_m": 174.03,
+      "floors": 46,
+      "note": "Tallest residential tower in mixed-use complex. Development includes 46-, 39-, and 22-storey towers.",
+      "src": "UrbanToronto, Toronto Green Standard, UrbanDB",
+      "status": "verified",
+      "matches_current": true
+    },
+    {
+      "id": "hullmark-centre",
+      "height_m": 167.94,
+      "floors": 45,
+      "note": "South Tower (primary). UrbanToronto forum lists 167.94m / 45s. Current spec lists 161m—spec is ~7m LOW.",
+      "src": "SkyscraperCenter, UrbanToronto",
+      "status": "verified",
+      "matches_current": false
+    },
+    {
+      "id": "emerald-park-towers",
+      "height_m": null,
+      "floors": 41,
+      "note": "Dual towers: East (41 floors) and West (32 floors). Spec lists 44 floors (single tower)—FLOOR COUNT MISMATCH. Height in meters not found in 10-search budget.",
+      "src": "SkyscraperPage forum, multiple sources confirm dual 41 & 32",
+      "status": "needs_agent",
+      "matches_current": false
+    },
+    {
+      "id": "union-station-facade",
+      "length_m": 229,
+      "note": "Front Street facade: 752 feet = 229.23 m. Three connecting box masses between Bay & York streets, south side of block.",
+      "src": "Wikipedia (Union Station Toronto)",
+      "status": "verified",
+      "matches_current": true
+    },
+    {
+      "id": "eaton-centre-galleria",
+      "length_m": 400,
+      "note": "Full galleria/arcade length between Dundas and Queen Streets is 400 m (1,300 ft). Spec lists ~260 m—spec is ~140 m LOW, off by ~54%.",
+      "src": "Web search results for Toronto Eaton Centre",
+      "status": "verified",
+      "matches_current": false
+    }
+  ],
+  "summary": {
+    "confirmed": ["cibc-square", "the-well-wellington", "union-station-facade"],
+    "disagree": ["hullmark-centre", "emerald-park-towers", "eaton-centre-galleria"],
+    "unverified_count": 0
+  }
+}

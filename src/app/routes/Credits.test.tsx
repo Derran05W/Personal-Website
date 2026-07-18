@@ -41,6 +41,14 @@ describe('Credits route', () => {
     expect(screen.getByTestId('credits-fonts-statement')).toHaveTextContent('Fredoka');
   });
 
+  it('lists every brand-trademark entry with its full note', () => {
+    renderCredits();
+    for (const entry of CREDITS.brandTrademarks) {
+      expect(screen.getByText(entry.name)).toBeInTheDocument();
+      expect(screen.getByText(entry.note)).toBeInTheDocument();
+    }
+  });
+
   it('shows the unaffiliated/stylized-homage disclaimer', () => {
     renderCredits();
     expect(screen.getByTestId('credits-disclaimer')).toHaveTextContent(/not.*affiliat/i);

@@ -13,6 +13,10 @@
     "types": ["vite/client", "node"],
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,
+    // Phase 24: world/toronto/namedBuildings.ts imports data/toronto/building-specs.json
+    // directly (the game genuinely consumes the spec at runtime now — plan-approved
+    // deviation from P21's "validators stay bundle-free"). Enables the typed default import.
+    "resolveJsonModule": true,
 
     /* Bundler mode */
     "moduleResolution": "bundler",

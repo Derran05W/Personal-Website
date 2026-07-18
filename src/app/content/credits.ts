@@ -32,6 +32,17 @@ export interface AssetCredits {
   fonts: CreditEntry[];
 }
 
+/** One real-world brand referenced by the Phase 24 bank-logo pixel atlas
+ * (game/world/toronto/logoAtlas.ts) on the King×Bay financial-cluster towers. CLAUDE.md's
+ * locked "Brand logos (map layer)" decision (user override 2026-07-17) requires every
+ * referenced brand to carry a trademark note here — pixel-art homage, not an official asset. */
+export interface BrandTrademarkEntry {
+  /** The real corporate/brand name being referenced. */
+  name: string;
+  /** Plain-language note: how it's depicted in the game, plus the trademark disclaimer. */
+  note: string;
+}
+
 export interface CreditsContent {
   /** "Made with" colophon — the open-source tech powering the site + game. */
   tech: CreditEntry[];
@@ -40,6 +51,8 @@ export interface CreditsContent {
   disclaimer: string;
   /** Short note on the game's title/branding. */
   gameTitleNote: string;
+  /** Real bank brands stylized as 32×32 pixel-art logos in the Toronto map layer (Phase 24). */
+  brandTrademarks: BrandTrademarkEntry[];
 }
 
 export const CREDITS: CreditsContent = {
@@ -145,7 +158,7 @@ export const CREDITS: CreditsContent = {
     ],
   },
   disclaimer:
-    "Smashy the 6ix is a stylized homage, not an affiliate, partner, or representation of " +
+    'Smashy the 6ix is a stylized homage, not an affiliate, partner, or representation of ' +
     'any real city, business, government agency, or person. Every landmark in the game ' +
     '(the tower, the stadium, the market district, and so on) is a fictionalized, ' +
     'low-poly silhouette built from public knowledge of Toronto’s skyline — not a ' +
@@ -154,4 +167,56 @@ export const CREDITS: CreditsContent = {
     "department's insignia.",
   gameTitleNote:
     '"Smashy the 6ix" is this project’s own working title, not a licensed or third-party name.',
+  brandTrademarks: [
+    {
+      name: 'TD Bank Group',
+      note: [
+        "Referenced as an original 32×32 pixel-art homage on the map's financial-district",
+        'towers, for Toronto-cityscape flavour — a simplified, hand-drawn wordmark, never a',
+        "traced or exact reproduction of the real mark. TD's trademarks belong to TD Bank",
+        'Group; no affiliation, sponsorship, or endorsement is implied, and no official TD',
+        'assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'RBC (Royal Bank of Canada)',
+      note: [
+        "Referenced as an original 32×32 pixel-art homage on the map's financial-district",
+        'towers, for Toronto-cityscape flavour — a simplified, hand-drawn wordmark, never a',
+        "traced or exact reproduction of the real mark. RBC's trademarks belong to Royal Bank",
+        'of Canada; no affiliation, sponsorship, or endorsement is implied, and no official',
+        'RBC assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'BMO (Bank of Montreal)',
+      note: [
+        "Referenced as an original 32×32 pixel-art homage on the map's financial-district",
+        'towers, for Toronto-cityscape flavour — a simplified, hand-drawn wordmark, never a',
+        "traced or exact reproduction of the real mark. BMO's trademarks belong to the Bank of",
+        'Montreal; no affiliation, sponsorship, or endorsement is implied, and no official BMO',
+        'assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'CIBC',
+      note: [
+        "Referenced as an original 32×32 pixel-art homage on the map's financial-district",
+        'towers, for Toronto-cityscape flavour — a simplified, hand-drawn wordmark, never a',
+        "traced or exact reproduction of the real mark. CIBC's trademarks belong to the",
+        'Canadian Imperial Bank of Commerce; no affiliation, sponsorship, or endorsement is',
+        'implied, and no official CIBC assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'Scotiabank',
+      note: [
+        "Referenced as an original 32×32 pixel-art homage on the map's financial-district",
+        'towers, for Toronto-cityscape flavour — a simplified, hand-drawn wordmark/glyph,',
+        "never a traced or exact reproduction of the real mark. Scotiabank's trademarks",
+        'belong to The Bank of Nova Scotia; no affiliation, sponsorship, or endorsement is',
+        'implied, and no official Scotiabank assets were used.',
+      ].join(' '),
+    },
+  ],
 };

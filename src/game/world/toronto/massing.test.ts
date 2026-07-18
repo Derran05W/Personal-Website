@@ -188,6 +188,39 @@ describe('buildMassing — no same-district footprint overlap', () => {
   });
 });
 
+describe('buildMassing — exclusion zones (Phase 24 named buildings + hero lots)', () => {
+  // A couple of hand-picked map-space rects standing in for named footprints / hero lots.
+  const exclusions = [
+    { minX: 1200, minY: 3120, maxX: 1240, maxY: 3160 }, // financial-cluster-ish block
+    { minX: 935, minY: 3375, maxX: 965, maxY: 3405 }, // CN Tower hero lot
+    { minX: 1455, minY: 2760, maxX: 1481, maxY: 2895 }, // Eaton galleria strip
+  ];
+  const excluded = buildMassing(SEED, exclusions);
+
+  it('no instance intersects any exclusion rect', () => {
+    const offenders: string[] = [];
+    for (const inst of excluded.instances) {
+      const fp = footprintAabb(inst);
+      for (const ex of exclusions) {
+        const r: Aabb = { minX: ex.minX, minZ: ex.minY, maxX: ex.maxX, maxZ: ex.maxY };
+        if (interiorOverlap(fp, r)) {
+          offenders.push(`${inst.districtId} @ (${inst.x.toFixed(1)},${inst.z.toFixed(1)})`);
+          break;
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('same seed + same exclusions → deep-equal output', () => {
+    expect(buildMassing(SEED, exclusions)).toEqual(excluded);
+  });
+
+  it('passing no exclusions is byte-identical to the default (back-compat)', () => {
+    expect(buildMassing(SEED, [])).toEqual(buildMassing(SEED));
+  });
+});
+
 describe('buildMassing — North York Yonge storefront strip', () => {
   it('>= 10 small boxes hug the Yonge ribbon edges inside the capsule', () => {
     const yonge = buildStreets().streets.find((s) => s.id === 'yonge')!;

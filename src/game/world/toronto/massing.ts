@@ -157,13 +157,22 @@ function uniform(rng: Rng, range: readonly [number, number]): number {
 /**
  * Build the whole filler city for `seed`. Deterministic (mulberry forks), district-ordered
  * (config order = buffer order), road/polygon/water/overlap-safe by construction.
+ *
+ * `exclusions` (Phase 24): map-space rects — the named-building footprints (+ margin) and the
+ * Phase-25 hero lots — that filler candidates must avoid. A candidate footprint intersecting any
+ * exclusion is rejected with the same gate style as the road/overlap checks, so the named
+ * landmarks and the reserved hero lots never collide with filler. Determinism is preserved: same
+ * seed + same exclusions → deep-equal output; passing no exclusions is byte-identical to before.
  */
-export function buildMassing(seed: number): Massing {
+export function buildMassing(seed: number, exclusions: readonly MapRect[] = []): Massing {
   const base = createRng(seed).fork('toronto-massing-v1');
   const districts = buildDistricts();
   const streets = buildStreets().streets;
   const ribbons = buildRibbons(streets);
   const yonge = streets.find((s) => s.id === 'yonge');
+
+  // Named-building + hero-lot exclusion rects as AABBs (map space = world XZ).
+  const exclusionAabbs: Aabb[] = exclusions.map((r) => ({ minX: r.minX, maxX: r.maxX, minZ: r.minY, maxZ: r.maxY }));
 
   // Road ribbons, raw + inflated by the sidewalk margin (index-aligned), precomputed once. Raw
   // rects drive the frontage-distance filter; inflated rects drive the sidewalk-clearance reject.
@@ -189,6 +198,8 @@ export function buildMassing(seed: number): Massing {
       const fp: Aabb = { minX: cx - hx, maxX: cx + hx, minZ: cz - hz, maxZ: cz + hz };
       // (c) water band — cheapest reject first.
       if (fp.maxZ >= WATER_Z) return false;
+      // (e) named-building / hero-lot exclusion zones (Phase 24) — cheap AABB reject.
+      for (const ex of exclusionAabbs) if (overlaps(fp, ex)) return false;
       // (b) wholly inside the polygon.
       if (!insidePolygon(fp)) return false;
       // (a) clear of every road ribbon + sidewalk margin, AND (frontage) within FRONTAGE_MAX of

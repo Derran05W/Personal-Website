@@ -30,7 +30,9 @@ import {
   Color,
   DoubleSide,
   Float32BufferAttribute,
+  NearestFilter,
   Object3D,
+  PlaneGeometry,
   SRGBColorSpace,
   type InstancedMesh,
   type PerspectiveCamera,
@@ -38,10 +40,14 @@ import {
 import { BOUNDARY, interactionGroups } from '../../config';
 import { CAMERA_CLAMP_PADDING_WU, clampToPolygon } from './polygon';
 import { ROAD_CLASSES, ROAD_EDGE } from '../../config/torontoMap';
+import { WINDOW_PATTERN } from '../../config/torontoMaterials';
 import { buildStreets } from './streets';
 import { buildRibbons, type Ribbon } from './roadGraph';
 import { buildDistricts } from './districts';
 import { buildMassing } from './massing';
+import { buildNamedBuildings, type CrownDecal, type NamedBox, type NamedPlacement } from './namedBuildings';
+import { getLogoAtlas, logoCellUv } from './logoAtlas';
+import { createRng } from '../rng';
 import { createFoldTrigger, type FoldTrigger } from './tunnel';
 import { gameEvents } from '../../state/events';
 import { getGameState, useGameStore } from '../../state/store';
@@ -230,6 +236,183 @@ function SignBoard({ label, x, z }: { label: string; x: number; z: number }) {
   );
 }
 
+// --- named-building facade textures (§4 windows) ------------------------------------------
+// One CanvasTexture per named box: the flat §4 fill colour with a window pattern painted in, and
+// a seeded ~35% of the window cells painted BRIGHT warm — on this unlit-literal slice (the P23
+// verdict) those bright texels ARE the lit windows. NearestFilter + no mipmaps keep it crunchy
+// (Addendum A.5). Sized to the box's dominant face so the grid reads at roughly one cell per
+// storey/column; mapped 0..1 on every box face by the shared basic material.
+
+/** Clamp a canvas dimension to the window-pattern px budget. */
+function clampPx(px: number): number {
+  return Math.max(WINDOW_PATTERN.minCanvasPx, Math.min(WINDOW_PATTERN.maxCanvasPx, px));
+}
+
+/** Bake one facade texture for a box, seeded by `key` (deterministic, stable per building). */
+function makeFacadeTexture(box: NamedBox, key: string): CanvasTexture {
+  const P = WINDOW_PATTERN;
+  const wWu = box.hx * 2;
+  const hWu = box.hy * 2;
+  const W = clampPx(Math.round(wWu * P.pxPerWu));
+  const H = clampPx(Math.round(hWu * P.pxPerWu));
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const tex = new CanvasTexture(canvas);
+  tex.magFilter = NearestFilter;
+  tex.minFilter = NearestFilter;
+  tex.generateMipmaps = false;
+  tex.colorSpace = SRGBColorSpace;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    tex.needsUpdate = true;
+    return tex;
+  }
+  const fill = box.look.fill;
+  ctx.fillStyle = fill;
+  ctx.fillRect(0, 0, W, H);
+
+  const dark = new Color(fill).multiplyScalar(0.5).getStyle(); // recessed glass / mullion
+  const lit = box.look.windowTint;
+  const rng = createRng(1).fork(key);
+
+  const floors = Math.max(1, Math.round(hWu / P.floorHeightWu));
+  const cols = Math.max(1, Math.round(wWu / P.columnPitchWu));
+  const rowH = H / floors;
+  const colW = W / cols;
+  const gx = (colW * (1 - P.glazingFrac)) / 2; // horizontal window inset
+  const gy = (rowH * (1 - P.glazingFrac)) / 2; // vertical window inset
+  const winW = colW * P.glazingFrac;
+  const winH = rowH * P.glazingFrac;
+
+  const kind = box.look.windowKind;
+  const bandTop = kind === 'storefront' ? Math.round(H * (1 - P.storefrontBandFrac)) : H;
+
+  if (kind === 'storefront') {
+    // Big bright ground-floor glazing band with a few dark mullions.
+    ctx.fillStyle = lit;
+    ctx.fillRect(0, bandTop, W, H - bandTop);
+    ctx.fillStyle = dark;
+    for (let cc = 0; cc <= cols; cc++) ctx.fillRect(cc * colW - 1, bandTop, 2, H - bandTop);
+  }
+
+  for (let cc = 0; cc < cols; cc++) {
+    const x0 = cc * colW;
+    if (kind === 'glass') {
+      // Continuous vertical glass column (dark), lit windows scattered up it.
+      ctx.fillStyle = dark;
+      ctx.fillRect(x0 + gx, 0, winW, H);
+    }
+    for (let f = 0; f < floors; f++) {
+      const yTop = H - (f + 1) * rowH; // floor 0 at the ground
+      if (kind === 'storefront' && yTop >= bandTop) continue; // covered by the band
+      const isLit = rng.next() < P.litFraction;
+      if (kind === 'glass') {
+        if (isLit) {
+          ctx.fillStyle = lit;
+          ctx.fillRect(x0 + gx, yTop + gy, winW, winH);
+        }
+      } else {
+        // grid / storefront-upper: a punched window on the fill wall.
+        ctx.fillStyle = isLit ? lit : dark;
+        ctx.fillRect(x0 + gx, yTop + gy, winW, winH);
+      }
+    }
+  }
+
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** A square plane for a CROWN decal, UV-sliced to the brand's atlas cell. The atlas is a single
+ * row (v spans 0..1), so only u is remapped; flipY on the shared texture leaves v correct. */
+function makeDecalGeometry(size: number, brandUv: { u0: number; u1: number }): PlaneGeometry {
+  const geo = new PlaneGeometry(size, size);
+  const uv = geo.attributes.uv;
+  for (let i = 0; i < uv.count; i++) {
+    const u = uv.getX(i); // 0 or 1 across the plane
+    uv.setX(i, brandUv.u0 + u * (brandUv.u1 - brandUv.u0));
+  }
+  uv.needsUpdate = true;
+  return geo;
+}
+
+/** World transform for a CROWN decal on a box face (south = +Z front; east = +X, yawed +90°). */
+function decalTransform(box: NamedBox, decal: CrownDecal): {
+  position: [number, number, number];
+  rotation: [number, number, number];
+} {
+  const y = decal.bandCenterFrac * box.hy * 2;
+  const off = 0.05; // proud of the face, no z-fight
+  if (decal.face === 'south') {
+    return { position: [box.cx, y, box.cz + box.hz + off], rotation: [0, 0, 0] };
+  }
+  return { position: [box.cx + box.hx + off, y, box.cz], rotation: [0, Math.PI / 2, 0] };
+}
+
+/**
+ * The Phase-24 named landmark layer: one basic-material mesh per box (its baked facade texture),
+ * one UV-sliced quad per CROWN decal (shared bank-logo atlas), and one BUILDING CuboidCollider
+ * per box (matching the filler massing's fixed-body pattern). Textures/geometries are built once
+ * (memoized) and disposed on unmount so a toggle flip / remount never leaks GPU memory.
+ */
+function NamedBuildingsLayer({ placements }: { placements: readonly NamedPlacement[] }) {
+  // Flat box list (with its owning placement id → stable texture seed key).
+  const boxes = useMemo(
+    () => placements.flatMap((p) => p.boxes.map((box, i) => ({ box, key: `${p.id}#${i}` }))),
+    [placements],
+  );
+  const textures = useMemo(() => boxes.map(({ box, key }) => makeFacadeTexture(box, key)), [boxes]);
+  useEffect(() => () => textures.forEach((t) => t.dispose()), [textures]);
+
+  // CROWN decals: shared atlas texture + one UV-sliced geometry per decal.
+  const atlas = useMemo(() => getLogoAtlas(), []);
+  const decals = useMemo(
+    () =>
+      placements.flatMap((p) =>
+        p.decals.map((decal) => {
+          const box = p.boxes[decal.boxIndex];
+          const uv = logoCellUv(decal.brand);
+          return {
+            geometry: makeDecalGeometry(decal.size, uv),
+            ...decalTransform(box, decal),
+            key: `${p.id}-${decal.brand}-${decal.face}`,
+          };
+        }),
+      ),
+    [placements],
+  );
+  useEffect(() => () => decals.forEach((d) => d.geometry.dispose()), [decals]);
+
+  return (
+    <>
+      {/* Named building boxes — one mesh each (unique facade texture), UNLIT-literal like the
+          filler massing, castShadow so P24's lit ground receives the skyline shadows later. */}
+      {boxes.map(({ box, key }, i) => (
+        <mesh key={key} position={[box.cx, box.hy, box.cz]} castShadow frustumCulled={false}>
+          <boxGeometry args={[box.hx * 2, box.hy * 2, box.hz * 2]} />
+          <meshBasicMaterial map={textures[i]} toneMapped={false} />
+        </mesh>
+      ))}
+
+      {/* CROWN logo decals on the two camera-visible faces (§4 CROWN / Addendum A.2). */}
+      {decals.map((d) => (
+        <mesh key={d.key} geometry={d.geometry} position={d.position} rotation={d.rotation}>
+          <meshBasicMaterial map={atlas.texture} transparent={false} toneMapped={false} side={DoubleSide} />
+        </mesh>
+      ))}
+
+      {/* Indestructible fixed BUILDING colliders — one per box (massing.ts's fixed-body pattern). */}
+      <RigidBody type="fixed" colliders={false} collisionGroups={BUILDING_GROUPS}>
+        {boxes.map(({ box, key }) => (
+          <CuboidCollider key={key} args={[box.hx, box.hy, box.hz]} position={[box.cx, box.hy, box.cz]} />
+        ))}
+      </RigidBody>
+    </>
+  );
+}
+
 export function TorontoScene() {
   // The store world seed (index.tsx keys this whole subtree on it, so "New city" in the garage
   // remounts + reseeds the massing). Read the same way index.tsx does.
@@ -248,7 +431,11 @@ export function TorontoScene() {
   // downtown-at-a-glance look. One InstancedMesh (per-instance matrix + colour) + one fixed
   // RigidBody of BUILDING colliders. Deterministic per seed, memoized so a re-render never
   // rebuilds the ~700 boxes.
-  const massing = useMemo(() => buildMassing(seed), [seed]);
+  // Phase 24 named landmarks: street-referenced, seed-independent (pure function of the street
+  // table). Built once; their footprints + the reserved hero lots feed buildMassing as exclusions
+  // so filler never collides with a landmark or the P25 CN Tower / Rogers lots.
+  const named = useMemo(() => buildNamedBuildings(), []);
+  const massing = useMemo(() => buildMassing(seed, named.exclusions), [seed, named]);
   const buildingsRef = useRef<InstancedMesh>(null);
   useEffect(() => {
     const mesh = buildingsRef.current;
@@ -422,6 +609,11 @@ export function TorontoScene() {
           <CuboidCollider key={i} args={[c.hx, c.hy, c.hz]} position={[c.x, c.y, c.z]} />
         ))}
       </RigidBody>
+
+      {/* Named landmarks (Phase 24): the §3c skyline (TD/RBC/Scotia/FCP/… towers, Royal York,
+          Union, The Well, Eaton galleria, Aura, the Yonge×Sheppard twins, NY Civic Centre) as
+          textured boxes + CROWN bank-logo decals + BUILDING colliders. */}
+      <NamedBuildingsLayer placements={named.placements} />
 
       {/* Roads: one merged per-class vertex-coloured ribbon mesh. UNLIT (basic material):
           the §3a class colours must read exactly as authored regardless of dusk light —

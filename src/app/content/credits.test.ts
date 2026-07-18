@@ -119,6 +119,36 @@ describe('CREDITS.assets — honesty statement', () => {
   });
 });
 
+describe('CREDITS.brandTrademarks — Phase 24 bank-logo atlas trademark notes', () => {
+  const EXPECTED_BRANDS = [
+    'TD Bank Group',
+    'RBC (Royal Bank of Canada)',
+    'BMO (Bank of Montreal)',
+    'CIBC',
+    'Scotiabank',
+  ];
+
+  it('covers exactly the five bank brands the logo atlas draws', () => {
+    expect(CREDITS.brandTrademarks.map((entry) => entry.name)).toEqual(EXPECTED_BRANDS);
+  });
+
+  it('has unique brand names', () => {
+    const names = CREDITS.brandTrademarks.map((entry) => entry.name);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it('every entry states it is a homage, not an official asset, with no affiliation implied', () => {
+    for (const entry of CREDITS.brandTrademarks) {
+      const note = entry.note.toLowerCase();
+      expect(note, entry.name).toContain('pixel-art');
+      expect(note, entry.name).toContain('homage');
+      expect(note, entry.name).toMatch(/no affiliation|no.*affiliation/);
+      expect(note, entry.name).toContain('trademark');
+      expect(note, entry.name).toMatch(/no official .* assets? (were )?used/);
+    }
+  });
+});
+
 describe('CREDITS — disclaimer and title note', () => {
   it('states the unaffiliated/stylized-homage disclaimer', () => {
     expect(CREDITS.disclaimer.toLowerCase()).toContain('not');

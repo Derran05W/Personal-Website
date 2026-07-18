@@ -8,8 +8,8 @@ export default function Credits() {
     <section className="credits">
       <h1>Credits</h1>
       <p className="credits__intro">
-        Everything this site and game are built from: the open-source tech powering it,
-        and an honest account of every visual and audio asset.
+        Everything this site and game are built from: the open-source tech powering it, and an
+        honest account of every visual and audio asset.
       </p>
 
       <h2 className="credits__section-title">Made with</h2>
@@ -17,7 +17,12 @@ export default function Credits() {
         {CREDITS.tech.map((entry) => (
           <li key={entry.name} className="credits__tech-item">
             <div className="credits__tech-heading">
-              <a href={entry.url} target="_blank" rel="noreferrer noopener" className="credits__tech-name">
+              <a
+                href={entry.url}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="credits__tech-name"
+              >
                 {entry.name} <span className="visually-hidden">(opens in a new tab)</span>
               </a>
               <span className="credits__tech-license">{entry.license}</span>
@@ -45,6 +50,20 @@ export default function Credits() {
           . Self-hosted — no external font requests.
         </p>
       </div>
+
+      <h2 className="credits__section-title">Brand references in the map</h2>
+      <p className="credits__brand-intro">
+        The Toronto map layer stylizes a handful of real bank towers with original pixel-art logo
+        homages. None of these are official assets, and none imply affiliation or endorsement.
+      </p>
+      <ul className="credits__brand-list">
+        {CREDITS.brandTrademarks.map((entry) => (
+          <li key={entry.name} className="credits__brand-item">
+            <p className="credits__brand-name">{entry.name}</p>
+            <p className="credits__brand-note">{entry.note}</p>
+          </li>
+        ))}
+      </ul>
 
       <h2 className="credits__section-title">A note on all this</h2>
       <p className="credits__disclaimer" data-testid="credits-disclaimer">

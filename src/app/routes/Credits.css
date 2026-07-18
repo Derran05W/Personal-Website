@@ -71,6 +71,40 @@
   color: var(--color-accent);
 }
 
+.credits__brand-intro {
+  color: var(--color-text-muted);
+  line-height: 1.6;
+  margin: 0 0 1rem;
+}
+
+.credits__brand-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.credits__brand-item {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  background: var(--color-bg-elevated);
+}
+
+.credits__brand-name {
+  margin: 0 0 0.3rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.credits__brand-note {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
 .credits__disclaimer {
   color: var(--color-text-muted);
   line-height: 1.6;

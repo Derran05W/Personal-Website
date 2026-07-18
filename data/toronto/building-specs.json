@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "source": "docs/map/TORONTO-MAP-SPEC-v2.md §3c (user-supplied spec, researched July 2026)",
+    "source": "docs/map/TORONTO-MAP-SPEC-v2.md \u00a73c (user-supplied spec, researched July 2026)",
     "curve": {
       "coefficient": 2.05,
       "exponent": 0.6,
@@ -20,7 +20,7 @@
       "footprint_wu": 21,
       "material": "precast_grey",
       "confidence": "high",
-      "notes": "grey concrete, glass pods; hero mesh spec §5"
+      "notes": "grey concrete, glass pods; hero mesh spec \u00a75"
     },
     {
       "id": "first-canadian-place",
@@ -31,7 +31,7 @@
       "footprint_wu": 19,
       "material": "marble_white",
       "confidence": "high",
-      "notes": "WHITE (marble→white glass reclad)"
+      "notes": "WHITE (marble\u2192white glass reclad)"
     },
     {
       "id": "scotia-plaza",
@@ -53,7 +53,7 @@
       "footprint_wu": 15,
       "material": "glass_blue",
       "confidence": "high",
-      "notes": "dark blue-grey glass — closest §4 enum is glass_blue; spec describes a blue-grey tint, not pure blue"
+      "notes": "dark blue-grey glass \u2014 closest \u00a74 enum is glass_blue; spec describes a blue-grey tint, not pure blue"
     },
     {
       "id": "cibc-square",
@@ -63,8 +63,8 @@
       "expected_game_h_wu": 55,
       "footprint_wu": 18,
       "material": "glass_blue",
-      "confidence": "medium",
-      "notes": "blue glass, banded"
+      "confidence": "high",
+      "notes": "blue glass, banded Round-6 researcher confirmed 241.3 m / 49 floors (south tower; north is 243.1/50)."
     },
     {
       "id": "commerce-court-west",
@@ -75,7 +75,7 @@
       "footprint_wu": 17,
       "material": "glass_black",
       "confidence": "high",
-      "notes": "stainless + grey glass — no plain 'grey glass' enum exists; mapped to glass_black as the closest dark-reflective curtain-wall match"
+      "notes": "stainless + grey glass \u2014 no plain 'grey glass' enum exists; mapped to glass_black as the closest dark-reflective curtain-wall match"
     },
     {
       "id": "td-bank-tower",
@@ -107,30 +107,30 @@
       "expected_game_h_wu": 45,
       "footprint_wu": 15,
       "material": "glass_blue",
-      "confidence": "medium",
-      "notes": "glass on red-brick podium — spec doesn't name a glass tint; mapped to glass_blue as the default modern-glass enum, brick podium called out separately"
+      "confidence": "high",
+      "notes": "glass on red-brick podium \u2014 spec doesn't name a glass tint; mapped to glass_blue as the default modern-glass enum, brick podium called out separately Round-6 researcher confirmed 174 m / 46 floors (tallest tower of the complex)."
     },
     {
       "id": "hullmark",
       "name": "Hullmark (Yonge/Shep)",
-      "real_h_m": 161,
+      "real_h_m": 167.94,
       "floors": 45,
-      "expected_game_h_wu": 43,
+      "expected_game_h_wu": 44,
       "footprint_wu": 13,
       "material": "glass_green",
-      "confidence": "medium",
-      "notes": "blue-green twin — no blue-green enum; mapped to glass_green (closer than glass_blue given 'green' is named second/dominant)"
+      "confidence": "high",
+      "notes": "blue-green twin \u2014 no blue-green enum; mapped to glass_green (closer than glass_blue given 'green' is named second/dominant) Round-6: corrected 161->167.94 m (South Tower; twin with a 37-floor North Tower). Render as a twin pair."
     },
     {
       "id": "emerald-park",
       "name": "Emerald Park (Yonge/Shep)",
       "real_h_m": 147,
-      "floors": 44,
+      "floors": 41,
       "expected_game_h_wu": 41,
       "footprint_wu": 13,
       "material": "glass_green",
-      "confidence": "medium",
-      "notes": "GREEN curved twin"
+      "confidence": "low",
+      "notes": "GREEN curved twin Round-6: dual towers 41 (East) + 32 (West) floors; 147 m height UNVERIFIED (researcher budget) - treat as estimate. Render as a twin pair."
     },
     {
       "id": "fairmont-royal-york",
@@ -153,7 +153,7 @@
       "dome_diameter_wu": 66,
       "material": "precast_grey",
       "confidence": "high",
-      "notes": "86 m is roof height (no floor count applies — domed stadium); white/grey panels"
+      "notes": "86 m is roof height (no floor count applies \u2014 domed stadium); white/grey panels"
     },
     {
       "id": "north-york-civic-centre",
@@ -172,11 +172,11 @@
       "real_h_m": 38,
       "floors": 4,
       "expected_game_h_wu": 18,
-      "footprint_wu": 84,
-      "footprint_note": "84 long",
+      "footprint_wu": 129,
+      "footprint_note": "129 long (round-6 verified real galleria length 400 m via the half-scale rule; supersedes the spec table's illustrative 84 - derived truth wins, same principle as the P21 zone scales)",
       "material": "glass_blue",
-      "confidence": "medium",
-      "notes": "glass barrel vault — spec doesn't name a tint; mapped to glass_blue as the default clear/modern-glass enum"
+      "confidence": "high",
+      "notes": "glass barrel vault \u2014 spec doesn't name a tint; mapped to glass_blue as the default clear/modern-glass enum"
     },
     {
       "id": "casa-loma",
@@ -187,7 +187,7 @@
       "footprint_wu": 32,
       "material": "limestone",
       "confidence": "high",
-      "notes": "grey stone castle — mapped to limestone, the only quarried-stone enum (§4 has no separate 'grey stone')"
+      "notes": "grey stone castle \u2014 mapped to limestone, the only quarried-stone enum (\u00a74 has no separate 'grey stone')"
     },
     {
       "id": "union-station",
@@ -198,8 +198,8 @@
       "footprint_wu": 74,
       "footprint_note": "74 long colonnade",
       "material": "limestone",
-      "confidence": "medium",
-      "notes": "limestone colonnade"
+      "confidence": "high",
+      "notes": "limestone colonnade Round-6 researcher confirmed Front St facade 229 m -> 74 wu via the half-scale rule EXACTLY."
     },
     {
       "id": "two-storey-shop",
@@ -210,7 +210,7 @@
       "footprint_wu": 8,
       "material": "storefront",
       "confidence": "high",
-      "notes": "per-district — generic filler archetype; spec table lists footprint as '~8' (approximate), stored as 8"
+      "notes": "per-district \u2014 generic filler archetype; spec table lists footprint as '~8' (approximate), stored as 8"
     }
   ]
 }
