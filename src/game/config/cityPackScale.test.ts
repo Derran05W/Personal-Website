@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { CITY_PACK_MANIFEST } from '../assets/cityPackManifest';
 import { VEHICLE_TUNING } from './vehicles';
+import { PROP_SCALE_TARGETS } from './venueDressing';
 import {
   CAR_REF,
   BUILDING_FRONTAGE_TARGET_WU,
@@ -10,6 +11,12 @@ import {
   CITY_PACK_SCALE_OVERRIDES,
   resolveCityPackScale,
   colliderHalfExtents,
+  BILLBOARD_TARGET_HEIGHT_WU,
+  AC_TARGET_HEIGHT_WU,
+  ATM_TARGET_HEIGHT_WU,
+  FIRE_EXIT_TARGET_WIDTH_WU,
+  ROCK_BAND_POSTER_TARGET_HEIGHT_WU,
+  BOX_TARGET_HEIGHT_WU,
 } from './cityPackScale';
 
 describe('CAR_REF — cross-check against the physics collider (config/vehicles.ts)', () => {
@@ -81,6 +88,56 @@ describe('D9 computed examples pinned', () => {
   });
 });
 
+describe('Phase 25.7 (D9/T1) prop-scale overrides', () => {
+  it('billboard scale -> ~4.5 wu tall', () => {
+    expect(CITY_PACK_SCALE_OVERRIDES['billboard']).toBeCloseTo(BILLBOARD_TARGET_HEIGHT_WU / 670, 6);
+    const billboard = CITY_PACK_MANIFEST.find((e) => e.id === 'billboard')!;
+    expect(billboard.nativeDims.h * CITY_PACK_SCALE_OVERRIDES['billboard']).toBeCloseTo(4.5, 4);
+  });
+
+  it('air-conditioner scale -> ~1.0 wu tall', () => {
+    const ac = CITY_PACK_MANIFEST.find((e) => e.id === 'air-conditioner')!;
+    expect(ac.nativeDims.h * CITY_PACK_SCALE_OVERRIDES['air-conditioner']).toBeCloseTo(1.0, 4);
+  });
+
+  it('atm scale -> ~1.8 wu tall', () => {
+    const atm = CITY_PACK_MANIFEST.find((e) => e.id === 'atm')!;
+    expect(atm.nativeDims.h * CITY_PACK_SCALE_OVERRIDES['atm']).toBeCloseTo(1.8, 4);
+  });
+
+  it('fire-exit scale -> ~2.4 wu WIDE (the one width-target override in the set)', () => {
+    const fireExit = CITY_PACK_MANIFEST.find((e) => e.id === 'fire-exit')!;
+    expect(fireExit.nativeDims.w * CITY_PACK_SCALE_OVERRIDES['fire-exit']).toBeCloseTo(2.4, 4);
+  });
+
+  it('rock-band-poster scale -> ~2.2 wu tall', () => {
+    const poster = CITY_PACK_MANIFEST.find((e) => e.id === 'rock-band-poster')!;
+    expect(poster.nativeDims.h * CITY_PACK_SCALE_OVERRIDES['rock-band-poster']).toBeCloseTo(2.2, 4);
+  });
+
+  it('box scale -> ~0.6 wu tall', () => {
+    const box = CITY_PACK_MANIFEST.find((e) => e.id === 'box')!;
+    expect(box.nativeDims.h * CITY_PACK_SCALE_OVERRIDES['box']).toBeCloseTo(0.6, 4);
+  });
+
+  it('every override differs from what the category-default formula alone would have produced (proves each is a deliberate override, not a no-op)', () => {
+    for (const id of ['billboard', 'air-conditioner', 'atm', 'fire-exit', 'rock-band-poster', 'box']) {
+      const entry = CITY_PACK_MANIFEST.find((e) => e.id === id)!;
+      const capped = entry.nativeDims.h > 2.5 ? 2.5 / entry.nativeDims.h : 1;
+      expect(CITY_PACK_SCALE_OVERRIDES[id], id).not.toBeCloseTo(capped, 6);
+    }
+  });
+
+  it('local target constants stay in sync with config/venueDressing.ts PROP_SCALE_TARGETS (kit-authoring rationale lives there; the derived factor lives here — see file header)', () => {
+    expect(BILLBOARD_TARGET_HEIGHT_WU).toBe(PROP_SCALE_TARGETS.billboardHeightWu);
+    expect(AC_TARGET_HEIGHT_WU).toBe(PROP_SCALE_TARGETS.airConditionerHeightWu);
+    expect(ATM_TARGET_HEIGHT_WU).toBe(PROP_SCALE_TARGETS.atmHeightWu);
+    expect(FIRE_EXIT_TARGET_WIDTH_WU).toBe(PROP_SCALE_TARGETS.fireExitWidthWu);
+    expect(ROCK_BAND_POSTER_TARGET_HEIGHT_WU).toBe(PROP_SCALE_TARGETS.rockBandPosterHeightWu);
+    expect(BOX_TARGET_HEIGHT_WU).toBe(PROP_SCALE_TARGETS.boxHeightWu);
+  });
+});
+
 describe('resolveCityPackScale — full-manifest coverage', () => {
   it('resolves a positive, finite scale for every one of the 52 manifest ids', () => {
     expect(CITY_PACK_MANIFEST.length).toBeGreaterThan(0);
@@ -104,15 +161,18 @@ describe('resolveCityPackScale — full-manifest coverage', () => {
   });
 
   it('prop-category default leaves an already-small prop unscaled (factor 1)', () => {
-    // 'atm' is already well under PROP_DEFAULT_MAX_HEIGHT_WU and has no explicit override.
-    expect(resolveCityPackScale('atm')).toBe(1);
+    // 'trash-bag-grey' is already well under PROP_DEFAULT_MAX_HEIGHT_WU and has no explicit
+    // override. ('atm' had this role pre-Phase-25.7 — it now has an explicit D9/T1 override, see
+    // the "Phase 25.7 (D9/T1) prop-scale overrides" describe block below.)
+    expect(resolveCityPackScale('trash-bag-grey')).toBe(1);
   });
 
   it('prop-category default caps an oversized prop at PROP_DEFAULT_MAX_HEIGHT_WU', () => {
-    // 'billboard' has no explicit override and a native height well above the cap.
-    const scale = resolveCityPackScale('billboard');
-    const billboard = CITY_PACK_MANIFEST.find((e) => e.id === 'billboard')!;
-    expect(billboard.nativeDims.h * scale).toBeCloseTo(2.5, 4);
+    // 'trash-can' has no explicit override and a native height well above the cap. ('billboard'
+    // had this role pre-Phase-25.7 — it now has an explicit D9/T1 override, see below.)
+    const scale = resolveCityPackScale('trash-can');
+    const trashCan = CITY_PACK_MANIFEST.find((e) => e.id === 'trash-can')!;
+    expect(trashCan.nativeDims.h * scale).toBeCloseTo(2.5, 4);
   });
 });
 

@@ -43,6 +43,7 @@ import {
 } from '../audio/eventMap';
 import { worldRef } from '../world/worldRef';
 import { landmarkTeleportPoints } from '../world/landmarkGen';
+import { buildFrontage, venueViewpoint } from '../world/toronto/frontage';
 import { attachFxEmitter, pushFxBurst, type ParticlePreset } from '../fx/particleFeed';
 import { getParticleStats } from '../fx/particles';
 
@@ -769,6 +770,37 @@ export default function DevPanel() {
       },
       note: { value: 'needs Toronto map on; re-dressed world (frontage/furniture/parked/lamps)', disabled: true },
     }),
+    [],
+  );
+
+  // --- Venues (P25.7): business-personalization toggle + teleport-to-venue drive-past ---------
+  // `venueDress` gates the whole dressing layer (fascia bands / awnings / kit props / queues / Alo
+  // plaque). The per-venue teleport buttons drop the car on the venue's camera-visible side so the
+  // fixed §5.3 camera frames the dressing — the T5 drive-past verification idiom (matches the
+  // Landmarks folder). Venue claim positions are seed-independent, so buildFrontage() is called once
+  // (deps []) with the store seed and never needs to rebuild on "New city".
+  useControls(
+    'Venues (P25.7)',
+    () => {
+      const schema: Record<string, unknown> = {
+        venueDress: {
+          value: getDevToggles().venueDress,
+          onChange: (value: boolean) => setDevToggle('venueDress', value),
+        },
+      };
+      const claims = buildFrontage(getGameState().seed).venueClaims;
+      for (const claim of claims) {
+        const vp = venueViewpoint(claim);
+        schema[`→ ${claim.venueId}`] = button(() => {
+          playerVehicle.current?.reset({
+            position: { x: vp.x, y: 0.85, z: vp.z },
+            rotation: { x: 0, y: 0, z: 0, w: 1 },
+          });
+        });
+      }
+      schema.note = { value: 'needs Toronto map on; teleport frames the venue for a drive-past', disabled: true };
+      return schema as unknown as LevaSchema;
+    },
     [],
   );
 

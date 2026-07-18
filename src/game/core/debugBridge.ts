@@ -41,6 +41,7 @@ import { heliRef, type HeliLivery } from '../ai/heliTypes';
 import { getParticleStats, type ParticleStats } from '../fx/particles';
 import { getDrivingInput, isCoarsePointer, isTouchModeActive } from '../input';
 import { landmarkTeleportPoints } from '../world/landmarkGen';
+import { buildFrontage, venueViewpoint } from '../world/toronto/frontage';
 import { streetcarRef } from '../ai/streetcarTypes';
 import { occlusionFader } from '../world/toronto/occlusionFade';
 import { worldRef } from '../world/worldRef';
@@ -533,6 +534,12 @@ declare global {
       /** Phase 19: landmark teleport points ({id,x,z}[]) off the LIVE world — scripted
        * postcard batteries + the devPanel teleport buttons read the same helper. */
       landmarks: () => readonly { id: string; x: number; z: number }[];
+      /** Phase 25.7: gate the whole venue-dressing layer (fascia/awnings/props/queues/plaque). */
+      setVenueDress: (value: boolean) => void;
+      /** Phase 25.7: teleport-to-venue drive-past targets ({id,x,z,facing}[]) — the same
+       * camera-ward standoff frontage.venueViewpoint the devPanel buttons use. Seed-independent
+       * (venue claims are pure geometry), computed off the store seed. */
+      venues: () => readonly { id: string; x: number; z: number; facing: string }[];
       /** Phase 19: live streetcar roster snapshot (state/pose per slot) — scripted proof the
        * avenue loop runs without watching pixels. Empty when no mount/roster is live. */
       streetcarSlots: () => { state: string | null; x: number; z: number }[];
@@ -625,6 +632,13 @@ window.__smashy = {
   setPackFurniture: (value) => setDevToggle('packFurniture', value),
   setPackParked: (value) => setDevToggle('packParked', value),
   setPackLightCycling: (value) => setDevToggle('packLightCycling', value),
+  setVenueDress: (value) => setDevToggle('venueDress', value),
+  venues: () =>
+    buildFrontage(getGameState().seed).venueClaims.map((c) => ({
+      id: c.venueId,
+      ...venueViewpoint(c),
+      facing: c.facing,
+    })),
   forceBustedGameOver,
   sirenSnapshot: () => getSirenDebugSnapshot(),
   audioSnapshot,

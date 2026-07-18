@@ -15,8 +15,10 @@ import { useDevToggle } from '../../../core/devToggles';
 import { CityPackBatched } from './CityPackBatched';
 import { ParkedVehicles } from './ParkedVehicles';
 import { TrafficLampOverlay } from './TrafficLampOverlay';
+import { VenueDressLayer } from './VenueDressLayer';
 import { slotsForModel, type FrontageLayout } from '../frontage';
 import type { FurnitureLayout, FurniturePlacement } from '../furniture';
+import type { VenueDress } from '../venueDress';
 import type { CityPackPlacement } from './CityPackInstances';
 
 const BUILDING_GROUPS = interactionGroups('BUILDING');
@@ -139,15 +141,18 @@ function StreetFurniture({ furniture, unlit }: { furniture: FurnitureLayout; unl
 export interface CityDressProps {
   readonly frontage: FrontageLayout;
   readonly furniture: FurnitureLayout;
+  /** Phase 25.7 venue dressing (built off frontage.venueClaims by TorontoScene, passed in). */
+  readonly dress: VenueDress;
 }
 
 /** The whole re-dressed city — each layer independently toggle-gated (perf triage / A/B). */
-export function CityDress({ frontage, furniture }: CityDressProps) {
+export function CityDress({ frontage, furniture, dress }: CityDressProps) {
   const unlit = useDevToggle('cityPackUnlit');
   const showBuildings = useDevToggle('packBuildings');
   const showFurniture = useDevToggle('packFurniture');
   const showParked = useDevToggle('packParked');
   const showLamps = useDevToggle('packLightCycling');
+  const showVenueDress = useDevToggle('venueDress');
 
   return (
     <>
@@ -156,6 +161,7 @@ export function CityDress({ frontage, furniture }: CityDressProps) {
       {showFurniture ? <StreetFurniture furniture={furniture} unlit={unlit} /> : null}
       {showParked ? <ParkedVehicles parked={furniture.parked.items} unlit={unlit} /> : null}
       {showLamps ? <TrafficLampOverlay masts={furniture.trafficLights} /> : null}
+      {showVenueDress ? <VenueDressLayer dress={dress} unlit={unlit} /> : null}
     </>
   );
 }

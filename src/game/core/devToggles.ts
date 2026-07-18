@@ -67,6 +67,12 @@ export interface DevToggles {
   packFurniture: boolean;
   packParked: boolean;
   packLightCycling: boolean;
+  /** Phase 25.7 layer toggle (default ON within the Toronto branch): the business-personalization
+   * dressing (fascia bands + awnings + kit props + queues + Alo plaque) on the claimed venue
+   * facades (world/toronto/cityPack/VenueDressLayer.tsx). Toggle off ≈ the 25.6 city minus the
+   * venue boxes (the venue facades themselves are just claimed frontage slots and stay). Meaningful
+   * only with `torontoMap` on. */
+  venueDress: boolean;
 }
 
 const toggles: DevToggles = {
@@ -83,6 +89,7 @@ const toggles: DevToggles = {
   packFurniture: true,
   packParked: true,
   packLightCycling: true,
+  venueDress: true,
 };
 const listeners = new Set<() => void>();
 

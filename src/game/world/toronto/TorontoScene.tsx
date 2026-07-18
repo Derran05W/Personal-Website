@@ -54,15 +54,15 @@ import { buildRoadGeometry } from './roadPaint';
 import { HERO_LOTS, buildNamedBuildings, type CrownDecal, type NamedBox, type NamedPlacement } from './namedBuildings';
 import { buildCnTowerGeometry, buildRogersGeometry } from './heroes';
 import { needsTransparent, occlusionFader, occlusionRegistry } from './occlusionFade';
-import { getLogoAtlas, logoCellIndex, logoCellUv, LOGO_ATLAS_LAYOUT, type LogoBrand } from './logoAtlas';
+import { getLogoAtlas, logoCellUv } from './logoAtlas';
 import {
   buildPlacesLayer,
   type DiscSign,
-  type FasciaBand,
   type PlaceBox,
   type PlacesLayer as PlacesLayerData,
   type SankofaProp,
 } from './placesLayer';
+import { buildVenueDress } from './venueDress';
 import { createRng } from '../rng';
 import { createFoldTrigger, type FoldTrigger } from './tunnel';
 import { gameEvents } from '../../state/events';
@@ -487,105 +487,13 @@ function HeroesLayer() {
   );
 }
 
-// --- Phase 26 places / nostalgia layer (world/toronto/placesLayer.ts) -----------------------
-// The FINAL Part-7 content pass: places.json storefronts w/ §4 FASCIA sign-bands, the Uncle
-// Tetsu / Konjiki-Elm lineups, Sam the Record Man's spinning discs, and §6 vibe props. Perf
-// discipline (readPerf < 120): storefront boxes + queue posts/blobs are ONE instancedMesh each;
-// all FASCIA bands share ONE baked band-atlas texture + ONE merged geometry (1 draw call, not one
-// per sign); every solid vibe prop (gate/umbrellas/patio/crosswalk) merges into ONE vertex-coloured
-// mesh. UNLIT-literal (toneMapped=false) like every other Toronto surface (the P23/P24 verdict).
-
-const BAND_ROW_H = 40; // band-atlas row height (px) — logo cell (left) + name text (right)
-const BAND_W = 320;
-
-/** The shared FASCIA band atlas: one row per storefront place, its logo cell (drawn from the shared
- * logo atlas) on the left + a NearestFilter name wordmark on the right. Crunchy (§4 / A.5). */
-function makeBandAtlas(rows: readonly { readonly brand: LogoBrand; readonly name: string }[]): CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = BAND_W;
-  canvas.height = Math.max(1, rows.length) * BAND_ROW_H;
-  const tex = new CanvasTexture(canvas);
-  tex.magFilter = NearestFilter;
-  tex.minFilter = NearestFilter;
-  tex.generateMipmaps = false;
-  tex.colorSpace = SRGBColorSpace;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    tex.needsUpdate = true;
-    return tex;
-  }
-  const src = getLogoAtlas().texture.image as CanvasImageSource;
-  const cell = LOGO_ATLAS_LAYOUT.cellSize;
-  rows.forEach((r, i) => {
-    const y = i * BAND_ROW_H;
-    ctx.fillStyle = '#0a0d12'; // near-black backing = lit sign on the unlit-literal slice
-    ctx.fillRect(0, y, BAND_W, BAND_ROW_H);
-    const idx = logoCellIndex(r.brand);
-    const col = idx % LOGO_ATLAS_LAYOUT.cols;
-    const row = Math.floor(idx / LOGO_ATLAS_LAYOUT.cols);
-    ctx.drawImage(src, col * cell, row * cell, cell, cell, 2, y + 2, BAND_ROW_H - 4, BAND_ROW_H - 4);
-    ctx.fillStyle = '#f4ead2';
-    ctx.font = 'bold 22px "Arial Narrow", Arial, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(r.name, BAND_ROW_H + 6, y + BAND_ROW_H / 2 + 1);
-  });
-  tex.needsUpdate = true;
-  return tex;
-}
-
-/** ONE merged geometry for every FASCIA band quad (S + E faces), each UV-sliced to its band-atlas
- * row (flipY-corrected like logoCellUv). DoubleSide material → no winding care. */
-function buildBandGeometry(fascias: readonly FasciaBand[], rowCount: number): BufferGeometry {
-  const pos: number[] = [];
-  const nrm: number[] = [];
-  const uv: number[] = [];
-  const R = Math.max(1, rowCount);
-  const tri = [0, 1, 2, 0, 2, 3];
-  for (const f of fascias) {
-    const v0 = 1 - (f.bandRow + 1) / R;
-    const v1 = 1 - f.bandRow / R;
-    const w = f.width / 2;
-    const h = f.height / 2;
-    let corners: [number, number, number][];
-    let n: [number, number, number];
-    if (f.face === 'south') {
-      corners = [
-        [f.cx - w, f.cy - h, f.cz],
-        [f.cx + w, f.cy - h, f.cz],
-        [f.cx + w, f.cy + h, f.cz],
-        [f.cx - w, f.cy + h, f.cz],
-      ];
-      n = [0, 0, 1];
-    } else {
-      // East face (+X), viewed from +x: +z is to the left, so u=0 sits at cz+w.
-      corners = [
-        [f.cx, f.cy - h, f.cz + w],
-        [f.cx, f.cy - h, f.cz - w],
-        [f.cx, f.cy + h, f.cz - w],
-        [f.cx, f.cy + h, f.cz + w],
-      ];
-      n = [1, 0, 0];
-    }
-    const uvs: [number, number][] = [
-      [0, v0],
-      [1, v0],
-      [1, v1],
-      [0, v1],
-    ];
-    for (const k of tri) {
-      pos.push(corners[k][0], corners[k][1], corners[k][2]);
-      nrm.push(n[0], n[1], n[2]);
-      uv.push(uvs[k][0], uvs[k][1]);
-    }
-  }
-  const g = new BufferGeometry();
-  g.setAttribute('position', new Float32BufferAttribute(pos, 3));
-  g.setAttribute('normal', new Float32BufferAttribute(nrm, 3));
-  g.setAttribute('uv', new Float32BufferAttribute(uv, 2));
-  g.computeBoundingSphere();
-  return g;
-}
+// --- Phase 26/25.7 places / nostalgia layer (world/toronto/placesLayer.ts) ------------------
+// Phase 25.7 shrank this: the 18 business venues moved onto claimed frontage facades (dressed by
+// world/toronto/cityPack/VenueDressLayer.tsx). What renders here now is Sam the Record Man's
+// spinning discs, the Apple-on-Eaton tag, the Sankofa screen, and the §6 vibe props. Perf
+// discipline stays: the Sam-host + Sankofa boxes are ONE instancedMesh; every solid vibe prop
+// (gate/umbrellas/patio/crosswalk) merges into ONE vertex-coloured mesh. UNLIT-literal
+// (toneMapped=false) like every other Toronto surface (the P23/P24 verdict).
 
 /** A circle UV-sliced to a brand's atlas cell — Sam the Record Man's neon disc face. */
 function makeDiscGeometry(radius: number, brandUv: { u0: number; u1: number; v0: number; v1: number }): CircleGeometry {
@@ -767,16 +675,15 @@ function buildVibeSolidsGeometry(layer: PlacesLayerData): BufferGeometry {
 }
 
 /**
- * The Phase-26 places / nostalgia layer scene component. Consumes the pure placesLayer.ts data and
- * emits: one storefront-box instancedMesh (+ BUILDING colliders), one shared FASCIA band mesh, the
- * Apple-on-Eaton + Alo logo decals, one queue-posts + one queue-blobs instancedMesh (NO colliders),
- * Sam's two spinning discs, the animated Sankofa screen, the seeded graffiti wall, and one merged
- * vibe-solids mesh. Textures/geometries built once + disposed on unmount (toggle-flip clean).
+ * The Phase-26/25.7 places / nostalgia layer scene component. Consumes the SHRUNK placesLayer.ts
+ * data (the 18 business venues moved to VenueDressLayer) and emits: the Sam-host + Sankofa boxes as
+ * one instancedMesh (+ BUILDING colliders), the Apple-on-Eaton logo decal, Sam's two spinning discs,
+ * the animated Sankofa screen, the seeded graffiti wall, and one merged vibe-solids mesh.
  */
 function PlacesLayer({ layer }: { layer: PlacesLayerData }) {
   const atlas = useMemo(() => getLogoAtlas(), []);
 
-  // Storefront + Sam-host + Sankofa boxes → one instancedMesh (per-instance colour) + colliders.
+  // Sam-host + Sankofa boxes → one instancedMesh (per-instance colour) + colliders.
   const boxes = useMemo<PlaceBox[]>(
     () => [...layer.placements.filter((p) => p.box !== null).map((p) => p.box as PlaceBox), layer.sankofa.box],
     [layer],
@@ -801,19 +708,7 @@ function PlacesLayer({ layer }: { layer: PlacesLayerData }) {
     mesh.computeBoundingSphere();
   }, [boxes]);
 
-  // FASCIA bands: one band-atlas texture (row per storefront place) + one merged geometry.
-  const bandRows = useMemo(() => {
-    const rows: { brand: LogoBrand; name: string }[] = [];
-    for (const p of layer.placements) if (p.kind === 'storefront') rows[p.fascias[0].bandRow] = { brand: p.brand, name: p.name };
-    return rows;
-  }, [layer]);
-  const bandTexture = useMemo(() => makeBandAtlas(bandRows), [bandRows]);
-  useEffect(() => () => bandTexture.dispose(), [bandTexture]);
-  const allFascias = useMemo(() => layer.placements.flatMap((p) => p.fascias), [layer]);
-  const bandGeometry = useMemo(() => buildBandGeometry(allFascias, bandRows.length), [allFascias, bandRows.length]);
-  useEffect(() => () => bandGeometry.dispose(), [bandGeometry]);
-
-  // Apple-on-Eaton + Alo plaque: small logo-atlas decals (like a CROWN quad).
+  // Apple-on-Eaton: small logo-atlas decal (like a CROWN quad).
   const logoDecals = useMemo(
     () =>
       layer.logoDecals.map((d) => ({
@@ -826,45 +721,6 @@ function PlacesLayer({ layer }: { layer: PlacesLayerData }) {
   );
   useEffect(() => () => logoDecals.forEach((d) => d.geometry.dispose()), [logoDecals]);
 
-  // Queue posts + person-blobs → two instancedMeshes, NO colliders (cosmetic; Pedestrians: none).
-  const posts = useMemo(() => layer.queues.flatMap((q) => q.posts), [layer]);
-  const blobs = useMemo(() => layer.queues.flatMap((q) => q.blobs), [layer]);
-  const postsRef = useRef<InstancedMesh>(null);
-  const blobsRef = useRef<InstancedMesh>(null);
-  useEffect(() => {
-    const mesh = postsRef.current;
-    if (!mesh || posts.length === 0) return;
-    const dummy = new Object3D();
-    posts.forEach((p, i) => {
-      dummy.position.set(p.x, 0.6, p.z);
-      dummy.rotation.set(0, 0, 0);
-      dummy.scale.set(1, 1, 1);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.computeBoundingSphere();
-  }, [posts]);
-  useEffect(() => {
-    const mesh = blobsRef.current;
-    if (!mesh || blobs.length === 0) return;
-    const dummy = new Object3D();
-    const color = new Color();
-    const shades = ['#3a3f4a', '#4a4038', '#42484f', '#524a42', '#3f4550'];
-    blobs.forEach((b, i) => {
-      dummy.position.set(b.x, 0.45, b.z);
-      dummy.rotation.set(0, 0, 0);
-      dummy.scale.set(1, 1, 1);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-      color.set(shades[i % shades.length]);
-      mesh.setColorAt(i, color);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    mesh.computeBoundingSphere();
-  }, [blobs]);
-
   // Vibe props: merged solids + seeded graffiti wall.
   const vibeGeometry = useMemo(() => buildVibeSolidsGeometry(layer), [layer]);
   useEffect(() => () => vibeGeometry.dispose(), [vibeGeometry]);
@@ -873,7 +729,7 @@ function PlacesLayer({ layer }: { layer: PlacesLayerData }) {
 
   return (
     <>
-      {/* Storefront / Sam-host / Sankofa boxes — one instancedMesh + fixed BUILDING colliders. */}
+      {/* Sam-host / Sankofa boxes — one instancedMesh + fixed BUILDING colliders. */}
       {boxes.length > 0 ? (
         <instancedMesh ref={boxesRef} args={[undefined, undefined, boxes.length]} castShadow frustumCulled={false}>
           <boxGeometry args={[1, 1, 1]} />
@@ -886,33 +742,12 @@ function PlacesLayer({ layer }: { layer: PlacesLayerData }) {
         ))}
       </RigidBody>
 
-      {/* FASCIA sign-bands (§4) — one shared band-atlas texture + one merged geometry. */}
-      {allFascias.length > 0 ? (
-        <mesh geometry={bandGeometry} frustumCulled={false}>
-          <meshBasicMaterial map={bandTexture} toneMapped={false} side={DoubleSide} />
-        </mesh>
-      ) : null}
-
-      {/* Apple-on-Eaton + Alo plaque logo decals (shared logo atlas). */}
+      {/* Apple-on-Eaton logo decal (shared logo atlas). */}
       {logoDecals.map((d) => (
         <mesh key={d.key} geometry={d.geometry} position={d.position} rotation={d.rotation}>
           <meshBasicMaterial map={atlas.texture} toneMapped={false} side={DoubleSide} />
         </mesh>
       ))}
-
-      {/* Queue lineups — cosmetic props, NO colliders (locked "Pedestrians: none"). */}
-      {posts.length > 0 ? (
-        <instancedMesh ref={postsRef} args={[undefined, undefined, posts.length]} frustumCulled={false}>
-          <boxGeometry args={[0.16, 1.2, 0.16]} />
-          <meshBasicMaterial color="#c8b06a" toneMapped={false} />
-        </instancedMesh>
-      ) : null}
-      {blobs.length > 0 ? (
-        <instancedMesh ref={blobsRef} args={[undefined, undefined, blobs.length]} castShadow frustumCulled={false}>
-          <boxGeometry args={[0.62, 0.9, 0.42]} />
-          <meshBasicMaterial toneMapped={false} />
-        </instancedMesh>
-      ) : null}
 
       {/* Sam the Record Man — two spinning neon discs over Dundas Square. */}
       {layer.discs.discs.map((disc, i) => (
@@ -970,9 +805,14 @@ export function TorontoScene() {
   // internally, so a re-render never rebuilds them and the same seed reproduces the exact city.
   const frontage = useMemo(() => buildFrontage(seed), [seed]);
   const furniture = useMemo(() => buildFurniture(seed), [seed]);
+  // Phase 25.7 venue dressing: pure, derived off the frontage's resolved venue claims (seed-
+  // independent claims, so this only rebuilds when the frontage object changes). Passed into
+  // CityDress → VenueDressLayer; its dressing-prop model ids join the preload set below.
+  const dress = useMemo(() => buildVenueDress(frontage.venueClaims), [frontage]);
 
   // Preload every used pack GLB once the slice mounts (never at module scope — a `torontoMap`-off
-  // load fetches nothing). Covers frontage buildings, furniture props, parked cars, traffic lights.
+  // load fetches nothing). Covers frontage buildings, furniture props, parked cars, traffic lights,
+  // and the venue-dressing kit props.
   useEffect(() => {
     const ids = new Set<string>(frontage.modelIds);
     ids.add('traffic-light');
@@ -985,8 +825,9 @@ export function TorontoScene() {
     ids.add('stop-sign');
     ids.add('manhole-cover');
     for (const car of furniture.parked.items) ids.add(car.modelId);
+    for (const prop of dress.props) ids.add(prop.modelId);
     preloadCityPack([...ids]);
-  }, [frontage, furniture]);
+  }, [frontage, furniture, dress]);
 
   // Publish this slice's spawn pose so devPanel's "teleport reset" (and the fell-out net below)
   // send the car back to Finch, not the legacy map centre — the Toronto equivalent of
@@ -1157,7 +998,7 @@ export function TorontoScene() {
           shove when rammed. Every layer gates on its own devToggle; `cityPackUnlit` is the material
           A/B arm. Fixed BUILDING colliders (frontage buildings, tree trunks, bus-stops, backdrop
           towers) mount inside CityDress. */}
-      <CityDress frontage={frontage} furniture={furniture} />
+      <CityDress frontage={frontage} furniture={furniture} dress={dress} />
 
       {/* Named landmarks (Phase 24): the §3c skyline (TD/RBC/Scotia/FCP/… towers, Royal York,
           Union, The Well, Eaton galleria, Aura, the Yonge×Sheppard twins, NY Civic Centre) as

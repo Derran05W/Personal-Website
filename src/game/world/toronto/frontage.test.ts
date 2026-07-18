@@ -14,6 +14,8 @@ import { buildRibbons } from './roadGraph';
 import { buildNamedBuildings } from './namedBuildings';
 import { buildPlacesLayer } from './placesLayer';
 import { buildFrontage, overlaps, slotsForModel, type Aabb, type FrontageSlot } from './frontage';
+import { VENUE_AUTHORS } from './venues';
+import { FACADE_MODEL_IDS } from '../../config/venueDressing';
 
 const SEED = 416;
 const layout = buildFrontage(SEED);
@@ -68,13 +70,35 @@ describe('buildFrontage — inside the playable polygon + out of the lake', () =
   });
 });
 
-describe('buildFrontage — zero road-ribbon violations', () => {
-  it('no footprint overlaps any road ribbon', () => {
-    const ribbons: Aabb[] = buildRibbons(buildStreets().streets).map((r) => ({ minX: r.minX, maxX: r.maxX, minZ: r.minZ, maxZ: r.maxZ }));
+describe('buildFrontage — road-ribbon violations', () => {
+  const ribbons: Aabb[] = buildRibbons(buildStreets().streets).map((r) => ({ minX: r.minX, maxX: r.maxX, minZ: r.minZ, maxZ: r.maxZ }));
+  // Penetration depth (wu) of a footprint into a ribbon: the smaller overlap dimension (the axis the
+  // facade pokes through the curb), 0 when they don't overlap.
+  const penetration = (fp: Aabb, r: Aabb): number => {
+    const ox = Math.min(fp.maxX, r.maxX) - Math.max(fp.minX, r.minX);
+    const oz = Math.min(fp.maxZ, r.maxZ) - Math.max(fp.minZ, r.minZ);
+    return ox > 0 && oz > 0 ? Math.min(ox, oz) : 0;
+  };
+
+  it('no GENERIC slot footprint overlaps any road ribbon (the strict 900-slot invariant)', () => {
     const offenders: string[] = [];
     for (const s of layout.slots) {
+      if (s.venueId !== undefined) continue; // claimed corner slots carry a bounded overhang — below
       const fp = footprint(s);
       if (ribbons.some((r) => overlaps(fp, r))) offenders.push(s.slotId);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('every CLAIMED slot pokes a ribbon by at most the claim tolerance (the McDonald\'s corner overhang)', () => {
+    // frontage.ts's CLAIM_RIBBON_TOLERANCE_WU (1.5) — a claimed pizza-corner may sit at a real
+    // intersection corner with a ~0.7 wu authentic overhang; nothing may exceed the tolerance.
+    const CLAIM_RIBBON_TOLERANCE_WU = 1.5;
+    const offenders: string[] = [];
+    for (const s of layout.slots.filter((sl) => sl.venueId !== undefined)) {
+      const fp = footprint(s);
+      const worst = Math.max(0, ...ribbons.map((r) => penetration(fp, r)));
+      if (worst > CLAIM_RIBBON_TOLERANCE_WU + 1e-6) offenders.push(`${s.venueId} (${worst.toFixed(2)} wu)`);
     }
     expect(offenders).toEqual([]);
   });
@@ -182,6 +206,99 @@ describe('buildFrontage — backdrop towers (D7)', () => {
     const allowed = new Set(TORONTO_DISTRICTS.filter((d) => d.packStock.backdropTowers).map((d) => d.id));
     for (const b of layout.towerBoxes) expect(allowed.has(b.districtId)).toBe(true);
     expect(layout.towerBoxes.length).toBeLessThanOrEqual(90);
+  });
+});
+
+// --- Phase 25.7 (T2) venue-claim engine -----------------------------------------------------
+
+describe('buildFrontage — venue claims (T2/D1)', () => {
+  it('resolves exactly one claim per VENUE_AUTHORS row (18), unique venueIds', () => {
+    expect(layout.venueClaims).toHaveLength(VENUE_AUTHORS.length);
+    const ids = layout.venueClaims.map((c) => c.venueId);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(new Set(ids)).toEqual(new Set(VENUE_AUTHORS.map((a) => a.id)));
+  });
+
+  it('every claim occupies a REAL slot: its slotId is a live slot carrying its venueId, 1:1', () => {
+    const slotById = new Map(layout.slots.map((s) => [s.slotId, s]));
+    for (const claim of layout.venueClaims) {
+      const slot = slotById.get(claim.slotId);
+      expect(slot, claim.venueId).toBeDefined();
+      expect(slot!.venueId, claim.venueId).toBe(claim.venueId);
+      // The claim's world geometry matches the slot it occupies (venueDress derives off the claim).
+      expect(slot!.modelId).toBe(claim.modelId);
+      expect(slot!.position).toEqual(claim.position);
+      expect(slot!.rotationY).toBe(claim.rotationY);
+      expect([slot!.hx, slot!.hy, slot!.hz]).toEqual([claim.hx, claim.hy, claim.hz]);
+      expect(slot!.districtId).toBe(claim.districtId);
+      expect(slot!.tint).toBe(claim.pastelTint);
+    }
+  });
+
+  it('exactly the claimed slots carry a venueId (every other slot has none)', () => {
+    const tagged = layout.slots.filter((s) => s.venueId !== undefined);
+    expect(tagged).toHaveLength(layout.venueClaims.length);
+    expect(new Set(tagged.map((s) => s.venueId))).toEqual(new Set(layout.venueClaims.map((c) => c.venueId)));
+  });
+
+  it('eviction: no GENERIC slot reuses a claimed slotId, and no generic footprint overlaps a claim', () => {
+    const claimIds = new Set(layout.venueClaims.map((c) => c.slotId));
+    const claimFps = layout.venueClaims.map((c) => footprint(layout.slots.find((s) => s.slotId === c.slotId)!));
+    for (const s of layout.slots) {
+      if (s.venueId !== undefined) continue;
+      expect(claimIds.has(s.slotId)).toBe(false); // the claimed candidate id is never re-emitted generic
+      const fp = footprint(s);
+      expect(claimFps.some((cf) => overlaps(fp, cf)), s.slotId).toBe(false);
+    }
+  });
+
+  it('claims are SEED-INDEPENDENT (the lattice is pure geometry) — byte-identical across seeds', () => {
+    const a = JSON.stringify(buildFrontage(SEED).venueClaims);
+    const b = JSON.stringify(buildFrontage(SEED + 7).venueClaims);
+    const c = JSON.stringify(buildFrontage(99).venueClaims);
+    expect(a).toBe(b);
+    expect(a).toBe(c);
+  });
+
+  it('claims are exempt from thinToCap — all 18 survive AND total slots ≤ hardCap', () => {
+    expect(layout.slots.filter((s) => s.venueId !== undefined)).toHaveLength(VENUE_AUTHORS.length);
+    expect(layout.slots.length).toBeLessThanOrEqual(FRONTAGE.hardCap);
+  });
+
+  it('every claim facade model is rb-blank / gb-blank / pizza-corner', () => {
+    const allowed = new Set<string>([FACADE_MODEL_IDS.brick, FACADE_MODEL_IDS.clean, FACADE_MODEL_IDS.corner]);
+    for (const c of layout.venueClaims) expect(allowed.has(c.modelId), c.venueId).toBe(true);
+  });
+
+  it("McDonald's @ Queen×Spadina lands on a CORNER candidate → pizza-corner (D3 designed hit)", () => {
+    const mcd = layout.venueClaims.find((c) => c.venueId === 'mcdonalds-spadina')!;
+    expect(mcd).toBeDefined();
+    expect(mcd.streetId).toBe('spadina');
+    expect(mcd.isCorner).toBe(true);
+    expect(mcd.modelId).toBe(FACADE_MODEL_IDS.corner);
+    // The tagged slot agrees.
+    expect(layout.slots.find((s) => s.slotId === mcd.slotId)!.modelId).toBe(FACADE_MODEL_IDS.corner);
+  });
+
+  it('claims sort FIRST within their district (earliest insertion order)', () => {
+    // For each district that holds a claim, the claim indices in `slots` precede that district's
+    // generic indices (claims carry the earliest `order`).
+    const byDistrict = new Map<DistrictId, { idx: number; claimed: boolean }[]>();
+    layout.slots.forEach((s, idx) => {
+      const arr = byDistrict.get(s.districtId) ?? [];
+      arr.push({ idx, claimed: s.venueId !== undefined });
+      byDistrict.set(s.districtId, arr);
+    });
+    for (const [, arr] of byDistrict) {
+      const lastClaim = arr.reduce((m, e) => (e.claimed ? Math.max(m, e.idx) : m), -1);
+      const firstGeneric = arr.reduce((m, e) => (!e.claimed && e.idx < m ? e.idx : m), Infinity);
+      if (lastClaim >= 0 && firstGeneric !== Infinity) expect(lastClaim).toBeLessThan(firstGeneric);
+    }
+  });
+
+  it('claim facing is derived from the fronted street axis+side (all four cardinals valid)', () => {
+    const allowed = new Set(['north', 'south', 'east', 'west']);
+    for (const c of layout.venueClaims) expect(allowed.has(c.facing), c.venueId).toBe(true);
   });
 });
 

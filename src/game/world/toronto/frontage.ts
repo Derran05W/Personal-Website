@@ -40,6 +40,14 @@ import { PLAYABLE_POLYGON, pointInPolygon } from './polygon';
 import type { MapPoint } from './projection';
 import { listIntersections, type Intersection } from './roadGraph';
 import { buildStreets, type Street } from './streets';
+import {
+  VENUE_AUTHORS,
+  buildVenueClaims,
+  facadeModelFor,
+  type CandidateLookup,
+  type FrontageCandidate,
+  type VenueClaim,
+} from './venues';
 
 // --- shared geometry helpers (ported from the retired massing.ts — the ONE home now) ----------
 
@@ -88,6 +96,38 @@ export interface FrontageSlot {
   readonly hx: number;
   readonly hy: number;
   readonly hz: number;
+  /** Phase 25.7 (T2): set on the ≤18 slots a places.json venue CLAIMED (D1). A claimed slot is
+   * forced-occupied, its model/tint overridden by the venue (pastel facade + facade model), and
+   * exempt from `thinToCap`. Absent (undefined) on every generic slot — the seam venueDress.ts /
+   * VenueDressLayer.tsx read to decorate exactly the venues (via `FrontageLayout.venueClaims`). */
+  readonly venueId?: string;
+}
+
+/** Phase 25.7 (T2): which cardinal direction a frontage building's FRONT face (local +Z after its
+ * `rotationY`) points — derived purely from the fronted street's axis + side. Map convention: +X =
+ * east, −X = west, +Z = south, −Z = north (map north = −Z). The §5.3 camera only ever sees the
+ * south/east faces, so venueDress.ts's D4 side-band rule keeps west/north-fronting venues legible.
+ * Carried on every VenueClaim (not FrontageSlot — only claims are dressed). */
+export type FacadeFacing = 'north' | 'south' | 'east' | 'west';
+
+/** Phase 25.7 (T2): a resolved venue claim — the pure venues.ts `VenueClaim` (authoring + the
+ * nearest-candidate lattice resolution: slotId/streetId/side/modelId/isCorner + brand/kit/name +
+ * pastel/accent colours + queue flag) ENRICHED with the world geometry frontage.ts computes for
+ * that claim's facade model. venueDress.ts derives every fascia/awning/prop/queue/plaque placement
+ * from this alone (D2: "no street re-derivation") — position/half-extents/rotation/facing are all
+ * here, byte-identical to the FrontageSlot the claim occupies. */
+export interface ResolvedVenueClaim extends VenueClaim {
+  /** World-space [x, 0, z] footprint centre — the same value as the claimed FrontageSlot.position. */
+  readonly position: readonly [number, number, number];
+  readonly rotationY: number;
+  /** POST-YAW world-AABB half-extents (width/depth swapped by the ±90° frontage rotations), same
+   * as the FrontageSlot's — so dressing math treats hx as the world-X half-extent directly. */
+  readonly hx: number;
+  readonly hy: number;
+  readonly hz: number;
+  readonly districtId: DistrictId;
+  /** Cardinal the facade's street-facing front points (D4 fascia-face selection). */
+  readonly facing: FacadeFacing;
 }
 
 /** One D7 backdrop-tower box (rendered through the legacy box InstancedMesh path). Centre in
@@ -117,6 +157,11 @@ export interface FrontageLayout {
   readonly modelIds: readonly string[];
   /** D7 sparse backdrop boxes behind the frontage in the three tower districts. */
   readonly towerBoxes: readonly BackdropBox[];
+  /** Phase 25.7 (T2): the resolved venue claims (≤18), in VENUE_AUTHORS order. Each corresponds
+   * 1:1 to a FrontageSlot carrying its `venueId`; venueDress.ts consumes THIS (never the slots) so
+   * dressing is derived from a single self-contained claim record. Empty is impossible for the real
+   * lattice (every venue must resolve, D1) — it throws instead. */
+  readonly venueClaims: readonly ResolvedVenueClaim[];
   /** category/district -> count, for tests + the verification dump (D6 "record exact"). */
   readonly counts: Readonly<Record<string, number>>;
 }
@@ -139,6 +184,14 @@ const WATER_Z = 3700;
 function frontageRotationY(axis: Street['axis'], side: 1 | -1): number {
   if (axis === 'ns') return side === 1 ? -Math.PI / 2 : Math.PI / 2;
   return side === 1 ? Math.PI : 0;
+}
+
+/** The cardinal the front face points, for the SAME (axis, side) frontageRotationY yaws (verified
+ * by rotating local +Z by that yaw): ns/+1 → −X (west), ns/−1 → +X (east), ew/+1 → −Z (north),
+ * ew/−1 → +Z (south). Used only for VenueClaim.facing (D4 fascia-face selection). */
+function frontageFacing(axis: Street['axis'], side: 1 | -1): FacadeFacing {
+  if (axis === 'ns') return side === 1 ? 'west' : 'east';
+  return side === 1 ? 'north' : 'south';
 }
 
 /** Post-yaw world-AABB half-extents for a model fronting a street on `axis`. The frontage (native
@@ -211,6 +264,39 @@ function blockSegments(street: Street, crossings: readonly StreetCrossing[]): re
   }
   if (cursor < hi) free.push([cursor, hi]);
   return free.filter(([a, b]) => b - a > FRONTAGE.pitchWu * 0.5);
+}
+
+// --- candidate lattice (T2 seam) -------------------------------------------------------------
+
+/** Every pre-occupancy frontage candidate on one street SIDE, in walk order — the exact positions
+ * the generic block-walk visits (segments × pitch, same slotId grammar). This is the seed-
+ * independent lattice venues.ts's buildVenueClaims searches (D1); extracted so the generic walk
+ * (buildFrontage) and the claim resolution share ONE candidate enumeration, never a drifting copy.
+ * `candidateIndex` runs across ALL of a side's segments (matching the walk's `candidateIndex`). */
+function candidatesForSide(
+  street: Street,
+  side: 1 | -1,
+  crossings: readonly StreetCrossing[],
+): readonly FrontageCandidate[] {
+  const out: FrontageCandidate[] = [];
+  const sideTag = side === 1 ? 'p' : 'n';
+  let candidateIndex = 0;
+  for (const [segLo, segHi] of blockSegments(street, crossings)) {
+    const length = segHi - segLo;
+    const n = Math.max(1, Math.round(length / FRONTAGE.pitchWu));
+    const step = length / n;
+    for (let i = 0; i <= n; i++) {
+      out.push({
+        slotId: `${street.id}:${sideTag}:${candidateIndex}`,
+        streetId: street.id,
+        side,
+        along: segLo + i * step,
+        isCorner: i === 0 || i === n,
+      });
+      candidateIndex += 1;
+    }
+  }
+  return out;
 }
 
 // --- model / tint picking --------------------------------------------------------------------
@@ -286,6 +372,23 @@ function thinToCap<T>(items: readonly T[], cap: number): readonly T[] {
 
 interface RawSlot extends FrontageSlot {
   readonly order: number; // stable insertion order, for a deterministic secondary sort key
+  readonly claimed: boolean; // a venue claim (T2) — exempt from thinToCap
+}
+
+const byDistrictThenOrder = (a: RawSlot, b: RawSlot): number =>
+  DISTRICT_INDEX.get(a.districtId)! - DISTRICT_INDEX.get(b.districtId)! || a.order - b.order;
+
+/** thinToCap, but venue-claimed slots (T2) are exempt: every claim survives, only the generic slots
+ * are even-stride thinned to fill the remaining budget (cap − claims). The union is re-sorted into
+ * the sacred district order (claims already carry the earliest `order` within their district, so
+ * they stay first). Total ≤ cap, claims exempt (the D1/900-cap guarantee). */
+function thinPreservingClaimed(items: readonly RawSlot[], cap: number): readonly RawSlot[] {
+  if (items.length <= cap) return items.slice();
+  const claimed = items.filter((s) => s.claimed);
+  const generic = items.filter((s) => !s.claimed);
+  const genericCap = Math.max(0, cap - claimed.length);
+  const kept = [...claimed, ...thinToCap(generic, genericCap)];
+  return kept.sort(byDistrictThenOrder);
 }
 
 /** Build the whole pack-building frontage layout for `seed`. Deterministic (mulberry forks),
@@ -313,75 +416,187 @@ export function buildFrontage(seed: number): FrontageLayout {
     minZ: s.ribbon.minY - 0.5,
     maxZ: s.ribbon.maxY + 0.5,
   }));
+  // Claim-only ribbon set: DEFLATED by CLAIM_RIBBON_TOLERANCE_WU. A pizza-corner claim flanking a
+  // real intersection sits at the block-segment-end candidate (crossing − crossHalfWidth −
+  // cornerClearance 3); its half-along (~3.71 wu) exceeds that 3 wu clearance by ~0.71 wu, so its
+  // asphalt-facing edge pokes ~0.71 wu past the perpendicular ribbon — the strict generic gate
+  // rejects it and the designed McDonald's @ Queen×Spadina pizza-corner hit is lost. Deflating the
+  // ribbon by 1.5 wu for the CLAIM gate lets that narrow corner through (0.71 < 1.5) while STILL
+  // rejecting a wide family footprint at the same corner (half-along ~6.75 → ~3.75 wu penetration >
+  // 1.5) — so only the intended narrow corner piece gets the tiny authentic overhang. Generic slots
+  // keep the strict inflated `ribbons` gate unchanged.
+  const CLAIM_RIBBON_TOLERANCE_WU = 1.5;
+  const claimRibbons: Aabb[] = streets.map((s) => ({
+    minX: s.ribbon.minX + CLAIM_RIBBON_TOLERANCE_WU,
+    maxX: s.ribbon.maxX - CLAIM_RIBBON_TOLERANCE_WU,
+    minZ: s.ribbon.minY + CLAIM_RIBBON_TOLERANCE_WU,
+    maxZ: s.ribbon.maxY - CLAIM_RIBBON_TOLERANCE_WU,
+  }));
 
-  // Placed footprints per district (for the same-district no-overlap gate — massing's gate d).
-  const placedByDistrict = new Map<DistrictId, Aabb[]>();
-  const raw: RawSlot[] = [];
-  let order = 0;
+  const streetById = new Map<string, Street>(streets.map((s) => [s.id, s]));
 
+  // --- the pre-occupancy candidate lattice (T2 seam) ---------------------------------------
+  // Built ONCE, seed-independent, from the SAME candidatesForSide the generic walk consumes below.
+  // `latticeBySlot` is the O(1) slotId → candidate map the claims pass resolves geometry through.
+  const latticeByKey = new Map<string, readonly FrontageCandidate[]>();
+  const latticeBySlot = new Map<string, FrontageCandidate>();
   for (const street of streets) {
     const crossings = crossingsOn(street, intersections);
-    const segments = blockSegments(street, crossings);
     for (const side of [1, -1] as const) {
-      let candidateIndex = 0;
-      for (const [segLo, segHi] of segments) {
-        const length = segHi - segLo;
-        const n = Math.max(1, Math.round(length / FRONTAGE.pitchWu));
-        const step = length / n;
-        for (let i = 0; i <= n; i++) {
-          const along = segLo + i * step;
-          const isCorner = i === 0 || i === n; // block-segment ends flank the intersection/edge
-          const slotId = `${street.id}:${side === 1 ? 'p' : 'n'}:${candidateIndex}`;
-          candidateIndex += 1;
+      const list = candidatesForSide(street, side, crossings);
+      latticeByKey.set(`${street.id}:${side === 1 ? 'p' : 'n'}`, list);
+      for (const cand of list) latticeBySlot.set(cand.slotId, cand);
+    }
+  }
 
-          const refPoint = districtRefPoint(street, side, along);
-          const def = districtAt(refPoint, districts) ?? undefined;
-          if (!def) continue; // outside every resolved district rect — no packStock to draw from
+  // The four geometric gates (water / named+places exclusions / polygon / ribbon), sized by the
+  // EXACT facade model the venue would place at THIS candidate (facadeModelFor folds in the D3
+  // corner-food pizza-corner swap). Model-aware sizing is load-bearing at corners: a family footprint
+  // over-hangs a wide crossing's ribbon, but the narrow pizza-corner a food venue swaps to clears it
+  // — so sizing per-model is what keeps McDonald's designed corner hit resolvable (a flat family
+  // filter drops that corner candidate and McDonald's falls to a mid-block non-corner slot). It also
+  // requires a resolved district (no packStock → the generic walk skips the slot → a claim there
+  // would be homeless). places.exclusions no longer carries the venue storefront boxes (T3 shrank
+  // it), so a venue never self-excludes.
+  const candidatePasses = (street: Street, cand: FrontageCandidate, kitId: VenueClaim['kitId']): boolean => {
+    if (!districtAt(districtRefPoint(street, cand.side, cand.along), districts)) return false;
+    const half = colliderHalfExtents(facadeModelFor(kitId, cand.isCorner));
+    const centre = slotCenter(street, cand.side, cand.along, half.hz);
+    const { hx, hz } = worldHalfExtents(half, street.axis);
+    const fp: Aabb = { minX: centre.x - hx, maxX: centre.x + hx, minZ: centre.y - hz, maxZ: centre.y + hz };
+    if (fp.maxZ >= WATER_Z) return false;
+    if (exclusions.some((r) => overlaps(fp, r))) return false;
+    if (!insidePolygon(fp)) return false;
+    if (claimRibbons.some((r) => overlaps(fp, r))) return false;
+    return true;
+  };
 
-          const slotRng = base.fork(slotId);
-          // Fixed roll order (occupancy, model, tint) → the slot's identity is stable per id.
-          const occupancy = FRONTAGE.occupancy[def.density as DistrictDensity];
-          const kept = slotRng.next() < occupancy;
-          const modelId = pickModel(slotRng, def, isCorner);
-          const tint = def.packStock.tints[Math.floor(slotRng.next() * def.packStock.tints.length) % def.packStock.tints.length];
-          if (!kept) continue;
+  // Resolve every venue through buildVenueClaims (D1 nearest-candidate + facadeModelFor + pastel
+  // derivation), each against a lookup pre-filtered by THAT venue's own model sizing — so a
+  // filtered-out nearest is simply absent and the nearest-pick fall-back to the next-nearest passing
+  // candidate is deterministic and automatic. buildVenueClaims throws (venue-id-bearing) if a venue
+  // has zero passing candidates on its side — every venue must resolve (D1).
+  const claims: readonly VenueClaim[] = VENUE_AUTHORS.map((author) => {
+    const lookup: CandidateLookup = (streetId, sideNum) => {
+      const list = latticeByKey.get(`${streetId}:${sideNum === 1 ? 'p' : 'n'}`) ?? [];
+      const street = streetById.get(streetId);
+      if (!street) return [];
+      return list.filter((c) => candidatePasses(street, c, author.kitId));
+    };
+    return buildVenueClaims(lookup, [author])[0];
+  });
 
-          const half = colliderHalfExtents(modelId);
-          const centre = slotCenter(street, side, along, half.hz);
-          const { hx, hy, hz } = worldHalfExtents(half, street.axis);
-          const fp: Aabb = { minX: centre.x - hx, maxX: centre.x + hx, minZ: centre.y - hz, maxZ: centre.y + hz };
+  let order = 0;
+  const raw: RawSlot[] = [];
+  // Global claim-footprint gate every generic slot must clear (D1: claimed footprints gate ALL later
+  // generic placement, not just same-district). Also the claimed-slotId set (for generic eviction).
+  const claimedFootprints: Aabb[] = [];
+  const claimedSlotIds = new Set<string>();
+  const venueClaims: ResolvedVenueClaim[] = [];
 
-          // The four massing gates + exclusions (cheapest reject first).
-          if (fp.maxZ >= WATER_Z) continue;
-          if (exclusions.some((r) => overlaps(fp, r))) continue;
-          if (!insidePolygon(fp)) continue;
-          if (ribbons.some((r) => overlaps(fp, r))) continue;
-          const placed = placedByDistrict.get(def.id) ?? [];
-          if (placed.some((r) => overlaps(fp, r))) continue;
-          placed.push(fp);
-          placedByDistrict.set(def.id, placed);
+  // --- Pass 1: place the venue claims FIRST (forced-occupied, model/tint overridden, gate-
+  // validated by the filtered lookup so they never need re-testing here). Earliest `order` → they
+  // sort first within their district. ------------------------------------------------------------
+  for (const claim of claims) {
+    if (claimedSlotIds.has(claim.slotId)) {
+      throw new Error(`frontage: two venue claims resolved to the same slot "${claim.slotId}"`);
+    }
+    const cand = latticeBySlot.get(claim.slotId);
+    if (!cand) throw new Error(`frontage: venue "${claim.venueId}" claimed unknown slot "${claim.slotId}"`);
+    const street = streetById.get(cand.streetId);
+    if (!street) throw new Error(`frontage: venue "${claim.venueId}" street "${cand.streetId}" not built`);
+    const def = districtAt(districtRefPoint(street, cand.side, cand.along), districts);
+    if (!def) throw new Error(`frontage: venue "${claim.venueId}" claimed a district-less slot "${claim.slotId}"`);
 
-          raw.push({
-            slotId,
-            modelId,
-            position: [centre.x, 0, centre.y],
-            rotationY: frontageRotationY(street.axis, side),
-            tint,
-            districtId: def.id,
-            isCorner,
-            hx,
-            hy,
-            hz,
-            order: order++,
-          });
-        }
+    const half = colliderHalfExtents(claim.modelId);
+    const centre = slotCenter(street, cand.side, cand.along, half.hz);
+    const { hx, hy, hz } = worldHalfExtents(half, street.axis);
+    const rotationY = frontageRotationY(street.axis, cand.side);
+    const facing = frontageFacing(street.axis, cand.side);
+    const position: [number, number, number] = [centre.x, 0, centre.y];
+    const fp: Aabb = { minX: centre.x - hx, maxX: centre.x + hx, minZ: centre.y - hz, maxZ: centre.y + hz };
+
+    claimedFootprints.push(fp);
+    claimedSlotIds.add(claim.slotId);
+    raw.push({
+      slotId: claim.slotId,
+      modelId: claim.modelId,
+      position,
+      rotationY,
+      tint: claim.pastelTint,
+      districtId: def.id,
+      isCorner: cand.isCorner,
+      hx,
+      hy,
+      hz,
+      venueId: claim.venueId,
+      order: order++,
+      claimed: true,
+    });
+    venueClaims.push({ ...claim, position, rotationY, hx, hy, hz, districtId: def.id, facing });
+  }
+
+  // Placed footprints per district (the same-district no-overlap gate — massing's gate d).
+  const placedByDistrict = new Map<DistrictId, Aabb[]>();
+
+  // --- Pass 2: the generic street-walk (unchanged rolls) — but claimed slotIds are EVICTED (never
+  // rolled) and every kept generic additionally clears the global claim-footprint gate. -----------
+  for (const street of streets) {
+    const crossings = crossingsOn(street, intersections);
+    for (const side of [1, -1] as const) {
+      for (const cand of candidatesForSide(street, side, crossings)) {
+        const { along, isCorner, slotId } = cand;
+        if (claimedSlotIds.has(slotId)) continue; // a venue owns this slot (eviction)
+
+        const refPoint = districtRefPoint(street, side, along);
+        const def = districtAt(refPoint, districts) ?? undefined;
+        if (!def) continue; // outside every resolved district rect — no packStock to draw from
+
+        const slotRng = base.fork(slotId);
+        // Fixed roll order (occupancy, model, tint) → the slot's identity is stable per id.
+        const occupancy = FRONTAGE.occupancy[def.density as DistrictDensity];
+        const kept = slotRng.next() < occupancy;
+        const modelId = pickModel(slotRng, def, isCorner);
+        const tint = def.packStock.tints[Math.floor(slotRng.next() * def.packStock.tints.length) % def.packStock.tints.length];
+        if (!kept) continue;
+
+        const half = colliderHalfExtents(modelId);
+        const centre = slotCenter(street, side, along, half.hz);
+        const { hx, hy, hz } = worldHalfExtents(half, street.axis);
+        const fp: Aabb = { minX: centre.x - hx, maxX: centre.x + hx, minZ: centre.y - hz, maxZ: centre.y + hz };
+
+        // The four massing gates + exclusions + the global venue-claim gate (cheapest reject first).
+        if (fp.maxZ >= WATER_Z) continue;
+        if (exclusions.some((r) => overlaps(fp, r))) continue;
+        if (!insidePolygon(fp)) continue;
+        if (ribbons.some((r) => overlaps(fp, r))) continue;
+        if (claimedFootprints.some((r) => overlaps(fp, r))) continue;
+        const placed = placedByDistrict.get(def.id) ?? [];
+        if (placed.some((r) => overlaps(fp, r))) continue;
+        placed.push(fp);
+        placedByDistrict.set(def.id, placed);
+
+        raw.push({
+          slotId,
+          modelId,
+          position: [centre.x, 0, centre.y],
+          rotationY: frontageRotationY(street.axis, side),
+          tint,
+          districtId: def.id,
+          isCorner,
+          hx,
+          hy,
+          hz,
+          order: order++,
+          claimed: false,
+        });
       }
     }
   }
 
   // District-order the raw slots (config order), stable within a district via insertion order.
-  raw.sort((a, b) => DISTRICT_INDEX.get(a.districtId)! - DISTRICT_INDEX.get(b.districtId)! || a.order - b.order);
-  const capped = thinToCap(raw, FRONTAGE.hardCap);
+  raw.sort(byDistrictThenOrder);
+  const capped = thinPreservingClaimed(raw, FRONTAGE.hardCap);
 
   const slots: FrontageSlot[] = capped.map((s) => ({
     slotId: s.slotId,
@@ -394,6 +609,7 @@ export function buildFrontage(seed: number): FrontageLayout {
     hx: s.hx,
     hy: s.hy,
     hz: s.hz,
+    ...(s.venueId !== undefined ? { venueId: s.venueId } : {}),
   }));
   const ranges = buildRanges(slots);
   const modelIds = [...new Set(slots.map((s) => s.modelId))].sort();
@@ -404,7 +620,7 @@ export function buildFrontage(seed: number): FrontageLayout {
   for (const id of DISTRICT_ORDER) counts[id] = 0;
   for (const s of slots) counts[s.districtId] += 1;
 
-  return { slots, ranges, modelIds, towerBoxes, counts };
+  return { slots, ranges, modelIds, towerBoxes, venueClaims, counts };
 }
 
 function buildRanges(slots: readonly FrontageSlot[]): readonly DistrictRange[] {
@@ -422,4 +638,27 @@ function buildRanges(slots: readonly FrontageSlot[]): readonly DistrictRange[] {
 /** All frontage slots for one model id, in district order (the per-BatchedMesh instance list). */
 export function slotsForModel(layout: FrontageLayout, modelId: string): readonly FrontageSlot[] {
   return layout.slots.filter((s) => s.modelId === modelId);
+}
+
+/** Phase 25.7 (T4/T5): a camera-ward standoff point (world XZ) in front of a venue's
+ * camera-visible face — the drive-past teleport target the devPanel "→ venue" buttons + the
+ * window.__smashy venue teleport share. The §5.3 camera sits SE of the car (+x/+z) looking NW, so
+ * the car must sit on the venue's +x/+z side: an E/S-fronting venue's own street (`out` points
+ * +x/+z), a W/N-fronting venue's S/E flank (whose side band the D4 rule painted). */
+const VENUE_VIEWPOINT_STANDOFF_WU = 3;
+export function venueViewpoint(claim: ResolvedVenueClaim): { x: number; z: number } {
+  const out: readonly [number, number] =
+    claim.facing === 'south' ? [0, 1] : claim.facing === 'north' ? [0, -1] : claim.facing === 'east' ? [1, 0] : [-1, 0];
+  const along: readonly [number, number] = [-out[1], out[0]];
+  const cam: readonly [number, number] =
+    claim.facing === 'east' || claim.facing === 'south'
+      ? out
+      : along[0] + along[1] >= 0
+        ? along
+        : [-along[0], -along[1]];
+  const half = Math.abs(cam[0]) * claim.hx + Math.abs(cam[1]) * claim.hz;
+  return {
+    x: claim.position[0] + cam[0] * (half + VENUE_VIEWPOINT_STANDOFF_WU),
+    z: claim.position[2] + cam[1] * (half + VENUE_VIEWPOINT_STANDOFF_WU),
+  };
 }

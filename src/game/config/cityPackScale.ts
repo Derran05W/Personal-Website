@@ -62,6 +62,25 @@ export const VEGETATION_TARGET_HEIGHT_WU = 8.1;
 /** Target height (wu) fire-hydrant's explicit override below targets. */
 export const FIRE_HYDRANT_TARGET_HEIGHT_WU = 1.0;
 
+/** Phase 25.7 (D9/T1) explicit overrides — six manifest ids the venue-dressing pass places at
+ * facade/street scale, whose native dims are pack-authoring oddballs the category-default
+ * formula gets visibly wrong (billboard/rock-band-poster are both >2.5 wu native height and would
+ * get capped at PROP_DEFAULT_MAX_HEIGHT_WU by the generic prop formula; air-conditioner is a
+ * centimetre-ish native size that would pass through near-unscaled; atm/box are already
+ * metric-scale and would stay at factor-1 native size, both far smaller than the kit-authored
+ * target). Kit-authoring rationale (WHY these targets) lives in config/venueDressing.ts's
+ * PROP_SCALE_TARGETS — kept in sync by cityPackScale.test.ts, not by an import (cityPackScale.ts
+ * is a lower-level shared asset module; venueDressing.ts is phase-specific and must not become a
+ * dependency of it). Provisional; screenshot-tuned in phase-25.7 Task 5.
+ * fire-exit is the one WIDTH-target override in the set (the D-table calls out "~2.4 wu wide",
+ * not tall) — every other target below is a height. */
+export const BILLBOARD_TARGET_HEIGHT_WU = 4.5;
+export const AC_TARGET_HEIGHT_WU = 1.0;
+export const ATM_TARGET_HEIGHT_WU = 1.8;
+export const FIRE_EXIT_TARGET_WIDTH_WU = 2.4;
+export const ROCK_BAND_POSTER_TARGET_HEIGHT_WU = 2.2;
+export const BOX_TARGET_HEIGHT_WU = 0.6;
+
 function familyReferenceWidthWu(): number {
   return getCityPackModel('building-red').nativeDims.w;
 }
@@ -90,6 +109,13 @@ export const CITY_PACK_SCALE_OVERRIDES: Readonly<Record<string, number>> = {
   // Computed from the target constants above.
   'fire-hydrant': FIRE_HYDRANT_TARGET_HEIGHT_WU / getCityPackModel('fire-hydrant').nativeDims.h,
   tree: VEGETATION_TARGET_HEIGHT_WU / getCityPackModel('tree').nativeDims.h,
+  // Phase 25.7 (D9/T1) — see the target-constant block above for rationale.
+  billboard: BILLBOARD_TARGET_HEIGHT_WU / getCityPackModel('billboard').nativeDims.h,
+  'air-conditioner': AC_TARGET_HEIGHT_WU / getCityPackModel('air-conditioner').nativeDims.h,
+  atm: ATM_TARGET_HEIGHT_WU / getCityPackModel('atm').nativeDims.h,
+  'fire-exit': FIRE_EXIT_TARGET_WIDTH_WU / getCityPackModel('fire-exit').nativeDims.w,
+  'rock-band-poster': ROCK_BAND_POSTER_TARGET_HEIGHT_WU / getCityPackModel('rock-band-poster').nativeDims.h,
+  box: BOX_TARGET_HEIGHT_WU / getCityPackModel('box').nativeDims.h,
 };
 
 /** Category-default scale for any id without an explicit override above. Every formula is
@@ -161,4 +187,10 @@ export const CITY_PACK_SCALE = {
   VEGETATION_TARGET_HEIGHT_WU,
   FIRE_HYDRANT_TARGET_HEIGHT_WU,
   BUILDING_FAMILY_SCALE,
+  BILLBOARD_TARGET_HEIGHT_WU,
+  AC_TARGET_HEIGHT_WU,
+  ATM_TARGET_HEIGHT_WU,
+  FIRE_EXIT_TARGET_WIDTH_WU,
+  ROCK_BAND_POSTER_TARGET_HEIGHT_WU,
+  BOX_TARGET_HEIGHT_WU,
 } as const;
