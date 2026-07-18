@@ -41,6 +41,21 @@ describe('Credits route', () => {
     expect(screen.getByTestId('credits-fonts-statement')).toHaveTextContent('Fredoka');
   });
 
+  it('shows the Phase 25.5 asset-pack entry with a visible "licence pending" status', () => {
+    renderCredits();
+    const items = screen.getAllByTestId('credits-pack-item');
+    expect(items.length).toBe(CREDITS.assetPacks.length);
+    for (const pack of CREDITS.assetPacks) {
+      expect(screen.getByText(pack.name)).toBeInTheDocument();
+      expect(screen.getByText(pack.note)).toBeInTheDocument();
+    }
+    const statuses = screen.getAllByTestId('credits-pack-status');
+    expect(statuses.length).toBeGreaterThan(0);
+    for (const status of statuses) {
+      expect(status).toHaveTextContent('licence pending');
+    }
+  });
+
   it('lists every brand-trademark entry with its full note', () => {
     renderCredits();
     for (const entry of CREDITS.brandTrademarks) {

@@ -45,10 +45,31 @@ export interface BrandTrademarkEntry {
   note: string;
 }
 
+/** Licence status for a third-party asset pack (Phase 25.5, D13). 'pending-user-confirmation'
+ * is the only status any pack currently carries — kept as a union (not a bare string) so a
+ * future 'confirmed' pack has a typed home to land in without a shape change. */
+export type AssetPackLicenseStatus = 'pending-user-confirmation' | 'confirmed';
+
+/** A third-party asset pack credited (or pending credit) on /credits. Phase 25.5 introduces
+ * the first one — see phase-25.5-plan.md D13: the pack's licence could not be determined from
+ * the files themselves (all embedded copyright/licence metadata was stripped by a prior
+ * re-export), so it ships with an explicit, visible "pending" status rather than a guessed or
+ * omitted credit. */
+export interface AssetPackCredit {
+  readonly name: string;
+  readonly licenseStatus: AssetPackLicenseStatus;
+  /** Plain-language explanation of what's known, what's missing, and what happens next. */
+  readonly note: string;
+}
+
 export interface CreditsContent {
   /** "Made with" colophon — the open-source tech powering the site + game. */
   tech: CreditEntry[];
   assets: AssetCredits;
+  /** Third-party 3D asset packs in the pipeline (Phase 25.5+), separate from the honesty
+   * statement in `assets.models` — each entry here gets its own visible licence-status line
+   * on /credits, most importantly any 'pending-user-confirmation' entry. */
+  assetPacks: AssetPackCredit[];
   /** Unaffiliated/stylized-homage disclaimer (TDD §14 non-goals; landmarks are fictionalized). */
   disclaimer: string;
   /** Short note on the game's title/branding. */
@@ -135,13 +156,16 @@ export const CREDITS: CreditsContent = {
   ],
   assets: {
     models: [
-      'Every 3D model in the game — every car, building, prop, pedestrian-free street',
-      'fixture, police/military unit, and landmark — is procedural: built from primitive',
-      'geometry authored directly in code, not downloaded or imported from any asset',
-      'library. The original plan was to source CC0 kits from Kenney.nl/Quaternius/Poly',
-      'Pizza (see the project README), but those hosts were unreachable from the build',
-      'environment for the entire project, so the fallback (100% procedural geometry)',
-      'became the shipped path for every asset rather than a partial one.',
+      'Every 3D model shipped to players through Phase 25 — every car, building, prop,',
+      'pedestrian-free street fixture, police/military unit, and landmark — is procedural:',
+      'built from primitive geometry authored directly in code, not downloaded or imported',
+      'from any asset library. The original plan was to source CC0 kits from',
+      'Kenney.nl/Quaternius/Poly Pizza (see the project README), but those hosts were',
+      'unreachable from the build environment for the entire project, so the fallback (100%',
+      'procedural geometry) became the shipped path for every asset rather than a partial',
+      'one. Starting Phase 25.5, a third-party GLB collection entered the asset pipeline for',
+      'a dev-only proof-of-render slice (off by default for every player) — see "Asset',
+      'packs" below for its licence status.',
     ].join(' '),
     audio: [
       'Every sound in the game — engine notes, sirens, impacts, gunfire, explosions,',
@@ -160,6 +184,27 @@ export const CREDITS: CreditsContent = {
       },
     ],
   },
+  assetPacks: [
+    {
+      name: 'City asset pack (52-model GLB collection)',
+      licenseStatus: 'pending-user-confirmation',
+      note: [
+        'A 52-model city/vehicle/prop GLB collection (buildings, street furniture, and',
+        'vehicles) entered the asset pipeline in Phase 25.5 for a dev-only proof-of-render',
+        'slice — off by default, and not part of any build a player sees without deliberately',
+        'flipping a developer-only toggle. Every file in the pack had already been',
+        're-exported through a third-party glTF optimization tool before it reached this',
+        'project, which strips embedded copyright/licence metadata — nothing in any of the',
+        'source files identifies a licence or original author(s). Filename patterns',
+        '(randomized ID suffixes, a texture literally named "Zombie_Atlas.png") suggest a',
+        'mixed multi-author collection rather than a single-licence pack, which may mean',
+        'per-model attribution is needed rather than one blanket credit. Licence pending —',
+        "the project owner is confirming the pack's source and terms before any of it ships",
+        'in a public build; treat every model from this pack as provisional until that is',
+        'resolved.',
+      ].join(' '),
+    },
+  ],
   disclaimer:
     'Smashy the 6ix is a stylized homage, not an affiliate, partner, or representation of ' +
     'any real city, business, government agency, or person. Every landmark in the game ' +

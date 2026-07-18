@@ -71,6 +71,52 @@
   color: var(--color-accent);
 }
 
+.credits__pack-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.credits__pack-item {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  background: var(--color-bg-elevated);
+}
+
+.credits__pack-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.credits__pack-name {
+  margin: 0;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.credits__pack-status {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+  white-space: nowrap;
+}
+
+.credits__pack-note {
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
 .credits__brand-intro {
   color: var(--color-text-muted);
   line-height: 1.6;

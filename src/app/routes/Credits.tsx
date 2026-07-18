@@ -51,6 +51,27 @@ export default function Credits() {
         </p>
       </div>
 
+      {CREDITS.assetPacks.length > 0 && (
+        <>
+          <h2 className="credits__section-title">Asset packs</h2>
+          <ul className="credits__pack-list">
+            {CREDITS.assetPacks.map((pack) => (
+              <li key={pack.name} className="credits__pack-item" data-testid="credits-pack-item">
+                <div className="credits__pack-heading">
+                  <p className="credits__pack-name">{pack.name}</p>
+                  {pack.licenseStatus === 'pending-user-confirmation' && (
+                    <span className="credits__pack-status" data-testid="credits-pack-status">
+                      licence pending
+                    </span>
+                  )}
+                </div>
+                <p className="credits__pack-note">{pack.note}</p>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
       <h2 className="credits__section-title">Brand references in the map</h2>
       <p className="credits__brand-intro">
         The Toronto map layer stylizes a handful of real bank towers with original pixel-art logo

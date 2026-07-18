@@ -417,6 +417,12 @@ declare global {
        * is canvas-occluded in headless). Flip in GARAGE — it changes the world remount
        * key, so a live run would be torn down. */
       setTorontoMap: (value: boolean) => void;
+      /** Phase 25.5: scripted mirror of the devPanel "City Pack (P25.5)" toggles — mounts the
+       * proof-of-render cluster (`preview`) and flips the lit/unlit A/B arm (`unlit`). Same
+       * leva-free devToggles seam as setTorontoMap; safe to flip live (TorontoScene mounts/updates
+       * the cluster additively without a world remount). Meaningful only with torontoMap on. */
+      setCityPackPreview: (value: boolean) => void;
+      setCityPackUnlit: (value: boolean) => void;
       /** Phase 9 Task 4 debug: forces a GAMEOVER with reason 'busted' — see
        * forceBustedGameOver's doc comment above for exactly what this does and doesn't
        * stand in for. */
@@ -606,6 +612,8 @@ window.__smashy = {
   forceSpawnUnit: (kind) => (isUnitKind(kind) ? (unitsRef.current?.forceSpawn(kind) ?? false) : false),
   setInvincible: (value) => setDevToggle('invincible', value),
   setTorontoMap: (value) => setDevToggle('torontoMap', value),
+  setCityPackPreview: (value) => setDevToggle('cityPackPreview', value),
+  setCityPackUnlit: (value) => setDevToggle('cityPackUnlit', value),
   forceBustedGameOver,
   sirenSnapshot: () => getSirenDebugSnapshot(),
   audioSnapshot,

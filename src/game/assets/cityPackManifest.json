@@ -1,0 +1,938 @@
+[
+  {
+    "id": "air-conditioner",
+    "url": "/assets/city-pack/air-conditioner.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 87.79931259155273,
+      "h": 138.1143897773436,
+      "d": 210.4619140625
+    },
+    "tris": 1462,
+    "prims": 1,
+    "bytes": {
+      "raw": 29928,
+      "optimized": 11168
+    },
+    "hasTexture": true,
+    "contentHash": "2b60831752a2639c490d7d61de3087a8a1c6c0bf39f6a557b213dca52a32ec8e"
+  },
+  {
+    "id": "atm",
+    "url": "/assets/city-pack/atm.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 0.22169407457113266,
+      "h": 0.5469317843965432,
+      "d": 0.22878644326186856
+    },
+    "tris": 702,
+    "prims": 1,
+    "bytes": {
+      "raw": 56052,
+      "optimized": 12080
+    },
+    "hasTexture": true,
+    "contentHash": "26eb7c9e6ab6820a4629e06e8870bf406a9d12eb99966af820dc3856f4eb145f"
+  },
+  {
+    "id": "bench",
+    "url": "/assets/city-pack/bench.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 2.510836958885193,
+      "h": 1.6206297874450684,
+      "d": 1.2253943085670471
+    },
+    "tris": 180,
+    "prims": 1,
+    "bytes": {
+      "raw": 12140,
+      "optimized": 5168
+    },
+    "hasTexture": true,
+    "contentHash": "577f8d424c180952bb8e2c3c98ee719ddecd68b653f824a8f6c7cab44a2e382e"
+  },
+  {
+    "id": "bicycle",
+    "url": "/assets/city-pack/bicycle.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 3.6132090091705322,
+      "h": 2.111037899274379,
+      "d": 1.2430260181427002
+    },
+    "tris": 1714,
+    "prims": 1,
+    "bytes": {
+      "raw": 2394132,
+      "optimized": 45148
+    },
+    "hasTexture": true,
+    "contentHash": "d6226d809272f6192e4ec12e48010f81f79c2cef5e72d0f6ab29994eccc62853"
+  },
+  {
+    "id": "big-building",
+    "url": "/assets/city-pack/big-building.glb",
+    "category": "building",
+    "nativeDims": {
+      "w": 4.705197364091873,
+      "h": 5.677369447866452,
+      "d": 4.390617210037606
+    },
+    "tris": 7004,
+    "prims": 1,
+    "bytes": {
+      "raw": 353968,
+      "optimized": 78068
+    },
+    "hasTexture": true,
+    "contentHash": "70b2891c1b7dc2d173cebfabbcf52b6a35f346fbd2955ade2cb7ba4560ea9d71"
+  },
+  {
+    "id": "billboard",
+    "url": "/assets/city-pack/billboard.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 242.05911254882812,
+      "h": 670,
+      "d": 600
+    },
+    "tris": 1106,
+    "prims": 1,
+    "bytes": {
+      "raw": 66696,
+      "optimized": 18092
+    },
+    "hasTexture": true,
+    "contentHash": "a3fdc6188cbd01fdf94fb12124f7f993703fb67884c37bd76d42e67a73986965"
+  },
+  {
+    "id": "box",
+    "url": "/assets/city-pack/box.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 0.20000003278255463,
+      "h": 0.17640117386411067,
+      "d": 0.20307704649234543
+    },
+    "tris": 32,
+    "prims": 1,
+    "bytes": {
+      "raw": 24228,
+      "optimized": 7136
+    },
+    "hasTexture": true,
+    "contentHash": "18df00ddf02a0b9af83c6af78dbb33bfa28575acce6510c8fdbc73bf8892dd31"
+  },
+  {
+    "id": "brown-building",
+    "url": "/assets/city-pack/brown-building.glb",
+    "category": "building",
+    "nativeDims": {
+      "w": 2.278469502925873,
+      "h": 4.083205651603361,
+      "d": 2.201779949552199
+    },
+    "tris": 899,
+    "prims": 1,
+    "bytes": {
+      "raw": 63100,
+      "optimized": 12564
+    },
+    "hasTexture": true,
+    "contentHash": "d69c1344d01e8e4a7663335c1b79e3930d23b17bdf484fa2668adf46721ca7e8"
+  },
+  {
+    "id": "building-green",
+    "url": "/assets/city-pack/building-green.glb",
+    "category": "building",
+    "nativeDims": {
+      "w": 2.4159957886971255,
+      "h": 3.4754925974874844,
+      "d": 1.3394769385765448
+    },
+    "tris": 1955,
+    "prims": 1,
+    "bytes": {
+      "raw": 130308,
+      "optimized": 22568
+    },
+    "hasTexture": true,
+    "contentHash": "3a695e2d34c9332e3ff2669f5f042a83bd59b8373daa465d91894582d766202e"
+  },
+  {
+    "id": "building-red",
+    "url": "/assets/city-pack/building-red.glb",
+    "category": "building",
+    "nativeDims": {
+      "w": 2.4159957886971255,
+      "h": 3.4754925974874844,
+      "d": 1.3394769385765448
+    },
+    "tris": 2291,
+    "prims": 1,
+    "bytes": {
+      "raw": 150868,
+      "optimized": 25696
+    },
+    "hasTexture": true,
+    "contentHash": "343d175cc3d2e3d2f23ab900b9baa21505993ca37542c8f01dc4b1e6d13e36d2"
+  },
+  {
+    "id": "building-red-corner",
+    "url": "/assets/city-pack/building-red-corner.glb",
+    "category": "building",
+    "nativeDims": {
+      "w": 1.3283050345992224,
+      "h": 3.4651286533497654,
+      "d": 1.3397843461802594
+    },
+    "tris": 2892,
+    "prims": 1,
+    "bytes": {
+      "raw": 145076,
+      "optimized": 26560
+    },
+    "hasTexture": true,
+    "contentHash": "fbaba0cc212a6406a805654038cdfe9213dc941235092817b385dcf6044853e8"
+  },
+  {
+    "id": "bus",
+    "url": "/assets/city-pack/bus.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 50.06064224243164,
+      "h": 48.807058724121816,
+      "d": 157.4611358642578
+    },
+    "tris": 2226,
+    "prims": 1,
+    "bytes": {
+      "raw": 46072,
+      "optimized": 15948
+    },
+    "hasTexture": true,
+    "contentHash": "cd984e3dbae338971a820234020b8d4f1787d4eddddcafa1750d75b4b818a653"
+  },
+  {
+    "id": "bus-stop",
+    "url": "/assets/city-pack/bus-stop.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 38.30568313598633,
+      "h": 27.19924259185791,
+      "d": 24.764636039733887
+    },
+    "tris": 456,
+    "prims": 1,
+    "bytes": {
+      "raw": 34220,
+      "optimized": 9116
+    },
+    "hasTexture": true,
+    "contentHash": "0171f4b2b0cc8b3a3538ea6fb2da2d68029f919f46d0420bb9475fca2ad690bf"
+  },
+  {
+    "id": "bus-stop-sign",
+    "url": "/assets/city-pack/bus-stop-sign.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 4.002944938838482,
+      "h": 24.23208023152642,
+      "d": 0.9328291062292757
+    },
+    "tris": 1450,
+    "prims": 1,
+    "bytes": {
+      "raw": 99648,
+      "optimized": 17384
+    },
+    "hasTexture": true,
+    "contentHash": "89e931bddce0544944fb0ba63bd3ca926e3da7b340f569ed3c0c8b50d737ba98"
+  },
+  {
+    "id": "car-a",
+    "url": "/assets/city-pack/car-a.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 1.807360053062439,
+      "h": 1.1765789622440934,
+      "d": 4.220716953277588
+    },
+    "tris": 2954,
+    "prims": 1,
+    "bytes": {
+      "raw": 164752,
+      "optimized": 39348
+    },
+    "hasTexture": true,
+    "contentHash": "53ec8e3bb18197931e2a48b6db4e0caf3f89e639f91d20ae20d51739efb28aad"
+  },
+  {
+    "id": "car-b",
+    "url": "/assets/city-pack/car-b.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 1.6384479999542236,
+      "h": 1.1456159725785255,
+      "d": 3.3096230030059814
+    },
+    "tris": 3124,
+    "prims": 1,
+    "bytes": {
+      "raw": 174320,
+      "optimized": 41844
+    },
+    "hasTexture": true,
+    "contentHash": "e130a4489d63f2cae2563b96fee7c33d9e3eaf433beaa4ee7ff801ed70864534"
+  },
+  {
+    "id": "cone",
+    "url": "/assets/city-pack/cone.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 0.6000000238418579,
+      "h": 0.9029509946703911,
+      "d": 0.6000000238418579
+    },
+    "tris": 264,
+    "prims": 1,
+    "bytes": {
+      "raw": 21244,
+      "optimized": 6240
+    },
+    "hasTexture": true,
+    "contentHash": "1635713830da404caccd09d32ae9cc2a8b9b5a54d7b759d232270fb4a5eb9602"
+  },
+  {
+    "id": "debris-papers",
+    "url": "/assets/city-pack/debris-papers.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 0.952208159167834,
+      "h": 0.0028475638971663933,
+      "d": 0.7197500653552644
+    },
+    "tris": 16,
+    "prims": 1,
+    "bytes": {
+      "raw": 2616,
+      "optimized": 2340
+    },
+    "hasTexture": false,
+    "contentHash": "247aac9a266a18cae5148b7a13c30de3828e2dbd631d2a61e524fcdf3b82646b"
+  },
+  {
+    "id": "dumpster",
+    "url": "/assets/city-pack/dumpster.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 2.4416026540075553,
+      "h": 2.030194346149137,
+      "d": 1.2955450043353154
+    },
+    "tris": 302,
+    "prims": 1,
+    "bytes": {
+      "raw": 19784,
+      "optimized": 6920
+    },
+    "hasTexture": true,
+    "contentHash": "0631255f507a5516b23e0164f29a0618d2536efdf5198c2fb59191ce3e9342c4"
+  },
+  {
+    "id": "fence",
+    "url": "/assets/city-pack/fence.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 7.400000095367432,
+      "h": 5.799462050199509,
+      "d": 0.47580400109291077
+    },
+    "tris": 1040,
+    "prims": 1,
+    "bytes": {
+      "raw": 52836,
+      "optimized": 9408
+    },
+    "hasTexture": false,
+    "contentHash": "e80bf2c364b5dc99e73224b920796ed7741ddf1db280c04e535131d628a3f884"
+  },
+  {
+    "id": "fence-end",
+    "url": "/assets/city-pack/fence-end.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 1.352357491850853,
+      "h": 0.7875856363267071,
+      "d": 0.28596163965760046
+    },
+    "tris": 508,
+    "prims": 1,
+    "bytes": {
+      "raw": 40836,
+      "optimized": 9296
+    },
+    "hasTexture": true,
+    "contentHash": "ce1bb293adf3e354342503deac37f7f047387c780e139d4f62f1a4e9c170b092"
+  },
+  {
+    "id": "fence-piece",
+    "url": "/assets/city-pack/fence-piece.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 1.1241787672042847,
+      "h": 0.7875856363267071,
+      "d": 0.28596163965760046
+    },
+    "tris": 350,
+    "prims": 1,
+    "bytes": {
+      "raw": 30096,
+      "optimized": 7480
+    },
+    "hasTexture": true,
+    "contentHash": "35176b1e738b10efdbe1162080dcff9705197648d71e6a6259499eac2d1bf5ac"
+  },
+  {
+    "id": "fire-exit",
+    "url": "/assets/city-pack/fire-exit.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 2.285530004674109,
+      "h": 1.648032867886971,
+      "d": 0.46077487485463975
+    },
+    "tris": 1124,
+    "prims": 1,
+    "bytes": {
+      "raw": 78404,
+      "optimized": 15280
+    },
+    "hasTexture": false,
+    "contentHash": "edfe9462072a46d236b784ed4fd5f09fba9c3e034b702a014d1f858b97b023c6"
+  },
+  {
+    "id": "fire-hydrant",
+    "url": "/assets/city-pack/fire-hydrant.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 107.05643081665039,
+      "h": 232.617919921875,
+      "d": 108.57645797729492
+    },
+    "tris": 872,
+    "prims": 1,
+    "bytes": {
+      "raw": 13080,
+      "optimized": 5360
+    },
+    "hasTexture": false,
+    "contentHash": "abb23a81a9f4effb80aa31903b1c725ba92685bb154eb436c9bd1d19f03b4d27"
+  },
+  {
+    "id": "floor-hole",
+    "url": "/assets/city-pack/floor-hole.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 1.2000000494718541,
+      "h": 0.20351088977464796,
+      "d": 1.200000008397594
+    },
+    "tris": 34,
+    "prims": 1,
+    "bytes": {
+      "raw": 5128,
+      "optimized": 3284
+    },
+    "hasTexture": true,
+    "contentHash": "44b2da4139f038d6615de2f72ed4c95f65957a65dbe0cee76708f550b5130954"
+  },
+  {
+    "id": "flower-pot-a",
+    "url": "/assets/city-pack/flower-pot-a.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 0.8847450613975525,
+      "h": 1.808947503566742,
+      "d": 0.8543854057788849
+    },
+    "tris": 256,
+    "prims": 1,
+    "bytes": {
+      "raw": 23260,
+      "optimized": 6484
+    },
+    "hasTexture": true,
+    "contentHash": "470ee40a6280db7628cfd2fabaf7139e666d2b4fb5d3aef265bef0d102c3a71e"
+  },
+  {
+    "id": "flower-pot-b",
+    "url": "/assets/city-pack/flower-pot-b.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 1.0317579507827759,
+      "h": 1.8535847067832947,
+      "d": 0.6182092428207397
+    },
+    "tris": 780,
+    "prims": 1,
+    "bytes": {
+      "raw": 56460,
+      "optimized": 13668
+    },
+    "hasTexture": true,
+    "contentHash": "e6230cf1dfb4b3340d1b775f2089569cef36a5ae85e89b911d0209c6f961f947"
+  },
+  {
+    "id": "gb-blank",
+    "url": "/assets/city-pack/gb-blank.glb",
+    "category": "building-blank",
+    "nativeDims": {
+      "w": 2.4159957886971255,
+      "h": 3.4754925974874844,
+      "d": 1.3279972328656184
+    },
+    "tris": 1802,
+    "prims": 1,
+    "bytes": {
+      "raw": 117336,
+      "optimized": 20792
+    },
+    "hasTexture": true,
+    "contentHash": "bad0caf6ba69ffd0b24d84a7c71872999656d1021b4e7e4d65060dcb3de9b6ef"
+  },
+  {
+    "id": "greenhouse",
+    "url": "/assets/city-pack/greenhouse.glb",
+    "category": "building",
+    "nativeDims": {
+      "w": 0.6000000089406967,
+      "h": 0.615785991307348,
+      "d": 0.6000000238418579
+    },
+    "tris": 560,
+    "prims": 1,
+    "bytes": {
+      "raw": 31800,
+      "optimized": 8508
+    },
+    "hasTexture": true,
+    "contentHash": "6403fe08cb4036359456636d1ef0aa219ae699781d7378dfd1f3e3f8167303cd"
+  },
+  {
+    "id": "mailbox",
+    "url": "/assets/city-pack/mailbox.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 0.21788867967702502,
+      "h": 0.46259664434560727,
+      "d": 0.2258705248741387
+    },
+    "tris": 328,
+    "prims": 1,
+    "bytes": {
+      "raw": 24008,
+      "optimized": 6824
+    },
+    "hasTexture": true,
+    "contentHash": "aafc1c800064490f6325aad8a612854027ae1c05932e99ab3ecdfe7b4f5ea8cd"
+  },
+  {
+    "id": "manhole-cover",
+    "url": "/assets/city-pack/manhole-cover.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 0.7199999839067459,
+      "h": 0.018264990485392308,
+      "d": 0.7199999592621914
+    },
+    "tris": 172,
+    "prims": 1,
+    "bytes": {
+      "raw": 13084,
+      "optimized": 4964
+    },
+    "hasTexture": true,
+    "contentHash": "55a388a46d8fab8a5c87cbd39d24cfd351791a9cc59f7048d14fa07a1ca7ff0b"
+  },
+  {
+    "id": "motorcycle",
+    "url": "/assets/city-pack/motorcycle.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 42.85799789428711,
+      "h": 67.17904474267561,
+      "d": 127.48837661743164
+    },
+    "tris": 6361,
+    "prims": 1,
+    "bytes": {
+      "raw": 109608,
+      "optimized": 35356
+    },
+    "hasTexture": true,
+    "contentHash": "04814615bd5c3f12146a89a1047bb1a66a59a53d274843fdd2431bb9334405e2"
+  },
+  {
+    "id": "pickup-truck",
+    "url": "/assets/city-pack/pickup-truck.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 2.312174066901207,
+      "h": 1.8484454044614815,
+      "d": 5.18038130663521
+    },
+    "tris": 6432,
+    "prims": 2,
+    "bytes": {
+      "raw": 273012,
+      "optimized": 56180
+    },
+    "hasTexture": true,
+    "contentHash": "7ade85336b27d989481c9a6c45651dc03bf4316a5d288cb940e660a2b2b77a41"
+  },
+  {
+    "id": "pizza-corner",
+    "url": "/assets/city-pack/pizza-corner.glb",
+    "category": "building",
+    "nativeDims": {
+      "w": 1.3283050345992224,
+      "h": 3.465128497938247,
+      "d": 1.339784348894826
+    },
+    "tris": 3126,
+    "prims": 1,
+    "bytes": {
+      "raw": 169160,
+      "optimized": 29680
+    },
+    "hasTexture": true,
+    "contentHash": "3197aa3574394b1692e32bd79ef71c6d71750841fda3c6a81c2adceec9b3cfa0"
+  },
+  {
+    "id": "planter-bushes",
+    "url": "/assets/city-pack/planter-bushes.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 2.372116781771183,
+      "h": 1.121716172145093,
+      "d": 0.7672109460067706
+    },
+    "tris": 622,
+    "prims": 1,
+    "bytes": {
+      "raw": 53232,
+      "optimized": 13092
+    },
+    "hasTexture": true,
+    "contentHash": "dfd10613215721a716f21895d43e4b908ead2edcc004ca12d69af39381baad73"
+  },
+  {
+    "id": "police-car",
+    "url": "/assets/city-pack/police-car.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 1.7776260375976562,
+      "h": 1.2387499995529652,
+      "d": 3.73048996925354
+    },
+    "tris": 3232,
+    "prims": 1,
+    "bytes": {
+      "raw": 180512,
+      "optimized": 43396
+    },
+    "hasTexture": true,
+    "contentHash": "2863b60c17ecc406468e30bf1eaf44a4f5e2e9ca8d615b86dc64fd53ccf6e26e"
+  },
+  {
+    "id": "power-box",
+    "url": "/assets/city-pack/power-box.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 0.2615989179987357,
+      "h": 0.8707435726117914,
+      "d": 0.27314616270263714
+    },
+    "tris": 201,
+    "prims": 1,
+    "bytes": {
+      "raw": 18252,
+      "optimized": 5140
+    },
+    "hasTexture": true,
+    "contentHash": "4dc886e48deb31b14366f456c536d3b83f41112ca4dcc4505e758be52d9a81d6"
+  },
+  {
+    "id": "rb-blank",
+    "url": "/assets/city-pack/rb-blank.glb",
+    "category": "building-blank",
+    "nativeDims": {
+      "w": 2.4159957886971255,
+      "h": 3.4754925974874844,
+      "d": 1.3279972328656187
+    },
+    "tris": 1802,
+    "prims": 1,
+    "bytes": {
+      "raw": 117328,
+      "optimized": 20800
+    },
+    "hasTexture": true,
+    "contentHash": "2d98c07b0f8d4fdff497df4a118a77f5b05608c098dcf58bb9b559a449c4959f"
+  },
+  {
+    "id": "road-bits",
+    "url": "/assets/city-pack/road-bits.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 7.999999955296516,
+      "h": 0.10000060400725098,
+      "d": 5.000000356938777
+    },
+    "tris": 754,
+    "prims": 1,
+    "bytes": {
+      "raw": 68128,
+      "optimized": 15216
+    },
+    "hasTexture": true,
+    "contentHash": "2e67b00a5be2dba77d6281808a7087fc3fd50c885f7d09d8681082cc3bd738f4"
+  },
+  {
+    "id": "rock-band-poster",
+    "url": "/assets/city-pack/rock-band-poster.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 9.960669040679932,
+      "h": 14.908848335966468,
+      "d": 0.08000799268484116
+    },
+    "tris": 106,
+    "prims": 1,
+    "bytes": {
+      "raw": 12676,
+      "optimized": 3932
+    },
+    "hasTexture": true,
+    "contentHash": "6d601be506b1d270d812ac7c806d298c69bd8816ae2ec718b68883d8d1f12b3f"
+  },
+  {
+    "id": "roof-exit",
+    "url": "/assets/city-pack/roof-exit.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 0.6241779960691929,
+      "h": 0.6407236649203167,
+      "d": 0.7456114188489451
+    },
+    "tris": 216,
+    "prims": 1,
+    "bytes": {
+      "raw": 19556,
+      "optimized": 5640
+    },
+    "hasTexture": true,
+    "contentHash": "fce85cda6980474181622a12fd7e648adc0965fa269c079c0053eedbe3189fd5"
+  },
+  {
+    "id": "sports-car-a",
+    "url": "/assets/city-pack/sports-car-a.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 1.871591031551361,
+      "h": 1.2030550129711628,
+      "d": 3.9265329837799072
+    },
+    "tris": 3148,
+    "prims": 1,
+    "bytes": {
+      "raw": 175100,
+      "optimized": 42660
+    },
+    "hasTexture": true,
+    "contentHash": "34f140a1de06cbb933d503c713df32d9f4e35b2740d7865d8a659131a931e33d"
+  },
+  {
+    "id": "sports-car-b",
+    "url": "/assets/city-pack/sports-car-b.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 2.6706187054514885,
+      "h": 1.8647261429548294,
+      "d": 5.6551002094025
+    },
+    "tris": 5802,
+    "prims": 2,
+    "bytes": {
+      "raw": 252528,
+      "optimized": 53528
+    },
+    "hasTexture": true,
+    "contentHash": "ea4a9e35d448d7101012ebc956fd0c958893f2a0d6998b963dc611e3d74e60f2"
+  },
+  {
+    "id": "stop-sign",
+    "url": "/assets/city-pack/stop-sign.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 8.007415056228638,
+      "h": 230.86331176757812,
+      "d": 75.2281723022461
+    },
+    "tris": 236,
+    "prims": 1,
+    "bytes": {
+      "raw": 7888,
+      "optimized": 4220
+    },
+    "hasTexture": true,
+    "contentHash": "6f0a7a185b7cfc1745b65ed32ea3f9942eee8aacadcd7fa9833c4d0412a10d12"
+  },
+  {
+    "id": "suv",
+    "url": "/assets/city-pack/suv.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 2.1111021041870117,
+      "h": 1.5278509762138128,
+      "d": 4.209349155426025
+    },
+    "tris": 3294,
+    "prims": 1,
+    "bytes": {
+      "raw": 181608,
+      "optimized": 44056
+    },
+    "hasTexture": true,
+    "contentHash": "d46a0becdacb3c0066a09a9ccdbfd4b1f625d4fcaa8432d3455e09f948f2594e"
+  },
+  {
+    "id": "traffic-light",
+    "url": "/assets/city-pack/traffic-light.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 5.337730888277292,
+      "h": 4.663855323791605,
+      "d": 1.9225988888877967
+    },
+    "tris": 1369,
+    "prims": 1,
+    "bytes": {
+      "raw": 63648,
+      "optimized": 14176
+    },
+    "hasTexture": true,
+    "contentHash": "8579e85df013de346a189937f19e7c7a04398fe9ae33a2179e00d42039eea3b3"
+  },
+  {
+    "id": "trash-bag-grey",
+    "url": "/assets/city-pack/trash-bag-grey.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 0.23650290071964264,
+      "h": 0.406647190451622,
+      "d": 0.24644529819488525
+    },
+    "tris": 182,
+    "prims": 1,
+    "bytes": {
+      "raw": 20368,
+      "optimized": 6184
+    },
+    "hasTexture": false,
+    "contentHash": "2969b3b80d05d4ddf8e728ca31cd0951fa48cf703e3be5a503c3dc79d0ca67b5"
+  },
+  {
+    "id": "trash-can",
+    "url": "/assets/city-pack/trash-can.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 3.147913932800293,
+      "h": 3.6266210079193115,
+      "d": 3.3099119663238525
+    },
+    "tris": 176,
+    "prims": 1,
+    "bytes": {
+      "raw": 11816,
+      "optimized": 4164
+    },
+    "hasTexture": false,
+    "contentHash": "71f075abf855c4af0e5ce0996b38836c6592f3c5642d291521d5dd7284240202"
+  },
+  {
+    "id": "tree",
+    "url": "/assets/city-pack/tree.glb",
+    "category": "vegetation",
+    "nativeDims": {
+      "w": 308.4095993041992,
+      "h": 509.0864562988281,
+      "d": 323.7375946044922
+    },
+    "tris": 157,
+    "prims": 1,
+    "bytes": {
+      "raw": 5396,
+      "optimized": 3688
+    },
+    "hasTexture": true,
+    "contentHash": "570c223c4f1778b139d5a58645cced5256444d0c9b690cbd8c720947037ed03b"
+  },
+  {
+    "id": "van",
+    "url": "/assets/city-pack/van.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 43.8890495300293,
+      "h": 34.32973050195142,
+      "d": 80.23063659667969
+    },
+    "tris": 1946,
+    "prims": 1,
+    "bytes": {
+      "raw": 44152,
+      "optimized": 16656
+    },
+    "hasTexture": true,
+    "contentHash": "aa0909bce3bf55a1f8cb6dd7ccee77cda3e246fc51441f316a1370bae08d231e"
+  },
+  {
+    "id": "washing-line",
+    "url": "/assets/city-pack/washing-line.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 1.4296692609786987,
+      "h": 2.29123024664688,
+      "d": 1.8149614617040495
+    },
+    "tris": 536,
+    "prims": 1,
+    "bytes": {
+      "raw": 39396,
+      "optimized": 10112
+    },
+    "hasTexture": true,
+    "contentHash": "a37dd02e09df13231172b91295a3c82cabc1cc0d9587a2055c8413651e83aa74"
+  },
+  {
+    "id": "yellow-post-it",
+    "url": "/assets/city-pack/yellow-post-it.glb",
+    "category": "prop",
+    "nativeDims": {
+      "w": 0.12041064351797104,
+      "h": 0.12003815919160843,
+      "d": 0.010104597080498934
+    },
+    "tris": 8,
+    "prims": 1,
+    "bytes": {
+      "raw": 2336,
+      "optimized": 2008
+    },
+    "hasTexture": false,
+    "contentHash": "f9eb8de1f7ec0e591a193b72d60b0ddceb8126fb4e86789bf1379b6ad410f226"
+  }
+]

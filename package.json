@@ -18,7 +18,11 @@
     "smoke": "playwright test",
     "check:shell": "node scripts/check-shell-size.mjs",
     "check:prerender": "node scripts/check-prerender.mjs",
-    "bench:chaos": "node scripts/bench-chaos.mjs"
+    "bench:chaos": "node scripts/bench-chaos.mjs",
+    "assets:pack": "node scripts/city-pack.mjs"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["sharp"]
   },
   "dependencies": {
     "@react-three/drei": "10.7.7",
@@ -35,6 +39,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@gltf-transform/core": "^4.4.1",
+    "@gltf-transform/extensions": "^4.4.1",
+    "@gltf-transform/functions": "^4.4.1",
     "@playwright/test": "^1.61.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -50,8 +57,10 @@
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.7.0",
     "jsdom": "^29.1.1",
+    "meshoptimizer": "^1.2.0",
     "prettier": "^3.9.5",
     "r3f-perf": "7.2.3",
+    "sharp": "^0.35.3",
     "typescript": "6.0.3",
     "typescript-eslint": "^8.64.0",
     "vite": "^8.1.4",

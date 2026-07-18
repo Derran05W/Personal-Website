@@ -724,6 +724,26 @@ export default function DevPanel() {
     [],
   );
 
+  // --- City Pack (P25.5): proof-of-render cluster + lit/unlit A/B ---------------------------
+  // Mounts world/toronto/cityPack/CityPackPreview.tsx near the Toronto spawn (needs the Toronto
+  // map on). `cityPackUnlit` flips the D8 material A/B — unlit-literal (default) vs the GLBs' real
+  // lit materials under BlueHourRig. Same leva-free devToggles seam as the Toronto map toggle.
+  useControls(
+    'City Pack (P25.5)',
+    () => ({
+      cityPackPreview: {
+        value: getDevToggles().cityPackPreview,
+        onChange: (value: boolean) => setDevToggle('cityPackPreview', value),
+      },
+      cityPackUnlit: {
+        value: getDevToggles().cityPackUnlit,
+        onChange: (value: boolean) => setDevToggle('cityPackUnlit', value),
+      },
+      note: { value: 'needs Toronto map on; unlit=basic+palette, lit=real GLB materials', disabled: true },
+    }),
+    [],
+  );
+
   // --- Audio folder: Phase 15 Task 4 sound-test board ---------------------------------------
   // registerAllEventSounds() is idempotent (audio/eventMap.ts) and cheap (no audio plays until
   // a button is actually clicked) — calling it here means this folder works standalone even

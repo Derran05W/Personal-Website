@@ -100,8 +100,15 @@ describe('CREDITS.tech — coverage vs package.json dependencies', () => {
 });
 
 describe('CREDITS.assets — honesty statement', () => {
-  it('states every model is procedural', () => {
+  it('states player-shipped models are procedural (still true post-25.5: the pack is dev-only)', () => {
     expect(CREDITS.assets.models.toLowerCase()).toContain('procedural');
+  });
+
+  it('acknowledges the Phase 25.5 asset pack rather than still claiming EVERY model is procedural', () => {
+    // Phase 25.5 (D13): a third-party GLB collection entered the pipeline behind a
+    // dev-only, default-off toggle — the old "every model is procedural" claim would now
+    // be false, so the statement must point the reader at the pack's own credit instead.
+    expect(CREDITS.assets.models.toLowerCase()).toMatch(/asset pack/);
   });
 
   it('states every sound is synthesized via Web Audio, and discloses howler is unused', () => {
@@ -116,6 +123,33 @@ describe('CREDITS.assets — honesty statement', () => {
     expect(fredoka).toBeDefined();
     expect(fredoka?.license).toMatch(/Open Font License/);
     expect(fredoka?.url).toMatch(/^https:\/\//);
+  });
+});
+
+describe('CREDITS.assetPacks — Phase 25.5 city-pack licence placeholder (D13)', () => {
+  it('has at least one entry (never silently empty — a pack in the pipeline always shows up here)', () => {
+    expect(CREDITS.assetPacks.length).toBeGreaterThan(0);
+  });
+
+  it('the city asset pack entry exists with a pending-user-confirmation status', () => {
+    const pack = CREDITS.assetPacks.find((p) => p.name.includes('City asset pack'));
+    expect(pack).toBeDefined();
+    expect(pack?.licenseStatus).toBe('pending-user-confirmation');
+  });
+
+  it('the pending entry explains the metadata gap and that a resolution is pending — surfaces the gap, never fails the battery on it', () => {
+    const pack = CREDITS.assetPacks.find((p) => p.licenseStatus === 'pending-user-confirmation');
+    expect(pack).toBeDefined();
+    const note = pack!.note.toLowerCase();
+    expect(note).toContain('licence pending');
+    expect(note).toMatch(/metadata/);
+  });
+
+  it('every assetPacks entry has a non-empty name and note', () => {
+    for (const pack of CREDITS.assetPacks) {
+      expect(pack.name.length).toBeGreaterThan(0);
+      expect(pack.note.length).toBeGreaterThan(0);
+    }
   });
 });
 

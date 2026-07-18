@@ -49,6 +49,16 @@ export interface DevToggles {
    * Default off — the legacy world is byte-identical when off (additive conditional only). A
    * dev-only seam; the real WORLD_SOURCE switch replaces it at the Phase 23 parity flip. */
   torontoMap: boolean;
+  /** Phase 25.5 dev tool: mount the city-pack proof-of-render cluster
+   * (world/toronto/cityPack/CityPackPreview.tsx) near the Toronto spawn. TorontoScene reads this
+   * and conditionally mounts the cluster. Default off — TorontoScene is byte-identical when off
+   * (additive conditional only). Meaningful only with `torontoMap` on. */
+  cityPackPreview: boolean;
+  /** Phase 25.5 (D8) A/B material arm for the city-pack preview: true → unlit-literal
+   * (MeshBasicMaterial + baked palette map, toneMapped=false); false → the GLBs' real lit
+   * materials under BlueHourRig. Default ON (the P23 unlit verdict is the prior, revisited by
+   * this phase's textured-asset A/B). No effect unless `cityPackPreview` is on. */
+  cityPackUnlit: boolean;
 }
 
 const toggles: DevToggles = {
@@ -59,6 +69,8 @@ const toggles: DevToggles = {
   aimViz: false,
   lightPoolViz: false,
   torontoMap: false,
+  cityPackPreview: false,
+  cityPackUnlit: true,
 };
 const listeners = new Set<() => void>();
 

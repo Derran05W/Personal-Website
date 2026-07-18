@@ -70,6 +70,8 @@ import { spawnPoseRef } from '../spawn';
 import { computeLookTarget, type Vec3 } from '../../fx/cameraRig';
 import { BlueHourRig } from '../BlueHourRig';
 import { RunLoopSystem } from '../../combat/runLoop';
+import { useDevToggle } from '../../core/devToggles';
+import { CityPackPreview } from './cityPack/CityPackPreview';
 import {
   GROUND_RECTS,
   SIGNPOSTS,
@@ -981,6 +983,12 @@ export function TorontoScene() {
   // remounts + reseeds the massing). Read the same way index.tsx does.
   const seed = useGameStore((s) => s.seed);
 
+  // Phase 25.5: city-pack proof-of-render cluster (dev-only, default off → this subtree renders
+  // nothing and TorontoScene is byte-identical to before). `cityPackUnlit` is the D8 material A/B
+  // arm. Reactive reads so a live toggle flip mounts the cluster / swaps its materials.
+  const cityPackPreview = useDevToggle('cityPackPreview');
+  const cityPackUnlit = useDevToggle('cityPackUnlit');
+
   // Street table + ribbons: pure, deterministic, built once.
   const ribbons = useMemo(() => buildRibbons(buildStreets().streets), []);
   const groundGeometry = useMemo(() => buildGroundGeometry(), []);
@@ -1278,6 +1286,11 @@ export function TorontoScene() {
       {SIGNPOSTS.map((s) => (
         <SignBoard key={s.id} label={s.label} x={s.x} z={s.y} />
       ))}
+
+      {/* Phase 25.5 city-pack proof-of-render (dev-only; default off = nothing rendered). Streams
+          optimized GLBs through the real loader (assets/cityPack.ts), instances them (1 draw call
+          per model type), and judges the D8 lit/unlit material A/B under the BlueHourRig above. */}
+      {cityPackPreview ? <CityPackPreview unlit={cityPackUnlit} /> : null}
     </>
   );
 }

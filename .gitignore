@@ -18,3 +18,15 @@ test-results/
 .env.*
 .DS_Store
 .claude/settings.local.json
+
+# Phase 25.5: raw asset-pack downloads at the repo root. These are the USER's local source
+# material — scripts/city-pack.mjs reads "City Pack.undefined-glb/" and normalizes/optimizes
+# it into the committed assets/city-pack/ + public/assets/city-pack/ directories (D1), so the
+# raw download itself never needs to be committed (and at 5.6 MB zipped / 244 MB for the
+# MegaKit, shouldn't be). "Downtown City MegaKit[Standard]" arrived mid-planning and is
+# EXPLICITLY NOT ingested this phase (see phase-25.5-plan.md roadmap flag 4) — gitignored so
+# its 244 MB never lands in git regardless of when/whether it's adopted later.
+/City Pack.undefined-glb/
+/City Pack.undefined-glb.zip
+/Downtown City MegaKit\[Standard\]/
+/Downtown City MegaKit\[Standard\].zip
