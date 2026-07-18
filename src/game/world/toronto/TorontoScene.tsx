@@ -40,9 +40,11 @@ import { CAMERA_CLAMP_PADDING_WU, clampToPolygon } from './polygon';
 import { ROAD_CLASSES, ROAD_EDGE } from '../../config/torontoMap';
 import { buildStreets } from './streets';
 import { buildRibbons, type Ribbon } from './roadGraph';
+import { buildDistricts } from './districts';
+import { buildMassing } from './massing';
 import { createFoldTrigger, type FoldTrigger } from './tunnel';
 import { gameEvents } from '../../state/events';
-import { getGameState } from '../../state/store';
+import { getGameState, useGameStore } from '../../state/store';
 import { playerVehicle } from '../../vehicles/playerRef';
 import { spawnPoseRef } from '../spawn';
 import { computeLookTarget, type Vec3 } from '../../fx/cameraRig';
@@ -58,6 +60,7 @@ import {
 
 // --- layout constants (visual-only y offsets; physics uses the collider slab below) ---------
 const GROUND_Y = 0; // merged ground quads at the collider top face
+const GROUND_TINT_Y = 0.008; // district groundTint quads, just above the base ground, below roads
 const ROAD_Y = 0.02; // ribbons a hair above ground (§ plan) — no z-fight
 const WATER_Y = 0.05; // lake plane above the ribbons
 const GROUND_HALF_THICK = BOUNDARY.groundThicknessM / 2; // slab extends downward only; top at y=0
@@ -75,6 +78,8 @@ const POST_COLOR = '#6b7280';
 
 const GROUND_GROUPS = interactionGroups('GROUND');
 const WATER_GROUPS = interactionGroups('WATER');
+// Phase 23: filler massing colliders are indestructible fixed buildings (locked decision).
+const BUILDING_GROUPS = interactionGroups('BUILDING');
 
 // The lake band's world box, computed once (rectWorldBox is pure).
 const WATER_BOX = rectWorldBox(WATER_RECT);
@@ -108,6 +113,32 @@ function buildGroundGeometry(): BufferGeometry {
   const g = new BufferGeometry();
   g.setAttribute('position', new Float32BufferAttribute(positions, 3));
   g.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+  g.computeBoundingSphere();
+  return g;
+}
+
+/** Merged district groundTint quads (Phase 23), one per resolved district rect, per-vertex
+ * coloured (single draw call). Sits just above the base ground and below the road ribbons, so
+ * each block gets its §6 tint while roads still paint on top. Rendered LIT (MeshLambertMaterial
+ * vertexColors) so filler-building shadows land on it — the P22 anomaly was Standard-specific;
+ * the legacy world lights Lambert fine (see the live-pass note on the mesh below). */
+function buildGroundTintGeometry(): BufferGeometry {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const colors: number[] = [];
+  const c = new Color();
+  for (const { def, rects } of buildDistricts()) {
+    c.set(def.groundTint);
+    for (const rect of rects) {
+      // rect is map space; mapToWorld is the identity swap, so min/max X,Y ARE world x/z.
+      pushQuad(positions, normals, rect.minX, rect.minY, rect.maxX, rect.maxY, GROUND_TINT_Y);
+      for (let i = 0; i < 6; i++) colors.push(c.r, c.g, c.b);
+    }
+  }
+  const g = new BufferGeometry();
+  g.setAttribute('position', new Float32BufferAttribute(positions, 3));
+  g.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+  g.setAttribute('color', new Float32BufferAttribute(colors, 3));
   g.computeBoundingSphere();
   return g;
 }
@@ -200,12 +231,43 @@ function SignBoard({ label, x, z }: { label: string; x: number; z: number }) {
 }
 
 export function TorontoScene() {
+  // The store world seed (index.tsx keys this whole subtree on it, so "New city" in the garage
+  // remounts + reseeds the massing). Read the same way index.tsx does.
+  const seed = useGameStore((s) => s.seed);
+
   // Street table + ribbons: pure, deterministic, built once.
   const ribbons = useMemo(() => buildRibbons(buildStreets().streets), []);
   const groundGeometry = useMemo(() => buildGroundGeometry(), []);
   useEffect(() => () => groundGeometry.dispose(), [groundGeometry]);
+  const tintGeometry = useMemo(() => buildGroundTintGeometry(), []);
+  useEffect(() => () => tintGeometry.dispose(), [tintGeometry]);
   const roadGeometry = useMemo(() => buildRibbonGeometry(ribbons), [ribbons]);
   useEffect(() => () => roadGeometry.dispose(), [roadGeometry]);
+
+  // Phase 23 filler massing: seeded extruded coloured boxes (§6 stock, §3c heights) — the
+  // downtown-at-a-glance look. One InstancedMesh (per-instance matrix + colour) + one fixed
+  // RigidBody of BUILDING colliders. Deterministic per seed, memoized so a re-render never
+  // rebuilds the ~700 boxes.
+  const massing = useMemo(() => buildMassing(seed), [seed]);
+  const buildingsRef = useRef<InstancedMesh>(null);
+  useEffect(() => {
+    const mesh = buildingsRef.current;
+    if (!mesh) return;
+    const dummy = new Object3D();
+    const color = new Color();
+    massing.instances.forEach((inst, i) => {
+      dummy.position.set(inst.x, inst.hy, inst.z); // box floor at y=0, centre at half-height
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(inst.hx * 2, inst.hy * 2, inst.hz * 2);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+      color.set(inst.color);
+      mesh.setColorAt(i, color);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.computeBoundingSphere();
+  }, [massing]);
 
   // Publish this slice's spawn pose so devPanel's "teleport reset" (and the fell-out net below)
   // send the car back to Finch, not the legacy map centre — the Toronto equivalent of
@@ -298,17 +360,22 @@ export function TorontoScene() {
           not mounted in this branch). */}
       <RunLoopSystem />
 
-      {/* Ground: merged flat mesh + fixed GROUND colliders (top face at y=0).
-          Emissive lift (Phase 22 live pass): the legacy world reads at blue hour because
-          lit BUILDING walls + emissive windows fill the frame — this slice is an empty
-          plane until Phase 23's massing, so without a self-lit floor the whole drive
-          renders near-black. Re-balance when massing lands. */}
-      <mesh geometry={groundGeometry} frustumCulled={false} receiveShadow>
-        {/* Unlit-literal (like the ribbons): the live pass found standard-material output
-            anomalously crushed to black on this scene regardless of emissive — the legacy
-            world's look comes from its palette pipeline, which Phase 23 will bring over.
-            Until then the dev slice renders its exact authored colours. */}
+      {/* Base ground: merged flat mesh (uncovered fallback under the district tints) + fixed
+          GROUND colliders (top face at y=0). Kept UNLIT (like the ribbons) — the district
+          tints above cover ~95% of the drivable area; this only shows in the fold notches /
+          polygon slivers the tint quads don't reach, where a neutral dark reads as shadow. */}
+      <mesh geometry={groundGeometry} frustumCulled={false}>
         <meshBasicMaterial color={GROUND_COLOR} toneMapped={false} />
+      </mesh>
+      {/* District ground tints (Phase 23, §6): one vertex-coloured quad per resolved district
+          rect. A/B RESULT (this session's live pass): a LIT MeshLambertMaterial crushed the
+          ground to near-black — not the P22 Standard anomaly but plain Lambert physics, a flat
+          +Y plane catches the low blue-hour sun at a grazing angle (N·L ≈ 0). So the ground
+          falls back to UNLIT-literal (meshBasicMaterial vertexColors toneMapped={false}), the
+          same mitigation the roads/curbs/dashes (and, this session, the buildings) use — the
+          authored §6 tint hex IS the on-screen colour. */}
+      <mesh geometry={tintGeometry} frustumCulled={false}>
+        <meshBasicMaterial vertexColors toneMapped={false} />
       </mesh>
       <RigidBody type="fixed" colliders={false} collisionGroups={GROUND_GROUPS}>
         {GROUND_RECTS.map((rect, i) => {
@@ -321,6 +388,39 @@ export function TorontoScene() {
             />
           );
         })}
+      </RigidBody>
+
+      {/* Filler massing (Phase 23): the seeded box-city. ONE InstancedMesh (per-instance matrix
+          + colour, single draw call). A/B RESULT (this session's live pass): a LIT
+          MeshLambertMaterial — the plan's first choice — crushed the boxes to near-black in the
+          headless renderer, the SAME way the P22 note reported for Standard materials (the legacy
+          world only reads because its EMISSIVE windows carry it; our filler has none until Phase
+          24). Swapping to UNLIT-literal (meshBasicMaterial + instanceColor, toneMapped={false})
+          — the exact mitigation the roads/ground already use — makes the authored §6 stock colours
+          the on-screen colours: the saturated/pale districts (North York glass-green, Yorkville
+          limestone, Harbourfront blue, storefront greys) read clearly as buildings, while the
+          near-black glass stock (Financial) stays an authored-dark silhouette. Phase 24 brings the
+          real lit palette + emissive-window pipeline; a real-GPU check of lit Lambert is owed to
+          the user (the standing P22 item). castShadow stays so Phase 24's lit ground receives the
+          skyline's dusk shadows the moment the materials flip back. */}
+      {massing.instances.length > 0 ? (
+        <instancedMesh
+          ref={buildingsRef}
+          args={[undefined, undefined, massing.instances.length]}
+          castShadow
+          frustumCulled={false}
+        >
+          <boxGeometry args={[1, 1, 1]} />
+          <meshBasicMaterial toneMapped={false} />
+        </instancedMesh>
+      ) : null}
+      {/* Indestructible fixed BUILDING colliders — one CuboidCollider per box, grouped under a
+          single fixed RigidBody exactly like world/CityColliders.tsx. No registry entries this
+          slice (no combat on the Toronto branch yet — plan Task 2/3). */}
+      <RigidBody type="fixed" colliders={false} collisionGroups={BUILDING_GROUPS}>
+        {massing.colliders.map((c, i) => (
+          <CuboidCollider key={i} args={[c.hx, c.hy, c.hz]} position={[c.x, c.y, c.z]} />
+        ))}
       </RigidBody>
 
       {/* Roads: one merged per-class vertex-coloured ribbon mesh. UNLIT (basic material):
