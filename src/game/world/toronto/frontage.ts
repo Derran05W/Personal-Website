@@ -20,7 +20,7 @@
 // DISTRICT-ORDERED RANGES (CLAUDE.md sacred convention): slots are grouped by district in config
 // order with recorded [start,count] ranges — the blackout-address a future powergrid write pokes.
 
-import { colliderHalfExtents, resolveCityPackScale, type ColliderHalfExtents } from '../../config/cityPackScale';
+import { colliderHalfExtents, type ColliderHalfExtents } from '../../config/cityPackScale';
 import { BACKDROP_TOWER, FRONTAGE } from '../../config/torontoDress';
 import {
   TORONTO_DISTRICTS,
@@ -423,11 +423,3 @@ function buildRanges(slots: readonly FrontageSlot[]): readonly DistrictRange[] {
 export function slotsForModel(layout: FrontageLayout, modelId: string): readonly FrontageSlot[] {
   return layout.slots.filter((s) => s.modelId === modelId);
 }
-
-/** Every city-pack model id the frontage layer needs preloaded (buildings only). */
-export function frontageModelIds(layout: FrontageLayout): readonly string[] {
-  return layout.modelIds;
-}
-
-// Re-export so the mounting task can size colliders without a second cityPackScale import.
-export { colliderHalfExtents, resolveCityPackScale };
