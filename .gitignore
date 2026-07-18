@@ -17,3 +17,4 @@ test-results/
 .env
 .env.*
 .DS_Store
+.claude/settings.local.json
