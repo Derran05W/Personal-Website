@@ -42,6 +42,7 @@ import { getParticleStats, type ParticleStats } from '../fx/particles';
 import { getDrivingInput, isCoarsePointer, isTouchModeActive } from '../input';
 import { landmarkTeleportPoints } from '../world/landmarkGen';
 import { streetcarRef } from '../ai/streetcarTypes';
+import { occlusionFader } from '../world/toronto/occlusionFade';
 import { worldRef } from '../world/worldRef';
 import { getReducedShake } from '../state/store';
 
@@ -522,6 +523,11 @@ declare global {
       /** Phase 19: live streetcar roster snapshot (state/pose per slot) — scripted proof the
        * avenue loop runs without watching pixels. Empty when no mount/roster is live. */
       streetcarSlots: () => { state: string | null; x: number; z: number }[];
+      /** Phase 25: lowest occludable opacity right now (1 = nothing fading). A scripted check
+       * teleports the car behind a named tower / hero and reads this < 1 to prove the camera→car
+       * occlusion raycast + fade (A.5) is live — the tight §5.3 camera setback makes a dramatic
+       * see-through screenshot geometrically impossible, so this is the headless proof. */
+      occlusionMinOpacity: () => number;
     };
   }
 }
@@ -646,4 +652,5 @@ window.__smashy = {
     (streetcarRef.current?.slots ?? []).map((s) => ({ state: s.state, x: s.x, z: s.z })),
   setReducedShake: (value) => getGameState().setReducedShake(value),
   getReducedShake,
+  occlusionMinOpacity: () => occlusionFader.minOpacity(),
 };

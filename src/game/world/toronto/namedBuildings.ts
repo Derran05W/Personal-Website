@@ -144,6 +144,27 @@ interface PodiumSpec {
   readonly material: string;
 }
 
+/**
+ * FLUSH-FRONTAGE (Phase 25, the P24 parting-recommendation debt): snap a building's primary
+ * facade to `gap` wu off a reference street's RIBBON EDGE so it fills the frame on drive-past
+ * (the single best §10.3 drive-by read available without touching the locked §5.3 camera). Only
+ * the perpendicular coordinate is overridden; the along-street coordinate stays whatever the
+ * author's `center()` chose (its cross-street stacking, unchanged from P24 → cross-street
+ * clearance is preserved by construction). `axis` is the axis the flush MOVES the building along:
+ *   • axis 'x' for a N-S reference street (Bay/Yonge/Spadina): side 'lo' hugs the WEST ribbon
+ *     edge (building west of the street), 'hi' the EAST edge;
+ *   • axis 'z' for an E-W reference street (Front): 'lo' hugs the NORTH edge, 'hi' the SOUTH edge.
+ */
+interface Frontage {
+  readonly ref: string;
+  readonly axis: 'x' | 'z';
+  readonly side: 'lo' | 'hi';
+  readonly gap?: number;
+}
+
+/** Default facade-to-ribbon-edge gap (wu) — inside the §5 "2–4 wu" band, > the 1 wu road margin. */
+const FLUSH_GAP_WU = 3;
+
 interface Author {
   readonly id: string;
   /** Centre (map x, z) as a function of the street-centreline lookup. */
@@ -154,6 +175,8 @@ interface Author {
   readonly decalBrand?: LogoBrand;
   readonly twin?: TwinSpec;
   readonly podium?: PodiumSpec;
+  /** Phase 25 flush-frontage: hug this street's ribbon edge (perpendicular axis only). */
+  readonly frontage?: Frontage;
 }
 
 /** Midpoint of two street centrelines. */
@@ -166,20 +189,32 @@ const NYC_Y = NYC_ANCHOR ? TORONTO_PROJECTION.project({ lat: NYC_ANCHOR.lat, lon
 const AUTHORS: readonly Author[] = [
   // --- Financial cluster around King (y) × Bay (x): a Bay-Street canyon of bank towers -------
   // West side of Bay, stacked S→N: TD (S of King) · Scotia (N of King) · FCP (N of Adelaide).
-  { id: 'td-bank-tower', center: (c) => ({ x: c('bay') - 36, z: c('king') + 35 }), shape: 'square', decalBrand: 'td' },
-  { id: 'scotia-plaza', center: (c) => ({ x: c('bay') - 36, z: c('king') - 37 }), shape: 'square', decalBrand: 'scotiabank' },
-  { id: 'first-canadian-place', center: (c) => ({ x: c('bay') - 36, z: c('adelaide') - 34 }), shape: 'square', decalBrand: 'bmo' },
+  // Phase 25: all six flush their Bay-facing facade to the Bay ribbon edge — the King & Bay
+  // canyon is the primary money shot, so the towers wall the street rather than sit back in
+  // their blocks. West three hug Bay's WEST edge, east three its EAST edge (Bay ribbon between
+  // them keeps the two rows apart; their differing cross-street z keeps each row's towers apart).
+  { id: 'td-bank-tower', center: (c) => ({ x: c('bay') - 36, z: c('king') + 35 }), shape: 'square', decalBrand: 'td', frontage: { ref: 'bay', axis: 'x', side: 'lo' } },
+  { id: 'scotia-plaza', center: (c) => ({ x: c('bay') - 36, z: c('king') - 37 }), shape: 'square', decalBrand: 'scotiabank', frontage: { ref: 'bay', axis: 'x', side: 'lo' } },
+  { id: 'first-canadian-place', center: (c) => ({ x: c('bay') - 36, z: c('adelaide') - 34 }), shape: 'square', decalBrand: 'bmo', frontage: { ref: 'bay', axis: 'x', side: 'lo' } },
   // East side of Bay: Commerce Court W (N of King) · RBC (at Front) · CIBC Square (S of Front).
-  { id: 'commerce-court-west', center: (c) => ({ x: c('bay') + 32, z: c('king') - 37 }), shape: 'square', decalBrand: 'cibc' },
-  { id: 'royal-bank-plaza', center: (c) => ({ x: c('bay') + 34, z: c('front') - 39 }), shape: 'square', decalBrand: 'rbc' },
-  { id: 'cibc-square', center: (c) => ({ x: c('bay') + 50, z: c('front') + 41 }), shape: 'square', decalBrand: 'cibc' },
-  // Fairmont Royal York: the wide limestone block N of Front, W of York/Bay.
-  { id: 'fairmont-royal-york', center: (c) => ({ x: c('bay') - 90, z: c('front') - 44 }), shape: 'square' },
+  // Commerce sits north of York St's span, so it hugs Bay's east edge cleanly. RBC + CIBC Square
+  // sit within York's span, and the Bay/York proxy artifact overlaps their ribbons (York's east
+  // edge is ~7 wu east of Bay's), so they hug YORK's east edge instead — the true outer wall of
+  // the combined Bay/York corridor — which keeps them clear of both ribbons while still flush.
+  { id: 'commerce-court-west', center: (c) => ({ x: c('bay') + 32, z: c('king') - 37 }), shape: 'square', decalBrand: 'cibc', frontage: { ref: 'bay', axis: 'x', side: 'hi' } },
+  { id: 'royal-bank-plaza', center: (c) => ({ x: c('bay') + 34, z: c('front') - 39 }), shape: 'square', decalBrand: 'rbc', frontage: { ref: 'york', axis: 'x', side: 'hi' } },
+  { id: 'cibc-square', center: (c) => ({ x: c('bay') + 50, z: c('front') + 41 }), shape: 'square', decalBrand: 'cibc', frontage: { ref: 'york', axis: 'x', side: 'hi' } },
+  // Fairmont Royal York: the wide limestone block N of Front, W of York/Bay. Flush its south
+  // facade to Front's north edge (it keeps its far-west x, so no bank-cluster collision).
+  { id: 'fairmont-royal-york', center: (c) => ({ x: c('bay') - 90, z: c('front') - 44 }), shape: 'square', frontage: { ref: 'front', axis: 'z', side: 'lo' } },
   // Union Station: shallow limestone colonnade S of Front. The Bay/York centrelines are ~12.5 wu
   // apart on this map (the documented Bay/York proxy artifact — a 74-wu box can't straddle them
   // without crossing a ribbon), so it hugs Front's south edge extending WEST from the Bay corner.
-  { id: 'union-station', center: (c) => ({ x: c('bay') - 54, z: c('front') + 51 }), shape: 'longX', shallowHalf: 6 },
+  { id: 'union-station', center: (c) => ({ x: c('bay') - 54, z: c('front') + 51 }), shape: 'longX', shallowHalf: 6, frontage: { ref: 'front', axis: 'z', side: 'hi' } },
   // --- West downtown -------------------------------------------------------------------------
+  // The Well keeps its P24 placement: its red-brick podium sits 32 wu east of the tower, and any
+  // flush toward Front/Spadina would drive the podium onto a ribbon — and it is off the primary
+  // drive-by corridors, so the frame-fill payoff is marginal. Documented exception (P25 notes).
   {
     id: 'the-well',
     center: (c) => ({ x: c('spadina') + 57, z: c('front') - 44 }),
@@ -192,12 +227,13 @@ const AUTHORS: readonly Author[] = [
     center: (c) => ({ x: c('yonge') - 28, z: mid(c('queen'), c('dundas')) }),
     shape: 'longZ',
     shallowHalf: 7,
+    frontage: { ref: 'yonge', axis: 'x', side: 'lo' },
   },
-  { id: 'aura', center: (c) => ({ x: c('yonge') + 35, z: mid(c('college'), c('dundas')) }), shape: 'square' },
-  // --- North York (Yonge × Sheppard twins; Civic Centre) ------------------------------------
-  { id: 'hullmark', center: (c) => ({ x: c('yonge') + 40, z: c('sheppard') - 46 }), shape: 'square', twin: { dx: 26, dz: -22, floors: 37 } },
-  { id: 'emerald-park', center: (c) => ({ x: c('yonge') - 38, z: c('sheppard') + 44 }), shape: 'square', twin: { dx: -26, dz: 24, floors: 32 } },
-  { id: 'north-york-civic-centre', center: (c) => ({ x: c('yonge') + 37, z: NYC_Y }), shape: 'square' },
+  { id: 'aura', center: (c) => ({ x: c('yonge') + 35, z: mid(c('college'), c('dundas')) }), shape: 'square', frontage: { ref: 'yonge', axis: 'x', side: 'hi' } },
+  // --- North York (Yonge × Sheppard twins; Civic Centre) — flush their main tower to Yonge ----
+  { id: 'hullmark', center: (c) => ({ x: c('yonge') + 40, z: c('sheppard') - 46 }), shape: 'square', twin: { dx: 26, dz: -22, floors: 37 }, frontage: { ref: 'yonge', axis: 'x', side: 'hi' } },
+  { id: 'emerald-park', center: (c) => ({ x: c('yonge') - 38, z: c('sheppard') + 44 }), shape: 'square', twin: { dx: -26, dz: 24, floors: 32 }, frontage: { ref: 'yonge', axis: 'x', side: 'lo' } },
+  { id: 'north-york-civic-centre', center: (c) => ({ x: c('yonge') + 37, z: NYC_Y }), shape: 'square', frontage: { ref: 'yonge', axis: 'x', side: 'hi' } },
 ];
 
 // --- builders ------------------------------------------------------------------------------
@@ -267,21 +303,37 @@ export function buildNamedBuildings(): NamedBuildings {
     const { x, z } = a.center(c);
     const { hx, hz } = halfExtents(a.shape, s.footprint_wu, a.shallowHalf);
     const look = lookForMaterial(s.material);
-    const mainBox: NamedBox = { cx: x, cz: z, hx, hy: hGame(s.real_h_m) / 2, hz, look };
+
+    // Flush-frontage (Phase 25): override the perpendicular coordinate so the primary facade sits
+    // `gap` wu off the reference street's ribbon edge; the along-street coordinate stays as authored.
+    let cx = x;
+    let cz = z;
+    if (a.frontage) {
+      const st = byId.get(a.frontage.ref);
+      if (!st) throw new Error(`namedBuildings: ${a.id} frontage ref "${a.frontage.ref}" not in the street table`);
+      const gap = a.frontage.gap ?? FLUSH_GAP_WU;
+      if (a.frontage.axis === 'x') {
+        cx = a.frontage.side === 'lo' ? st.ribbon.minX - gap - hx : st.ribbon.maxX + gap + hx;
+      } else {
+        cz = a.frontage.side === 'lo' ? st.ribbon.minY - gap - hz : st.ribbon.maxY + gap + hz;
+      }
+    }
+
+    const mainBox: NamedBox = { cx, cz, hx, hy: hGame(s.real_h_m) / 2, hz, look };
     const boxes: NamedBox[] = [mainBox];
 
     // Twin secondary tower (Hullmark / Emerald): height by floor ratio off the main.
     if (a.twin) {
       if (s.floors === null) throw new Error(`namedBuildings: twin "${a.id}" needs a main floor count`);
       const secRealM = s.real_h_m * (a.twin.floors / s.floors);
-      boxes.push({ cx: x + a.twin.dx, cz: z + a.twin.dz, hx, hy: hGame(secRealM) / 2, hz, look });
+      boxes.push({ cx: cx + a.twin.dx, cz: cz + a.twin.dz, hx, hy: hGame(secRealM) / 2, hz, look });
     }
 
     // Podium (The Well): a lower, differently-materialed box.
     if (a.podium) {
       boxes.push({
-        cx: x + a.podium.dx,
-        cz: z + a.podium.dz,
+        cx: cx + a.podium.dx,
+        cz: cz + a.podium.dz,
         hx: a.podium.w / 2,
         hy: hGame(a.podium.realM) / 2,
         hz: a.podium.d / 2,

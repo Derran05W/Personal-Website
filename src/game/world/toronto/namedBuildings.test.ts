@@ -228,6 +228,43 @@ describe('buildNamedBuildings — placement set vs the spec file', () => {
   });
 });
 
+describe('buildNamedBuildings — flush-frontage pass (Phase 25)', () => {
+  // The six bank towers + Aura + Eaton front the primary drive-by corridors (King & Bay canyon,
+  // Yonge spine), so their main facade must sit within a few wu of a road ribbon edge to fill the
+  // frame on drive-past (§10.3 read, phase-24 debt). We assert ≤ 5 wu (the flush pass targets 3).
+  const FLUSH_IDS = [
+    'td-bank-tower',
+    'scotia-plaza',
+    'first-canadian-place',
+    'commerce-court-west',
+    'royal-bank-plaza',
+    'cibc-square',
+    'aura',
+    'eaton-centre-galleria',
+  ];
+
+  /** Min AABB separation (0 if touching/overlapping); flush buildings never overlap a ribbon, so
+   * this is the facade-to-ribbon-edge gap along the flushed axis. */
+  function aabbGap(a: Aabb, b: Aabb): number {
+    const dx = Math.max(0, a.minX - b.maxX, b.minX - a.maxX);
+    const dz = Math.max(0, a.minZ - b.maxZ, b.minZ - a.maxZ);
+    return Math.hypot(dx, dz);
+  }
+
+  it('the main facade of each corridor tower is ≤ 5 wu from the nearest ribbon edge', () => {
+    const ribbons = buildRibbons(buildStreets().streets).map(
+      (r): Aabb => ({ minX: r.minX, maxX: r.maxX, minZ: r.minZ, maxZ: r.maxZ }),
+    );
+    for (const id of FLUSH_IDS) {
+      const p = named.placements.find((q) => q.id === id);
+      expect(p, id).toBeDefined();
+      const box = boxAabb(p!.boxes[0]);
+      const nearest = Math.min(...ribbons.map((r) => aabbGap(box, r)));
+      expect(nearest, `${id} facade-to-ribbon gap`).toBeLessThanOrEqual(5);
+    }
+  });
+});
+
 describe('buildNamedBuildings — hero lots + exclusions', () => {
   it('both hero lots sit wholly inside the polygon', () => {
     for (const lot of named.heroLots) {

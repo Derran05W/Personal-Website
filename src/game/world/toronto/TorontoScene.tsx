@@ -23,17 +23,20 @@
 
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { CuboidCollider, RigidBody, useAfterPhysicsStep } from '@react-three/rapier';
+import { CuboidCollider, CylinderCollider, RigidBody, useAfterPhysicsStep } from '@react-three/rapier';
 import {
   BufferGeometry,
   CanvasTexture,
   Color,
   DoubleSide,
   Float32BufferAttribute,
+  Mesh,
   NearestFilter,
   Object3D,
   PlaneGeometry,
+  Raycaster,
   SRGBColorSpace,
+  Vector3,
   type InstancedMesh,
   type PerspectiveCamera,
 } from 'three';
@@ -45,7 +48,9 @@ import { buildStreets } from './streets';
 import { buildRibbons, type Ribbon } from './roadGraph';
 import { buildDistricts } from './districts';
 import { buildMassing } from './massing';
-import { buildNamedBuildings, type CrownDecal, type NamedBox, type NamedPlacement } from './namedBuildings';
+import { HERO_LOTS, buildNamedBuildings, type CrownDecal, type NamedBox, type NamedPlacement } from './namedBuildings';
+import { buildCnTowerGeometry, buildRogersGeometry } from './heroes';
+import { needsTransparent, occlusionFader, occlusionRegistry } from './occlusionFade';
 import { getLogoAtlas, logoCellUv } from './logoAtlas';
 import { createRng } from '../rng';
 import { createFoldTrigger, type FoldTrigger } from './tunnel';
@@ -92,6 +97,22 @@ const WATER_BOX = rectWorldBox(WATER_RECT);
 
 // Reused camera-clamp look-target scratch (hot path — no per-frame alloc, cameraRig discipline).
 const lookScratch: Vec3 = { x: 0, y: 0, z: 0 };
+
+/** Apply the occlusion fade to one material: opacity + `transparent` only WHILE fading (a fully
+ * opaque surface stays in the cheap no-sort opaque pass). Structural type — every three Material
+ * carries opacity/transparent, so no Material import is needed. */
+function applyFade(material: { opacity: number; transparent: boolean }, opacity: number, transparent: boolean): void {
+  material.opacity = opacity;
+  material.transparent = transparent;
+}
+
+// Occlusion-fade hot-path scratch (module-level, mutated in-place in useFrame — same no-per-frame-
+// alloc discipline as lookScratch; the fader singleton lives in occlusionFade.ts so debugBridge can
+// read its minOpacity()).
+const occlusionRay = new Raycaster();
+const occlusionDir = new Vector3();
+const occlusionHitKeys = new Set<string>();
+const occlusionKeyList: string[] = [];
 
 /** Two-triangle +Y quad (world XZ) at height `y`, appended to positions/normals. Winding matches
  * world/CityScape.tsx's buildTileQuadGeometry (verified +Y face normal there). */
@@ -385,12 +406,29 @@ function NamedBuildingsLayer({ placements }: { placements: readonly NamedPlaceme
   );
   useEffect(() => () => decals.forEach((d) => d.geometry.dispose()), [decals]);
 
+  // Register every box mesh as an occludable (Phase 25, A.5): the camera→car ray fades any of
+  // these that stands between the camera and the player so the car is never fully hidden.
+  const boxMeshRefs = useRef<(Mesh | null)[]>([]);
+  useEffect(() => {
+    const meshes = boxMeshRefs.current.filter((m): m is Mesh => m !== null);
+    meshes.forEach((m) => occlusionRegistry.add(m));
+    return () => meshes.forEach((m) => occlusionRegistry.remove(m));
+  }, [boxes]);
+
   return (
     <>
       {/* Named building boxes — one mesh each (unique facade texture), UNLIT-literal like the
           filler massing, castShadow so P24's lit ground receives the skyline shadows later. */}
       {boxes.map(({ box, key }, i) => (
-        <mesh key={key} position={[box.cx, box.hy, box.cz]} castShadow frustumCulled={false}>
+        <mesh
+          key={key}
+          ref={(m) => {
+            boxMeshRefs.current[i] = m;
+          }}
+          position={[box.cx, box.hy, box.cz]}
+          castShadow
+          frustumCulled={false}
+        >
           <boxGeometry args={[box.hx * 2, box.hy * 2, box.hz * 2]} />
           <meshBasicMaterial map={textures[i]} toneMapped={false} />
         </mesh>
@@ -408,6 +446,65 @@ function NamedBuildingsLayer({ placements }: { placements: readonly NamedPlaceme
         {boxes.map(({ box, key }) => (
           <CuboidCollider key={key} args={[box.hx, box.hy, box.hz]} position={[box.cx, box.hy, box.cz]} />
         ))}
+      </RigidBody>
+    </>
+  );
+}
+
+/** Centre of a hero lot (map space = world XZ; mapToWorld is the identity swap). */
+function lotCenter(lot: (typeof HERO_LOTS)[number]): { x: number; z: number } {
+  return { x: (lot.minX + lot.maxX) / 2, z: (lot.minY + lot.maxY) / 2 };
+}
+
+/**
+ * The Phase-25 hero layer: the CN Tower + Rogers Centre primitive meshes (world/toronto/heroes.ts)
+ * dropped on the reserved rail-lands lots. Each is ONE vertex-coloured unlit mesh (single draw
+ * call; the baked directional shade + emissive pod ring do the dimensional read — same UNLIT-
+ * literal slice as every other Toronto surface). Colliders per §5: CN = one base cylinder over the
+ * leg zone (~10.5 wu radius), Rogers = a ring-base cylinder (~33 wu radius), both BUILDING group.
+ * Both meshes register as occludables so the camera→car fade (A.5) can see through them.
+ */
+function HeroesLayer() {
+  const cn = useMemo(() => buildCnTowerGeometry(), []);
+  const rogers = useMemo(() => buildRogersGeometry(), []);
+  useEffect(
+    () => () => {
+      cn.geometry.dispose();
+      rogers.geometry.dispose();
+    },
+    [cn, rogers],
+  );
+
+  const cnAt = lotCenter(HERO_LOTS[0]); // CN Tower ≈ (950, 3390)
+  const rgAt = lotCenter(HERO_LOTS[1]); // Rogers Centre ≈ (860, 3450)
+
+  const cnRef = useRef<Mesh>(null);
+  const rgRef = useRef<Mesh>(null);
+  useEffect(() => {
+    const meshes = [cnRef.current, rgRef.current].filter((m): m is Mesh => m !== null);
+    meshes.forEach((m) => occlusionRegistry.add(m));
+    return () => meshes.forEach((m) => occlusionRegistry.remove(m));
+  }, []);
+
+  return (
+    <>
+      <mesh ref={cnRef} geometry={cn.geometry} position={[cnAt.x, 0, cnAt.z]} castShadow frustumCulled={false}>
+        <meshBasicMaterial vertexColors toneMapped={false} />
+      </mesh>
+      <mesh ref={rgRef} geometry={rogers.geometry} position={[rgAt.x, 0, rgAt.z]} castShadow frustumCulled={false}>
+        <meshBasicMaterial vertexColors toneMapped={false} />
+      </mesh>
+      {/* Base-cylinder colliders (§5 precedent from the P19 legacy tower): CN over the leg zone,
+          Rogers a ring-base wall the car crashes into. Indestructible fixed BUILDING bodies. */}
+      <RigidBody type="fixed" colliders={false} collisionGroups={BUILDING_GROUPS}>
+        <CylinderCollider
+          args={[cn.meta.collider.halfHeight, cn.meta.collider.radius]}
+          position={[cnAt.x, cn.meta.collider.centerY, cnAt.z]}
+        />
+        <CylinderCollider
+          args={[rogers.meta.collider.halfHeight, rogers.meta.collider.radius]}
+          position={[rgAt.x, rogers.meta.collider.centerY, rgAt.z]}
+        />
       </RigidBody>
     </>
   );
@@ -504,6 +601,46 @@ export function TorontoScene() {
     const model = playerVehicle.current;
     if (model && model.readState().rawPose.position.y < BOUNDARY.fellOutResetY) {
       model.reset(spawnPoseRef.current);
+    }
+  });
+
+  // --- occlusion fade (A.5): the car is never fully hidden -----------------------------------
+  // Each frame, cast one ray from the camera to the player and fade any registered occludable
+  // (named-building box or hero mesh) it passes through to ≤ 0.35 alpha within ~130 ms, restoring
+  // when the ray clears (occlusionFade.ts owns the pure timing; this is the raycast + material
+  // write). Runs at the default priority so opacities are set BEFORE fx/cameraRig's priority-1
+  // render. Cost is negligible: ~18 static meshes, one ray, no per-frame allocation in the hot
+  // path beyond the (tiny) hit list. Instanced filler is excluded this phase (shared material →
+  // needs a shader edit; recorded debt) — A.5's mandatory cases are all named/hero meshes.
+  useFrame((state, delta) => {
+    const model = playerVehicle.current;
+    const meshes = occlusionRegistry.meshes;
+    if (!model || meshes.length === 0) return;
+    const car = model.readState().pose.position;
+    const cam = state.camera;
+    occlusionDir.set(car.x - cam.position.x, car.y - cam.position.y, car.z - cam.position.z);
+    const dist = occlusionDir.length();
+    if (dist < 1e-3) return;
+    occlusionDir.multiplyScalar(1 / dist);
+    occlusionRay.set(cam.position, occlusionDir);
+    occlusionRay.near = 0;
+    occlusionRay.far = dist; // only occluders BETWEEN camera and car
+    const hits = occlusionRay.intersectObjects(meshes as Object3D[], false);
+    occlusionHitKeys.clear();
+    for (const h of hits) occlusionHitKeys.add(h.object.uuid);
+    occlusionKeyList.length = 0;
+    for (const m of meshes) occlusionKeyList.push(m.uuid);
+    const dtMs = Math.min(delta * 1000, 100); // clamp big gaps (tab refocus) so a fade never jumps
+    occlusionFader.step(occlusionKeyList, occlusionHitKeys, dtMs);
+    for (const m of meshes) {
+      const opacity = occlusionFader.opacity(m.uuid);
+      const mat = (m as Mesh).material;
+      const transparent = needsTransparent(opacity);
+      if (Array.isArray(mat)) {
+        for (const mm of mat) applyFade(mm, opacity, transparent);
+      } else {
+        applyFade(mat, opacity, transparent);
+      }
     }
   });
 
@@ -614,6 +751,10 @@ export function TorontoScene() {
           Union, The Well, Eaton galleria, Aura, the Yonge×Sheppard twins, NY Civic Centre) as
           textured boxes + CROWN bank-logo decals + BUILDING colliders. */}
       <NamedBuildingsLayer placements={named.placements} />
+
+      {/* Hero landmarks (Phase 25): the CN Tower + Rogers Centre primitive meshes on the reserved
+          rail-lands lots, south of the named financial cluster (§5 adjacency rule). */}
+      <HeroesLayer />
 
       {/* Roads: one merged per-class vertex-coloured ribbon mesh. UNLIT (basic material):
           the §3a class colours must read exactly as authored regardless of dusk light —
