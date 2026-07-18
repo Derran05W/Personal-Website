@@ -67,18 +67,18 @@
       "brand_color": "#b8860b", "building_look": "small heritage rowhouse off Yonge",
       "logo_hint": "gold circle + noodles", "recognizability": 2 },
 
-    { "name": "McDonald's (24h, Queen & Spadina)", "address": "TBD — verify exact address", "zone": "downtown",
-      "category": "fast_food_icon", "status": "needs_agent",
+    { "name": "McDonald's (24h, Queen & Spadina)", "address": "160 Spadina Ave", "zone": "downtown",
+      "category": "fast_food_icon", "status": "verified", "src": "mcdonalds.com",
       "brand_color": "#ffc72c", "building_look": "low corner unit, glows at 3am",
       "logo_hint": "golden arches M", "recognizability": 3 },
 
-    { "name": "Tim Hortons (Union/PATH)", "address": "pick one near Union", "zone": "downtown",
-      "category": "coffee_icon", "status": "needs_agent",
+    { "name": "Tim Hortons (Union/PATH)", "address": "65 Front Street West", "zone": "downtown",
+      "category": "coffee_icon", "status": "verified", "src": "timhortons.ca",
       "brand_color": "#c8102e", "building_look": "any — it's the red oval that matters",
       "logo_hint": "red oval wordmark", "recognizability": 3 },
 
-    { "name": "The Alley (bubble tea)", "address": "TBD — Yonge corridor unit", "zone": "downtown",
-      "category": "bubble_tea", "status": "needs_agent",
+    { "name": "The Alley (bubble tea)", "address": "382 Yonge Street, Unit 1", "zone": "downtown",
+      "category": "bubble_tea", "status": "verified", "src": "yelp.ca",
       "brand_color": "#2d2a26", "building_look": "narrow storefront, deer logo",
       "logo_hint": "white stag head on dark", "recognizability": 2 },
 
@@ -102,13 +102,13 @@
       "brand_color": "#e6002d", "building_look": "second strip location — include only if density needed",
       "logo_hint": "red H MART", "recognizability": 2 },
 
-    { "name": "Korean BBQ anchor (Owl of Minerva or similar)", "address": "TBD Yonge strip", "zone": "north_york",
-      "category": "korean_bbq", "status": "needs_agent",
+    { "name": "Owl of Minerva (Korean BBQ)", "address": "5324 Yonge Street", "zone": "north_york",
+      "category": "korean_bbq", "status": "verified", "src": "yelp.ca",
       "brand_color": "#6b3fa0", "building_look": "strip unit, smoke-vent props on patio",
       "logo_hint": "owl / hangul", "recognizability": 2 },
 
-    { "name": "Karaoke box (Echo/BMB or similar)", "address": "TBD Yonge strip", "zone": "north_york",
-      "category": "karaoke", "status": "needs_agent",
+    { "name": "Echo Coin Karaoke", "address": "5592 Yonge Street", "zone": "north_york",
+      "category": "karaoke", "status": "verified", "src": "yelp.ca",
       "brand_color": "#ff2fb3", "building_look": "2nd-floor neon over storefront — signage stacked vertically, very Yonge-North",
       "logo_hint": "neon mic", "recognizability": 2 }
   ]

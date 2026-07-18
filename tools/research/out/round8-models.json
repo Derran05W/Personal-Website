@@ -1,0 +1,158 @@
+{
+  "models": [
+    {
+      "category": "traffic_light",
+      "name": "Low-Poly Traffic Lights",
+      "author": "LimanOff",
+      "url": "https://sketchfab.com/3d-models/low-poly-traffic-lights-a1ba5ab7bad448d195aa7f1fccddf843",
+      "license": "CC-BY",
+      "format": "glTF/GLB",
+      "tris": "148",
+      "detail": "Vertical signal head with three hooded lights (red/yellow/green), minimal pole mount. Clean low-poly geometry, suitable for Smashy Road style.",
+      "src": "Sketchfab"
+    },
+    {
+      "category": "traffic_light",
+      "name": "Low Poly & Game Ready Traffic Light",
+      "author": "YourLocalJavaCarDealer",
+      "url": "https://sketchfab.com/3d-models/low-poly-game-ready-traffic-light-79e7769b03c44ff19fec4e802e4df0aa",
+      "license": "CC-BY",
+      "format": "glTF/GLB",
+      "tris": "unknown",
+      "detail": "Game-ready traffic light with realistic proportions. Suitable for scenes balancing realism with low-poly style.",
+      "src": "Sketchfab"
+    },
+    {
+      "category": "traffic_light",
+      "name": "low poly Europe Traffic Light",
+      "author": "matsimus",
+      "url": "https://sketchfab.com/3d-models/low-poly-europe-traffic-light-efb70b6a20ee4eab8b4d7958daae3614",
+      "license": "CC-BY",
+      "format": "glTF/GLB",
+      "tris": "790",
+      "detail": "European-style traffic light (vertical configuration), 486 vertices. Includes emissive material for glowing lights when rendered.",
+      "src": "Sketchfab"
+    },
+    {
+      "category": "traffic_light",
+      "name": "Quaternius Downtown City MegaKit",
+      "author": "Quaternius",
+      "url": "https://quaternius.com/packs/downtowncitymegakit.html",
+      "license": "CC0",
+      "format": "glTF/other procedural",
+      "tris": "variable",
+      "detail": "300+ modular city environment pieces. Likely includes traffic signal elements with mast arms and hooded heads. Full Boston/NYC style city kit.",
+      "src": "Quaternius"
+    },
+    {
+      "category": "power_line",
+      "name": "Electrical Powerline Pole (Free Asset)",
+      "author": "tiedtke",
+      "url": "https://sketchfab.com/3d-models/electrical-powerline-pole-free-asset-001a960897dd46c9a6a439e5fb1167f8",
+      "license": "CC-BY",
+      "format": "glTF/GLB/Blender",
+      "tris": "unknown",
+      "detail": "Wooden pole with crossarm and wire mount points. Fully textured, compatible with array/spline modifiers for line repetition. Low poly, Nanite-compatible in UE5.",
+      "src": "Sketchfab"
+    },
+    {
+      "category": "power_line",
+      "name": "Low Poly - Power Pole",
+      "author": "tadeus",
+      "url": "https://sketchfab.com/3d-models/low-poly-power-pole-2b0d1feb52474d808ae6999c81d42e89",
+      "license": "unknown",
+      "format": "glTF/GLB",
+      "tris": "unknown",
+      "detail": "Minimalist power pole suitable for low-poly games. Simple geometry for array-friendly repetition.",
+      "src": "Sketchfab"
+    },
+    {
+      "category": "power_line",
+      "name": "Wooden Utility Pole",
+      "author": "Ashc0re",
+      "url": "https://sketchfab.com/3d-models/wooden-utility-pole-97d27cdd10c048c08e0b9d3b8d4d3048",
+      "license": "unknown",
+      "format": "glTF/GLB",
+      "tris": "unknown",
+      "detail": "Wooden utility pole with weathering detail. Published August 2025.",
+      "src": "Sketchfab"
+    },
+    {
+      "category": "power_line",
+      "name": "Quaternius City Kit (Industrial)",
+      "author": "Quaternius",
+      "url": "https://quaternius.com/packs/citykit-industrial.html",
+      "license": "CC0",
+      "format": "glTF/procedural",
+      "tris": "variable",
+      "detail": "25 assets including potential utility infrastructure. Industrial-themed city elements.",
+      "src": "Quaternius"
+    },
+    {
+      "category": "power_line",
+      "name": "Power Line Pack",
+      "author": "CGMeller",
+      "url": "https://sketchfab.com/3d-models/power-line-pack-pbr-game-ready-low-poly-9dd9b47ae5d347cfbba1e36217cc3d07",
+      "license": "unknown",
+      "format": "glTF/GLB",
+      "tris": "unknown",
+      "detail": "PBR game-ready power line pack. Made for real UE4 game project.",
+      "src": "Sketchfab"
+    }
+  ],
+  "download_test": [
+    {
+      "url": "https://sketchfab.com/3d-models/low-poly-traffic-lights-a1ba5ab7bad448d195aa7f1fccddf843",
+      "http_status": "connection_failed",
+      "reachable": false,
+      "reason": "No route to host (Sketchfab blocked by container firewall)"
+    },
+    {
+      "url": "https://sketchfab.com/3d-models/electrical-powerline-pole-free-asset-001a960897dd46c9a6a439e5fb1167f8",
+      "http_status": "connection_failed",
+      "reachable": false,
+      "reason": "No route to host (Sketchfab blocked by container firewall)"
+    },
+    {
+      "url": "https://poly.pizza/",
+      "http_status": "connection_failed",
+      "reachable": false,
+      "reason": "No route to host (poly.pizza blocked by container firewall)"
+    },
+    {
+      "url": "https://kenney.nl/",
+      "http_status": "connection_failed",
+      "reachable": false,
+      "reason": "No route to host (kenney.nl blocked by container firewall, consistent with Phase 5)"
+    },
+    {
+      "url": "https://quaternius.com/",
+      "http_status": "untested",
+      "reachable": "unknown",
+      "reason": "Not tested due to pervasive firewall; all major external asset CDNs appear blocked"
+    }
+  ],
+  "research_summary": {
+    "best_traffic_light": {
+      "model": "Low-Poly Traffic Lights by LimanOff",
+      "url": "https://sketchfab.com/3d-models/low-poly-traffic-lights-a1ba5ab7bad448d195aa7f1fccddf843",
+      "license": "CC-BY (not CC0)",
+      "detail_notes": "Vertical 3-head signal (red/yellow/green lights with hoods), minimal pole base. 148 triangles. Standard North American traffic light design."
+    },
+    "best_power_line": {
+      "model": "Electrical Powerline Pole (Free Asset) by tiedtke",
+      "url": "https://sketchfab.com/3d-models/electrical-powerline-pole-free-asset-001a960897dd46c9a6a439e5fb1167f8",
+      "license": "CC-BY (not CC0)",
+      "detail_notes": "Wooden pole with crossarm and insulator mounts. Fully textured. Designed for array modifiers to create power line runs. Blender-native, exportable to glTF/GLB."
+    }
+  },
+  "firewall_verdict": {
+    "status": "BLOCKED",
+    "finding": "All external 3D asset sources (Sketchfab, poly.pizza, kenney.nl) are unreachable from this container due to network firewall restrictions. This is consistent with Phase 5 historical notes ('kenney.nl firewalled').",
+    "implication": "PROCEDURAL GENERATION REQUIRED: Traffic lights and power lines must be built procedurally from the reference descriptions documented above. No real model imports available in this build context.",
+    "reference_specs": {
+      "traffic_lights": "Vertical hooded signal head (red/yellow/green LEDs, ~148 tri target), mounted on simple pole. North American standard design.",
+      "power_lines": "Wooden/concrete utility pole (~50-100 tri target) with crossarm, ceramic/glass insulators, wire mount points. Repeatable via spline modifier or manual instancing."
+    }
+  }
+}

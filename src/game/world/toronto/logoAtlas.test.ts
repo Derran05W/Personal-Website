@@ -3,6 +3,11 @@
 // here — visuals are proven by live screenshots elsewhere). Every OTHER export is pure
 // data/math and is fully covered: brand list, cell-index/UV math, and the texture-config flags
 // (asserted against a plain object per the plan's suggested pattern, not a real CanvasTexture).
+//
+// Phase 26 grew the atlas from a 5×1 row of bank brands to a 7×3 grid of 21 cells (5 banks +
+// 16 retail/nostalgia brands, `discA`/`discB` counted separately for Sam the Record Man's
+// 2-frame spin) — the UV math below now covers both axes, matching world/palette.ts's
+// row/col + flipY convention (`paletteCellUv`).
 
 import { NearestFilter, SRGBColorSpace } from 'three';
 import { describe, expect, it } from 'vitest';
@@ -16,9 +21,37 @@ import {
   logoCellUv,
 } from './logoAtlas';
 
+const EXPECTED_BRANDS = [
+  'td',
+  'rbc',
+  'bmo',
+  'cibc',
+  'scotiabank',
+  'arches',
+  'tims',
+  'hmart',
+  'loblaws',
+  'warehouse',
+  'hangul',
+  'stag',
+  'tetsu',
+  'konjiki',
+  'discA',
+  'discB',
+  'realsports',
+  'mec',
+  'recroom',
+  'apple',
+  'alo',
+] as const;
+
 describe('LOGO_BRANDS — brand list', () => {
-  it('has exactly the five Phase 24 bank brands', () => {
-    expect(LOGO_BRANDS).toEqual(['td', 'rbc', 'bmo', 'cibc', 'scotiabank']);
+  it('has exactly the five Phase-24 bank brands followed by the sixteen Phase-26 retail/nostalgia brands', () => {
+    expect(LOGO_BRANDS).toEqual(EXPECTED_BRANDS);
+  });
+
+  it('has 21 entries total', () => {
+    expect(LOGO_BRANDS.length).toBe(21);
   });
 
   it('is unique (no duplicate brand keys)', () => {
@@ -27,26 +60,27 @@ describe('LOGO_BRANDS — brand list', () => {
 });
 
 describe('LOGO_ATLAS_LAYOUT — atlas grid', () => {
-  it('is a single row, one 32×32 cell per brand', () => {
+  it('is a 7×3 grid of 32×32 cells (21 cells for 21 brands)', () => {
     expect(LOGO_ATLAS_LAYOUT.cellSize).toBe(32);
-    expect(LOGO_ATLAS_LAYOUT.rows).toBe(1);
-    expect(LOGO_ATLAS_LAYOUT.cols).toBe(LOGO_BRANDS.length);
+    expect(LOGO_ATLAS_LAYOUT.cols).toBe(7);
+    expect(LOGO_ATLAS_LAYOUT.rows).toBe(3);
+    expect(LOGO_ATLAS_LAYOUT.cols * LOGO_ATLAS_LAYOUT.rows).toBe(LOGO_BRANDS.length);
   });
 
-  it('derives a 160×32 canvas (5 cols × 32px, 1 row × 32px)', () => {
-    expect(LOGO_ATLAS_LAYOUT.width).toBe(160);
-    expect(LOGO_ATLAS_LAYOUT.height).toBe(32);
+  it('derives a 224×96 canvas (7 cols × 32px, 3 rows × 32px)', () => {
+    expect(LOGO_ATLAS_LAYOUT.width).toBe(224);
+    expect(LOGO_ATLAS_LAYOUT.height).toBe(96);
   });
 });
 
 describe('logoCellIndex — pure, no canvas', () => {
-  it('assigns each brand its stable column index, in LOGO_BRANDS order', () => {
+  it('assigns each brand its stable row-major index, in LOGO_BRANDS order', () => {
     LOGO_BRANDS.forEach((brand, expected) => {
       expect(logoCellIndex(brand)).toBe(expected);
     });
   });
 
-  it('td=0, rbc=1, bmo=2, cibc=3, scotiabank=4 (locked ordering)', () => {
+  it('td=0 .. scotiabank=4 (locked Phase-24 ordering, unchanged)', () => {
     expect(logoCellIndex('td')).toBe(0);
     expect(logoCellIndex('rbc')).toBe(1);
     expect(logoCellIndex('bmo')).toBe(2);
@@ -54,38 +88,74 @@ describe('logoCellIndex — pure, no canvas', () => {
     expect(logoCellIndex('scotiabank')).toBe(4);
   });
 
+  it('alo (last Phase-26 brand) is index 20', () => {
+    expect(logoCellIndex('alo')).toBe(20);
+  });
+
   it('throws on an unknown brand', () => {
     expect(() => logoCellIndex('unknown' as LogoBrand)).toThrow(/unknown brand/);
   });
 });
 
-describe('logoCellUv — exact fractions per index', () => {
-  it('computes u0/u1 as index/cols and (index+1)/cols, v spanning the full [0,1] row', () => {
-    const cols = LOGO_ATLAS_LAYOUT.cols;
+describe('logoCellUv — exact fractions per grid position', () => {
+  const { cols, rows } = LOGO_ATLAS_LAYOUT;
+
+  it('computes u0/u1 from the column and v0/v1 from the row (flipY: row 0 → v→1)', () => {
     LOGO_BRANDS.forEach((brand, index) => {
+      const col = index % cols;
+      const row = Math.floor(index / cols);
       const uv = logoCellUv(brand);
-      expect(uv.u0).toBeCloseTo(index / cols, 12);
-      expect(uv.u1).toBeCloseTo((index + 1) / cols, 12);
-      expect(uv.v0).toBe(0);
-      expect(uv.v1).toBe(1);
+      expect(uv.u0).toBeCloseTo(col / cols, 12);
+      expect(uv.u1).toBeCloseTo((col + 1) / cols, 12);
+      expect(uv.v0).toBeCloseTo(1 - (row + 1) / rows, 12);
+      expect(uv.v1).toBeCloseTo(1 - row / rows, 12);
     });
   });
 
-  it('td (index 0) occupies u [0, 0.2]', () => {
-    expect(logoCellUv('td')).toEqual({ u0: 0, v0: 0, u1: 0.2, v1: 1 });
+  it('td (index 0: row 0, col 0) occupies u≈[0, 1/7], v≈[2/3, 1]', () => {
+    const uv = logoCellUv('td');
+    expect(uv.u0).toBeCloseTo(0, 12);
+    expect(uv.u1).toBeCloseTo(1 / 7, 12);
+    expect(uv.v0).toBeCloseTo(2 / 3, 12);
+    expect(uv.v1).toBeCloseTo(1, 12);
   });
 
-  it('scotiabank (last index) occupies u [0.8, 1]', () => {
-    expect(logoCellUv('scotiabank')).toEqual({ u0: 0.8, v0: 0, u1: 1, v1: 1 });
+  it('alo (index 20: row 2, col 6) occupies u≈[6/7, 1], v≈[0, 1/3]', () => {
+    const uv = logoCellUv('alo');
+    expect(uv.u0).toBeCloseTo(6 / 7, 12);
+    expect(uv.u1).toBeCloseTo(1, 12);
+    expect(uv.v0).toBeCloseTo(0, 12);
+    expect(uv.v1).toBeCloseTo(1 / 3, 12);
   });
 
-  it('cells are contiguous and non-overlapping across the whole row', () => {
-    const sorted = [...LOGO_BRANDS].sort((a, b) => logoCellIndex(a) - logoCellIndex(b));
-    for (let i = 1; i < sorted.length; i++) {
-      expect(logoCellUv(sorted[i]).u0).toBeCloseTo(logoCellUv(sorted[i - 1]).u1, 12);
+  it('cells within a row are horizontally contiguous, spanning u [0,1] end to end', () => {
+    for (let row = 0; row < rows; row++) {
+      const rowBrands = LOGO_BRANDS.filter((_, i) => Math.floor(i / cols) === row);
+      const sorted = [...rowBrands].sort((a, b) => logoCellIndex(a) - logoCellIndex(b));
+      for (let i = 1; i < sorted.length; i++) {
+        expect(logoCellUv(sorted[i]).u0).toBeCloseTo(logoCellUv(sorted[i - 1]).u1, 12);
+      }
+      expect(logoCellUv(sorted[0]).u0).toBe(0);
+      expect(logoCellUv(sorted[sorted.length - 1]).u1).toBe(1);
     }
-    expect(logoCellUv(sorted[0]).u0).toBe(0);
-    expect(logoCellUv(sorted[sorted.length - 1]).u1).toBe(1);
+  });
+
+  it('rows are vertically contiguous, spanning v [0,1] end to end (row 0 at the top, v→1)', () => {
+    // First brand of each row (col 0), ordered row 0 → last row.
+    const firstOfRow = Array.from({ length: rows }, (_, row) => LOGO_BRANDS[row * cols]);
+    for (let i = 1; i < firstOfRow.length; i++) {
+      // Row i's top (v1) must equal row (i-1)'s bottom (v0) — no gaps/overlaps top to bottom.
+      expect(logoCellUv(firstOfRow[i]).v1).toBeCloseTo(logoCellUv(firstOfRow[i - 1]).v0, 12);
+    }
+    expect(logoCellUv(firstOfRow[0]).v1).toBe(1);
+    expect(logoCellUv(firstOfRow[firstOfRow.length - 1]).v0).toBe(0);
+  });
+
+  it('discA and discB (Sam the Record Man 2-frame spin) are both present and occupy distinct, non-overlapping cells', () => {
+    expect(LOGO_BRANDS).toContain('discA');
+    expect(LOGO_BRANDS).toContain('discB');
+    expect(logoCellIndex('discA')).not.toBe(logoCellIndex('discB'));
+    expect(logoCellUv('discA')).not.toEqual(logoCellUv('discB'));
   });
 });
 

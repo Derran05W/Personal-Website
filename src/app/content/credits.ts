@@ -32,10 +32,12 @@ export interface AssetCredits {
   fonts: CreditEntry[];
 }
 
-/** One real-world brand referenced by the Phase 24 bank-logo pixel atlas
- * (game/world/toronto/logoAtlas.ts) on the King×Bay financial-cluster towers. CLAUDE.md's
- * locked "Brand logos (map layer)" decision (user override 2026-07-17) requires every
- * referenced brand to carry a trademark note here — pixel-art homage, not an official asset. */
+/** One real-world brand referenced by the logo pixel atlas (game/world/toronto/logoAtlas.ts):
+ * the Phase 24 bank brands on the King×Bay financial-cluster towers, plus the Phase 26
+ * retail/nostalgia brands from places.json on storefront FASCIA signage (and the Sam the
+ * Record Man rooftop-sign prop). CLAUDE.md's locked "Brand logos (map layer)" decision (user
+ * override 2026-07-17) requires every referenced brand to carry a trademark note here —
+ * pixel-art homage, not an official asset. */
 export interface BrandTrademarkEntry {
   /** The real corporate/brand name being referenced. */
   name: string;
@@ -51,7 +53,8 @@ export interface CreditsContent {
   disclaimer: string;
   /** Short note on the game's title/branding. */
   gameTitleNote: string;
-  /** Real bank brands stylized as 32×32 pixel-art logos in the Toronto map layer (Phase 24). */
+  /** Real brands stylized as 32×32 pixel-art logos in the Toronto map layer: the five Phase 24
+   * bank brands plus the fifteen Phase 26 retail/nostalgia brands (places.json). */
   brandTrademarks: BrandTrademarkEntry[];
 }
 
@@ -216,6 +219,161 @@ export const CREDITS: CreditsContent = {
         "never a traced or exact reproduction of the real mark. Scotiabank's trademarks",
         'belong to The Bank of Nova Scotia; no affiliation, sponsorship, or endorsement is',
         'implied, and no official Scotiabank assets were used.',
+      ].join(' '),
+    },
+    {
+      name: "McDonald's",
+      note: [
+        'Referenced as an original 32×32 pixel-art homage (a gold "M" — the golden arches) on',
+        "the map's storefront FASCIA signage, for Toronto-cityscape flavour — a simplified,",
+        "hand-drawn glyph, never a traced or exact reproduction of the real mark. McDonald's",
+        "trademarks belong to McDonald's Corporation; no affiliation, sponsorship, or",
+        "endorsement is implied, and no official McDonald's assets were used.",
+      ].join(' '),
+    },
+    {
+      name: 'Tim Hortons (Restaurant Brands)',
+      note: [
+        'Referenced as an original 32×32 pixel-art homage (a red oval band + a simplified',
+        "\"T\") on the map's storefront FASCIA signage, for Toronto-cityscape flavour — never",
+        "a traced or exact reproduction of the real mark. Tim Hortons' trademarks belong to",
+        'Restaurant Brands International; no affiliation, sponsorship, or endorsement is',
+        'implied, and no official Tim Hortons assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'H Mart',
+      note: [
+        'Referenced as an original 32×32 pixel-art homage (a white "H MART" wordmark on red)',
+        "on the map's storefront FASCIA signage, for Toronto-cityscape flavour — a simplified,",
+        "hand-drawn wordmark, never a traced or exact reproduction of the real mark. H Mart's",
+        'trademarks belong to its owner; no affiliation, sponsorship, or endorsement is',
+        'implied, and no official H Mart assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'Loblaws (Loblaw Companies)',
+      note: [
+        'Referenced as an original 32×32 pixel-art homage (an orange stylized "L") on the',
+        "map's storefront FASCIA signage, for Toronto-cityscape flavour — a simplified,",
+        "hand-drawn glyph, never a traced or exact reproduction of the real mark. Loblaws'",
+        'trademarks belong to Loblaw Companies Limited; no affiliation, sponsorship, or',
+        'endorsement is implied, and no official Loblaws assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'Yonge Street Warehouse',
+      note: [
+        'Referenced as an original 32×32 pixel-art homage (a white "WAREHOUSE" wordmark on',
+        "black) on the map's storefront FASCIA signage, for Toronto-cityscape flavour — a",
+        'simplified, hand-drawn wordmark, never a traced or exact reproduction of the real',
+        "sign. Yonge Street Warehouse's (and Queen St. Warehouse's) trademarks belong to their",
+        'owner; no affiliation, sponsorship, or endorsement is implied, and no official',
+        'Warehouse assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'The Alley',
+      note: [
+        'Referenced as an original 32×32 pixel-art homage (a white stag-head silhouette on',
+        "dark) on the map's storefront FASCIA signage, for Toronto-cityscape flavour — a",
+        'simplified, hand-drawn glyph, never a traced or exact reproduction of the real mark.',
+        "The Alley's trademarks belong to its owner; no affiliation, sponsorship, or",
+        'endorsement is implied, and no official The Alley assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'Uncle Tetsu',
+      note: [
+        'Referenced as an original 32×32 pixel-art homage (a round yellow smiling face) plus a',
+        "decorative queue prop outside its storefront — the lineup IS the landmark — for",
+        'Toronto-cityscape flavour, never a traced or exact reproduction of the real mark.',
+        "Uncle Tetsu's trademarks belong to its owner; no affiliation, sponsorship, or",
+        'endorsement is implied, and no official Uncle Tetsu assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'Konjiki Ramen',
+      note: [
+        'Referenced as an original 32×32 pixel-art homage (a gold circle + wavy "noodle"',
+        "strokes) plus a decorative queue prop outside its storefront, for Toronto-cityscape",
+        'flavour, never a traced or exact reproduction of the real mark. Konjiki Ramen\'s',
+        'trademarks belong to its owner; no affiliation, sponsorship, or endorsement is',
+        'implied, and no official Konjiki Ramen assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'Real Sports (MLSE)',
+      note: [
+        'Referenced as an original 32×32 pixel-art homage (a white "REAL"/"SPORTS" wordmark on',
+        "blue) on the map's storefront FASCIA signage, for Toronto-cityscape flavour — a",
+        'simplified, hand-drawn wordmark, never a traced or exact reproduction of the real',
+        "mark. Real Sports Bar & Grill's trademarks belong to Maple Leaf Sports & Entertainment",
+        '(MLSE); no affiliation, sponsorship, or endorsement is implied, and no official Real',
+        'Sports assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'MEC',
+      note: [
+        'Referenced as an original 32×32 pixel-art homage (a green mountain triangle) on the',
+        "map's storefront FASCIA signage, for Toronto-cityscape flavour — a simplified,",
+        "hand-drawn glyph, never a traced or exact reproduction of the real mark. MEC's",
+        '(Mountain Equipment Company) trademarks belong to its owner; no affiliation,',
+        'sponsorship, or endorsement is implied, and no official MEC assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'The Rec Room (Cineplex)',
+      note: [
+        'Referenced as an original 32×32 pixel-art homage (a red "REC"/"ROOM" block-letter',
+        "wordmark) on the map's storefront FASCIA signage, for Toronto-cityscape flavour — a",
+        'simplified, hand-drawn wordmark, never a traced or exact reproduction of the real',
+        "mark. The Rec Room's trademarks belong to Cineplex Entertainment; no affiliation,",
+        'sponsorship, or endorsement is implied, and no official Rec Room assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'Apple',
+      note: [
+        'Referenced as an original 32×32 pixel-art homage (a white apple silhouette with a',
+        "leaf) on the map's storefront FASCIA signage, for Toronto-cityscape flavour — a",
+        'simplified, hand-drawn glyph, never a traced or exact reproduction of the real mark.',
+        "Apple's trademarks belong to Apple Inc.; no affiliation, sponsorship, or endorsement",
+        'is implied, and no official Apple assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'Sam the Record Man (historic sign homage)',
+      note: [
+        'Referenced as an original pixel-art homage: two animated 32×32 neon-disc atlas frames',
+        '(discA/discB, alternated to read as a spin) on a rooftop prop near Yonge & Dundas —',
+        "not a building, a decorative sign prop — for Toronto-cityscape flavour and nostalgia,",
+        'never a traced or exact reproduction of the real historic sign. The Sam the Record Man',
+        "sign's trademarks (where still asserted) belong to their owner; no affiliation,",
+        'sponsorship, or endorsement is implied, and no official Sam the Record Man assets',
+        'were used.',
+      ].join(' '),
+    },
+    {
+      name: 'Alo Restaurant',
+      note: [
+        'Referenced as an original 32×32 pixel-art homage (a small, deliberately understated',
+        '"ALO" plaque) on the map\'s storefront FASCIA signage, for Toronto-cityscape flavour',
+        '— a simplified, hand-drawn wordmark, never a traced or exact reproduction of the real',
+        "mark. Alo Restaurant's trademarks belong to its owner; no affiliation, sponsorship,",
+        'or endorsement is implied, and no official Alo assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'Buk Chang Dong Soon Tofu',
+      note: [
+        'Referenced as an original 32×32 pixel-art homage: a generic, geometric hangul-STYLE',
+        "glyph block (deliberately NOT a real word or character) on the map's storefront",
+        'FASCIA signage, for Toronto-cityscape flavour, never a traced or exact reproduction',
+        "of the real sign. Buk Chang Dong Soon Tofu's trademarks belong to its owner; no",
+        'affiliation, sponsorship, or endorsement is implied, and no official Buk Chang Dong',
+        'Soon Tofu assets were used.',
       ].join(' '),
     },
   ],

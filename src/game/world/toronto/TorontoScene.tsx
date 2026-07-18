@@ -27,6 +27,7 @@ import { CuboidCollider, CylinderCollider, RigidBody, useAfterPhysicsStep } from
 import {
   BufferGeometry,
   CanvasTexture,
+  CircleGeometry,
   Color,
   DoubleSide,
   Float32BufferAttribute,
@@ -51,7 +52,15 @@ import { buildMassing } from './massing';
 import { HERO_LOTS, buildNamedBuildings, type CrownDecal, type NamedBox, type NamedPlacement } from './namedBuildings';
 import { buildCnTowerGeometry, buildRogersGeometry } from './heroes';
 import { needsTransparent, occlusionFader, occlusionRegistry } from './occlusionFade';
-import { getLogoAtlas, logoCellUv } from './logoAtlas';
+import { getLogoAtlas, logoCellIndex, logoCellUv, LOGO_ATLAS_LAYOUT, type LogoBrand } from './logoAtlas';
+import {
+  buildPlacesLayer,
+  type DiscSign,
+  type FasciaBand,
+  type PlaceBox,
+  type PlacesLayer as PlacesLayerData,
+  type SankofaProp,
+} from './placesLayer';
 import { createRng } from '../rng';
 import { createFoldTrigger, type FoldTrigger } from './tunnel';
 import { gameEvents } from '../../state/events';
@@ -346,14 +355,23 @@ function makeFacadeTexture(box: NamedBox, key: string): CanvasTexture {
   return tex;
 }
 
-/** A square plane for a CROWN decal, UV-sliced to the brand's atlas cell. The atlas is a single
- * row (v spans 0..1), so only u is remapped; flipY on the shared texture leaves v correct. */
-function makeDecalGeometry(size: number, brandUv: { u0: number; u1: number }): PlaneGeometry {
+/** A square plane for a CROWN/FASCIA decal, UV-sliced to the brand's atlas cell. The atlas grew
+ * to a 7×3 grid in Phase 26, so BOTH axes are remapped: u into [u0,u1] and v into [v0,v1] (the
+ * flipY-corrected cell rect logoCellUv returns). Row 0 (the Phase-24 banks) collapses to v0=0,
+ * v1=1 there, so this stays byte-identical to the old single-row behaviour for the bank crowns
+ * while any cell in rows 1–2 (the retail brands) now samples its OWN cell height instead of the
+ * whole 3-row canvas — the shipped-bank-crown regression the logoAtlas header flagged. */
+function makeDecalGeometry(
+  size: number,
+  brandUv: { u0: number; u1: number; v0: number; v1: number },
+): PlaneGeometry {
   const geo = new PlaneGeometry(size, size);
   const uv = geo.attributes.uv;
   for (let i = 0; i < uv.count; i++) {
     const u = uv.getX(i); // 0 or 1 across the plane
+    const v = uv.getY(i); // 0 (bottom) or 1 (top) across the plane
     uv.setX(i, brandUv.u0 + u * (brandUv.u1 - brandUv.u0));
+    uv.setY(i, brandUv.v0 + v * (brandUv.v1 - brandUv.v0));
   }
   uv.needsUpdate = true;
   return geo;
@@ -510,6 +528,454 @@ function HeroesLayer() {
   );
 }
 
+// --- Phase 26 places / nostalgia layer (world/toronto/placesLayer.ts) -----------------------
+// The FINAL Part-7 content pass: places.json storefronts w/ §4 FASCIA sign-bands, the Uncle
+// Tetsu / Konjiki-Elm lineups, Sam the Record Man's spinning discs, and §6 vibe props. Perf
+// discipline (readPerf < 120): storefront boxes + queue posts/blobs are ONE instancedMesh each;
+// all FASCIA bands share ONE baked band-atlas texture + ONE merged geometry (1 draw call, not one
+// per sign); every solid vibe prop (gate/umbrellas/patio/crosswalk) merges into ONE vertex-coloured
+// mesh. UNLIT-literal (toneMapped=false) like every other Toronto surface (the P23/P24 verdict).
+
+const BAND_ROW_H = 40; // band-atlas row height (px) — logo cell (left) + name text (right)
+const BAND_W = 320;
+
+/** The shared FASCIA band atlas: one row per storefront place, its logo cell (drawn from the shared
+ * logo atlas) on the left + a NearestFilter name wordmark on the right. Crunchy (§4 / A.5). */
+function makeBandAtlas(rows: readonly { readonly brand: LogoBrand; readonly name: string }[]): CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = BAND_W;
+  canvas.height = Math.max(1, rows.length) * BAND_ROW_H;
+  const tex = new CanvasTexture(canvas);
+  tex.magFilter = NearestFilter;
+  tex.minFilter = NearestFilter;
+  tex.generateMipmaps = false;
+  tex.colorSpace = SRGBColorSpace;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    tex.needsUpdate = true;
+    return tex;
+  }
+  const src = getLogoAtlas().texture.image as CanvasImageSource;
+  const cell = LOGO_ATLAS_LAYOUT.cellSize;
+  rows.forEach((r, i) => {
+    const y = i * BAND_ROW_H;
+    ctx.fillStyle = '#0a0d12'; // near-black backing = lit sign on the unlit-literal slice
+    ctx.fillRect(0, y, BAND_W, BAND_ROW_H);
+    const idx = logoCellIndex(r.brand);
+    const col = idx % LOGO_ATLAS_LAYOUT.cols;
+    const row = Math.floor(idx / LOGO_ATLAS_LAYOUT.cols);
+    ctx.drawImage(src, col * cell, row * cell, cell, cell, 2, y + 2, BAND_ROW_H - 4, BAND_ROW_H - 4);
+    ctx.fillStyle = '#f4ead2';
+    ctx.font = 'bold 22px "Arial Narrow", Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(r.name, BAND_ROW_H + 6, y + BAND_ROW_H / 2 + 1);
+  });
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** ONE merged geometry for every FASCIA band quad (S + E faces), each UV-sliced to its band-atlas
+ * row (flipY-corrected like logoCellUv). DoubleSide material → no winding care. */
+function buildBandGeometry(fascias: readonly FasciaBand[], rowCount: number): BufferGeometry {
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  const uv: number[] = [];
+  const R = Math.max(1, rowCount);
+  const tri = [0, 1, 2, 0, 2, 3];
+  for (const f of fascias) {
+    const v0 = 1 - (f.bandRow + 1) / R;
+    const v1 = 1 - f.bandRow / R;
+    const w = f.width / 2;
+    const h = f.height / 2;
+    let corners: [number, number, number][];
+    let n: [number, number, number];
+    if (f.face === 'south') {
+      corners = [
+        [f.cx - w, f.cy - h, f.cz],
+        [f.cx + w, f.cy - h, f.cz],
+        [f.cx + w, f.cy + h, f.cz],
+        [f.cx - w, f.cy + h, f.cz],
+      ];
+      n = [0, 0, 1];
+    } else {
+      // East face (+X), viewed from +x: +z is to the left, so u=0 sits at cz+w.
+      corners = [
+        [f.cx, f.cy - h, f.cz + w],
+        [f.cx, f.cy - h, f.cz - w],
+        [f.cx, f.cy + h, f.cz - w],
+        [f.cx, f.cy + h, f.cz + w],
+      ];
+      n = [1, 0, 0];
+    }
+    const uvs: [number, number][] = [
+      [0, v0],
+      [1, v0],
+      [1, v1],
+      [0, v1],
+    ];
+    for (const k of tri) {
+      pos.push(corners[k][0], corners[k][1], corners[k][2]);
+      nrm.push(n[0], n[1], n[2]);
+      uv.push(uvs[k][0], uvs[k][1]);
+    }
+  }
+  const g = new BufferGeometry();
+  g.setAttribute('position', new Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new Float32BufferAttribute(nrm, 3));
+  g.setAttribute('uv', new Float32BufferAttribute(uv, 2));
+  g.computeBoundingSphere();
+  return g;
+}
+
+/** A circle UV-sliced to a brand's atlas cell — Sam the Record Man's neon disc face. */
+function makeDiscGeometry(radius: number, brandUv: { u0: number; u1: number; v0: number; v1: number }): CircleGeometry {
+  const g = new CircleGeometry(radius, 40);
+  const a = g.attributes.uv;
+  for (let i = 0; i < a.count; i++) {
+    const u = a.getX(i);
+    const v = a.getY(i);
+    a.setX(i, brandUv.u0 + u * (brandUv.u1 - brandUv.u0));
+    a.setY(i, brandUv.v0 + v * (brandUv.v1 - brandUv.v0));
+  }
+  a.needsUpdate = true;
+  return g;
+}
+
+/** One spinning neon disc (Sam the Record Man). Spins about its own face normal (+Z) in useFrame —
+ * the physical spin the two live screenshots catch at different phases. */
+function SamDisc({ disc, texture }: { disc: DiscSign['discs'][number]; texture: CanvasTexture }) {
+  const ref = useRef<Mesh>(null);
+  const geo = useMemo(() => makeDiscGeometry(disc.radius, logoCellUv(disc.brand)), [disc]);
+  useEffect(() => () => geo.dispose(), [geo]);
+  useFrame((_, delta) => {
+    if (ref.current) ref.current.rotation.z -= Math.min(delta, 0.05) * 1.6;
+  });
+  return (
+    <mesh ref={ref} geometry={geo} position={[disc.x, disc.y, disc.z]}>
+      <meshBasicMaterial map={texture} toneMapped={false} side={DoubleSide} />
+    </mesh>
+  );
+}
+
+/** Sankofa screen colour-block frames (§6). Module-level (like every make*Texture fn) so the draw
+ * mutates only the texture it's handed, never a render-captured value. */
+const SANKOFA_PALETTES: readonly (readonly string[])[] = [
+  ['#ff2d6f', '#ffd23f', '#1fd1a5'],
+  ['#3ea6ff', '#ff7b3f', '#c14bff'],
+  ['#ffe14d', '#ff3f6e', '#3fe0ff'],
+];
+function drawSankofaFrame(texture: CanvasTexture, frame: number): void {
+  const img = texture.image as HTMLCanvasElement;
+  const ctx = img.getContext('2d');
+  if (!ctx) return;
+  const p = SANKOFA_PALETTES[frame % SANKOFA_PALETTES.length];
+  ctx.fillStyle = '#0a0d12';
+  ctx.fillRect(0, 0, 64, 48);
+  for (let i = 0; i < 6; i++) {
+    ctx.fillStyle = p[(i + frame) % p.length];
+    ctx.fillRect((i % 3) * 21 + 2, Math.floor(i / 3) * 23 + 2, 18, 20);
+  }
+  texture.needsUpdate = true;
+}
+function makeSankofaTexture(): CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 48;
+  const t = new CanvasTexture(c);
+  t.magFilter = NearestFilter;
+  t.minFilter = NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = SRGBColorSpace;
+  drawSankofaFrame(t, 0);
+  return t;
+}
+
+/** Sankofa Square screen billboard — an animated colour-block face (§6), 3 frames swapped ~1 Hz. */
+function SankofaScreen({ screen }: { screen: SankofaProp['screen'] }) {
+  const acc = useRef(0);
+  const frame = useRef(0);
+  const texture = useMemo(() => makeSankofaTexture(), []);
+  useEffect(() => () => texture.dispose(), [texture]);
+  useFrame((_, delta) => {
+    acc.current += delta;
+    if (acc.current >= 1) {
+      acc.current = 0;
+      frame.current = (frame.current + 1) % 3;
+      drawSankofaFrame(texture, frame.current);
+    }
+  });
+  return (
+    <mesh position={[screen.cx, screen.cy, screen.cz]} rotation={[0, screen.rotationY, 0]}>
+      <planeGeometry args={[screen.width, screen.height]} />
+      <meshBasicMaterial map={texture} toneMapped={false} side={DoubleSide} />
+    </mesh>
+  );
+}
+
+/** Seeded noisy multicolour graffiti texture (Queen West / Rush Lane). Deterministic per seed. */
+function makeGraffitiTexture(seed: string): CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 96;
+  canvas.height = 24;
+  const tex = new CanvasTexture(canvas);
+  tex.magFilter = NearestFilter;
+  tex.minFilter = NearestFilter;
+  tex.generateMipmaps = false;
+  tex.colorSpace = SRGBColorSpace;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const rng = createRng(1).fork(seed);
+    ctx.fillStyle = '#22222c';
+    ctx.fillRect(0, 0, 96, 24);
+    const palette = ['#e0245e', '#ffad1f', '#17bf63', '#1da1f2', '#794bc4', '#f45d22', '#f5f5f5'];
+    for (let i = 0; i < 140; i++) {
+      ctx.fillStyle = palette[Math.floor(rng.next() * palette.length)];
+      ctx.fillRect(Math.floor(rng.next() * 96), Math.floor(rng.next() * 24), 1 + Math.floor(rng.next() * 6), 1 + Math.floor(rng.next() * 8));
+    }
+  }
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** ONE merged vertex-coloured geometry for every SOLID vibe prop: the Chinatown gate (posts +
+ * lintel), Sugar Beach umbrellas (posts + pink canopy quads), King West patio (posts + warm light
+ * strip), and the rainbow crosswalk stripes. Colliderless — cosmetic only. */
+function buildVibeSolidsGeometry(layer: PlacesLayerData): BufferGeometry {
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  const col: number[] = [];
+  const c = new Color();
+  const rgb = (hex: string): [number, number, number] => {
+    c.set(hex);
+    return [c.r, c.g, c.b];
+  };
+  const box = (cx: number, cy: number, cz: number, hx: number, hy: number, hz: number, hex: string): void => {
+    const [r, g, b] = rgb(hex);
+    const faces: [number, number, number][][] = [
+      [[cx - hx, cy - hy, cz + hz], [cx + hx, cy - hy, cz + hz], [cx + hx, cy + hy, cz + hz], [cx - hx, cy + hy, cz + hz]], // +Z
+      [[cx + hx, cy - hy, cz - hz], [cx - hx, cy - hy, cz - hz], [cx - hx, cy + hy, cz - hz], [cx + hx, cy + hy, cz - hz]], // -Z
+      [[cx + hx, cy - hy, cz + hz], [cx + hx, cy - hy, cz - hz], [cx + hx, cy + hy, cz - hz], [cx + hx, cy + hy, cz + hz]], // +X
+      [[cx - hx, cy - hy, cz - hz], [cx - hx, cy - hy, cz + hz], [cx - hx, cy + hy, cz + hz], [cx - hx, cy + hy, cz - hz]], // -X
+      [[cx - hx, cy + hy, cz + hz], [cx + hx, cy + hy, cz + hz], [cx + hx, cy + hy, cz - hz], [cx - hx, cy + hy, cz - hz]], // +Y
+    ];
+    const tri = [0, 1, 2, 0, 2, 3];
+    for (const f of faces) {
+      for (const k of tri) {
+        pos.push(f[k][0], f[k][1], f[k][2]);
+        nrm.push(0, 1, 0);
+        col.push(r, g, b);
+      }
+    }
+  };
+  const flat = (minX: number, maxX: number, minZ: number, maxZ: number, y: number, hex: string): void => {
+    const [r, g, b] = rgb(hex);
+    const verts: [number, number, number][] = [
+      [minX, y, minZ],
+      [minX, y, maxZ],
+      [maxX, y, maxZ],
+      [maxX, y, minZ],
+    ];
+    for (const k of [0, 1, 2, 0, 2, 3]) {
+      pos.push(verts[k][0], verts[k][1], verts[k][2]);
+      nrm.push(0, 1, 0);
+      col.push(r, g, b);
+    }
+  };
+
+  const g = layer.gate;
+  for (const p of g.posts) box(p.x, g.postTopY / 2, p.z, g.postThick / 2, g.postTopY / 2, g.postThick / 2, '#8f2f2f');
+  box((g.lintel.minX + g.lintel.maxX) / 2, (g.lintel.y0 + g.lintel.y1) / 2, g.lintel.z, (g.lintel.maxX - g.lintel.minX) / 2, (g.lintel.y1 - g.lintel.y0) / 2, g.postThick / 2 + 0.2, '#c0392b');
+
+  const u = layer.umbrellas;
+  for (const un of u.units) {
+    box(un.x, u.postTopY / 2, un.z, 0.2, u.postTopY / 2, 0.2, '#7a7a82');
+    flat(un.x - u.discR, un.x + u.discR, un.z - u.discR, un.z + u.discR, u.discY, '#ff5fa2');
+  }
+
+  const pt = layer.patio;
+  for (const p of pt.posts) box(p.x, pt.postTopY / 2, p.z, 0.2, pt.postTopY / 2, 0.2, '#5a4632');
+  flat(pt.strip.minX, pt.strip.maxX, pt.strip.z - 0.15, pt.strip.z + 0.15, pt.strip.y, '#ffd98a');
+
+  for (const s of layer.crosswalk.stripes) flat(s.minX, s.maxX, s.minZ, s.maxZ, layer.crosswalk.y, s.color);
+
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new Float32BufferAttribute(nrm, 3));
+  geo.setAttribute('color', new Float32BufferAttribute(col, 3));
+  geo.computeBoundingSphere();
+  return geo;
+}
+
+/**
+ * The Phase-26 places / nostalgia layer scene component. Consumes the pure placesLayer.ts data and
+ * emits: one storefront-box instancedMesh (+ BUILDING colliders), one shared FASCIA band mesh, the
+ * Apple-on-Eaton + Alo logo decals, one queue-posts + one queue-blobs instancedMesh (NO colliders),
+ * Sam's two spinning discs, the animated Sankofa screen, the seeded graffiti wall, and one merged
+ * vibe-solids mesh. Textures/geometries built once + disposed on unmount (toggle-flip clean).
+ */
+function PlacesLayer({ layer }: { layer: PlacesLayerData }) {
+  const atlas = useMemo(() => getLogoAtlas(), []);
+
+  // Storefront + Sam-host + Sankofa boxes → one instancedMesh (per-instance colour) + colliders.
+  const boxes = useMemo<PlaceBox[]>(
+    () => [...layer.placements.filter((p) => p.box !== null).map((p) => p.box as PlaceBox), layer.sankofa.box],
+    [layer],
+  );
+  const boxesRef = useRef<InstancedMesh>(null);
+  useEffect(() => {
+    const mesh = boxesRef.current;
+    if (!mesh) return;
+    const dummy = new Object3D();
+    const color = new Color();
+    boxes.forEach((b, i) => {
+      dummy.position.set(b.cx, b.hy, b.cz);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(b.hx * 2, b.hy * 2, b.hz * 2);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+      color.set(b.color);
+      mesh.setColorAt(i, color);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.computeBoundingSphere();
+  }, [boxes]);
+
+  // FASCIA bands: one band-atlas texture (row per storefront place) + one merged geometry.
+  const bandRows = useMemo(() => {
+    const rows: { brand: LogoBrand; name: string }[] = [];
+    for (const p of layer.placements) if (p.kind === 'storefront') rows[p.fascias[0].bandRow] = { brand: p.brand, name: p.name };
+    return rows;
+  }, [layer]);
+  const bandTexture = useMemo(() => makeBandAtlas(bandRows), [bandRows]);
+  useEffect(() => () => bandTexture.dispose(), [bandTexture]);
+  const allFascias = useMemo(() => layer.placements.flatMap((p) => p.fascias), [layer]);
+  const bandGeometry = useMemo(() => buildBandGeometry(allFascias, bandRows.length), [allFascias, bandRows.length]);
+  useEffect(() => () => bandGeometry.dispose(), [bandGeometry]);
+
+  // Apple-on-Eaton + Alo plaque: small logo-atlas decals (like a CROWN quad).
+  const logoDecals = useMemo(
+    () =>
+      layer.logoDecals.map((d) => ({
+        geometry: makeDecalGeometry(d.size, logoCellUv(d.brand)),
+        position: [d.cx, d.cy, d.cz] as [number, number, number],
+        rotation: [0, d.rotationY, 0] as [number, number, number],
+        key: d.placeId,
+      })),
+    [layer],
+  );
+  useEffect(() => () => logoDecals.forEach((d) => d.geometry.dispose()), [logoDecals]);
+
+  // Queue posts + person-blobs → two instancedMeshes, NO colliders (cosmetic; Pedestrians: none).
+  const posts = useMemo(() => layer.queues.flatMap((q) => q.posts), [layer]);
+  const blobs = useMemo(() => layer.queues.flatMap((q) => q.blobs), [layer]);
+  const postsRef = useRef<InstancedMesh>(null);
+  const blobsRef = useRef<InstancedMesh>(null);
+  useEffect(() => {
+    const mesh = postsRef.current;
+    if (!mesh || posts.length === 0) return;
+    const dummy = new Object3D();
+    posts.forEach((p, i) => {
+      dummy.position.set(p.x, 0.6, p.z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
+  }, [posts]);
+  useEffect(() => {
+    const mesh = blobsRef.current;
+    if (!mesh || blobs.length === 0) return;
+    const dummy = new Object3D();
+    const color = new Color();
+    const shades = ['#3a3f4a', '#4a4038', '#42484f', '#524a42', '#3f4550'];
+    blobs.forEach((b, i) => {
+      dummy.position.set(b.x, 0.45, b.z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+      color.set(shades[i % shades.length]);
+      mesh.setColorAt(i, color);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.computeBoundingSphere();
+  }, [blobs]);
+
+  // Vibe props: merged solids + seeded graffiti wall.
+  const vibeGeometry = useMemo(() => buildVibeSolidsGeometry(layer), [layer]);
+  useEffect(() => () => vibeGeometry.dispose(), [vibeGeometry]);
+  const graffitiTexture = useMemo(() => makeGraffitiTexture(layer.graffiti.seed), [layer.graffiti.seed]);
+  useEffect(() => () => graffitiTexture.dispose(), [graffitiTexture]);
+
+  return (
+    <>
+      {/* Storefront / Sam-host / Sankofa boxes — one instancedMesh + fixed BUILDING colliders. */}
+      {boxes.length > 0 ? (
+        <instancedMesh ref={boxesRef} args={[undefined, undefined, boxes.length]} castShadow frustumCulled={false}>
+          <boxGeometry args={[1, 1, 1]} />
+          <meshBasicMaterial toneMapped={false} />
+        </instancedMesh>
+      ) : null}
+      <RigidBody type="fixed" colliders={false} collisionGroups={BUILDING_GROUPS}>
+        {boxes.map((b, i) => (
+          <CuboidCollider key={i} args={[b.hx, b.hy, b.hz]} position={[b.cx, b.hy, b.cz]} />
+        ))}
+      </RigidBody>
+
+      {/* FASCIA sign-bands (§4) — one shared band-atlas texture + one merged geometry. */}
+      {allFascias.length > 0 ? (
+        <mesh geometry={bandGeometry} frustumCulled={false}>
+          <meshBasicMaterial map={bandTexture} toneMapped={false} side={DoubleSide} />
+        </mesh>
+      ) : null}
+
+      {/* Apple-on-Eaton + Alo plaque logo decals (shared logo atlas). */}
+      {logoDecals.map((d) => (
+        <mesh key={d.key} geometry={d.geometry} position={d.position} rotation={d.rotation}>
+          <meshBasicMaterial map={atlas.texture} toneMapped={false} side={DoubleSide} />
+        </mesh>
+      ))}
+
+      {/* Queue lineups — cosmetic props, NO colliders (locked "Pedestrians: none"). */}
+      {posts.length > 0 ? (
+        <instancedMesh ref={postsRef} args={[undefined, undefined, posts.length]} frustumCulled={false}>
+          <boxGeometry args={[0.16, 1.2, 0.16]} />
+          <meshBasicMaterial color="#c8b06a" toneMapped={false} />
+        </instancedMesh>
+      ) : null}
+      {blobs.length > 0 ? (
+        <instancedMesh ref={blobsRef} args={[undefined, undefined, blobs.length]} castShadow frustumCulled={false}>
+          <boxGeometry args={[0.62, 0.9, 0.42]} />
+          <meshBasicMaterial toneMapped={false} />
+        </instancedMesh>
+      ) : null}
+
+      {/* Sam the Record Man — two spinning neon discs over Dundas Square. */}
+      {layer.discs.discs.map((disc, i) => (
+        <SamDisc key={i} disc={disc} texture={atlas.texture} />
+      ))}
+
+      {/* Sankofa Square animated screen + Queen West graffiti wall. */}
+      <SankofaScreen screen={layer.sankofa.screen} />
+      <mesh position={[layer.graffiti.cx, layer.graffiti.cy, layer.graffiti.cz]} rotation={[0, layer.graffiti.rotationY, 0]}>
+        <planeGeometry args={[layer.graffiti.width, layer.graffiti.height]} />
+        <meshBasicMaterial map={graffitiTexture} toneMapped={false} side={DoubleSide} />
+      </mesh>
+
+      {/* Merged solid vibe props: Chinatown gate, Sugar Beach umbrellas, King West patio, rainbow
+          crosswalk (all colliderless, vertex-coloured, unlit-literal). */}
+      <mesh geometry={vibeGeometry} frustumCulled={false}>
+        <meshBasicMaterial vertexColors toneMapped={false} side={DoubleSide} />
+      </mesh>
+    </>
+  );
+}
+
 export function TorontoScene() {
   // The store world seed (index.tsx keys this whole subtree on it, so "New city" in the garage
   // remounts + reseeds the massing). Read the same way index.tsx does.
@@ -532,7 +998,14 @@ export function TorontoScene() {
   // table). Built once; their footprints + the reserved hero lots feed buildMassing as exclusions
   // so filler never collides with a landmark or the P25 CN Tower / Rogers lots.
   const named = useMemo(() => buildNamedBuildings(), []);
-  const massing = useMemo(() => buildMassing(seed, named.exclusions), [seed, named]);
+  // Phase 26 places / nostalgia layer: street-referenced, seed-independent (pure function of the
+  // street table + named). Its storefront/Sam/Sankofa footprints join the named exclusions so
+  // filler never collides with a place box (or drives a filler box through a vibe prop).
+  const places = useMemo(() => buildPlacesLayer(named), [named]);
+  const massing = useMemo(
+    () => buildMassing(seed, [...named.exclusions, ...places.exclusions]),
+    [seed, named, places],
+  );
   const buildingsRef = useRef<InstancedMesh>(null);
   useEffect(() => {
     const mesh = buildingsRef.current;
@@ -755,6 +1228,12 @@ export function TorontoScene() {
       {/* Hero landmarks (Phase 25): the CN Tower + Rogers Centre primitive meshes on the reserved
           rail-lands lots, south of the named financial cluster (§5 adjacency rule). */}
       <HeroesLayer />
+
+      {/* Places / nostalgia layer (Phase 26): places.json storefronts + §4 FASCIA sign-bands, the
+          Uncle Tetsu / Konjiki-Elm lineups, Sam the Record Man's spinning discs, and §6 vibe props
+          (Chinatown gate, rainbow crosswalk, Sugar Beach umbrellas, King West patio, Sankofa
+          screen, Queen West graffiti). The FINAL Part-7 content pass. */}
+      <PlacesLayer layer={places} />
 
       {/* Roads: one merged per-class vertex-coloured ribbon mesh. UNLIT (basic material):
           the §3a class colours must read exactly as authored regardless of dusk light —

@@ -119,8 +119,8 @@ describe('CREDITS.assets — honesty statement', () => {
   });
 });
 
-describe('CREDITS.brandTrademarks — Phase 24 bank-logo atlas trademark notes', () => {
-  const EXPECTED_BRANDS = [
+describe('CREDITS.brandTrademarks — Phase 24 bank + Phase 26 retail/nostalgia atlas trademark notes', () => {
+  const EXPECTED_BANK_BRANDS = [
     'TD Bank Group',
     'RBC (Royal Bank of Canada)',
     'BMO (Bank of Montreal)',
@@ -128,8 +128,32 @@ describe('CREDITS.brandTrademarks — Phase 24 bank-logo atlas trademark notes',
     'Scotiabank',
   ];
 
-  it('covers exactly the five bank brands the logo atlas draws', () => {
+  const EXPECTED_RETAIL_BRANDS = [
+    "McDonald's",
+    'Tim Hortons (Restaurant Brands)',
+    'H Mart',
+    'Loblaws (Loblaw Companies)',
+    'Yonge Street Warehouse',
+    'The Alley',
+    'Uncle Tetsu',
+    'Konjiki Ramen',
+    'Real Sports (MLSE)',
+    'MEC',
+    'The Rec Room (Cineplex)',
+    'Apple',
+    'Sam the Record Man (historic sign homage)',
+    'Alo Restaurant',
+    'Buk Chang Dong Soon Tofu',
+  ];
+
+  const EXPECTED_BRANDS = [...EXPECTED_BANK_BRANDS, ...EXPECTED_RETAIL_BRANDS];
+
+  it('covers exactly the five Phase-24 bank brands followed by the fifteen Phase-26 retail/nostalgia brands', () => {
     expect(CREDITS.brandTrademarks.map((entry) => entry.name)).toEqual(EXPECTED_BRANDS);
+  });
+
+  it('has exactly 20 entries', () => {
+    expect(CREDITS.brandTrademarks.length).toBe(20);
   });
 
   it('has unique brand names', () => {
