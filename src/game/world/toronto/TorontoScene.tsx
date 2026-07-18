@@ -21,7 +21,7 @@
 // Lighting reuses world/BlueHourRig.tsx (its shadow frustum follows the player, so it is
 // map-size-agnostic and self-restores scene state on unmount — clean when the toggle flips back).
 
-import { useEffect, useMemo, useRef } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { CuboidCollider, CylinderCollider, RigidBody, useAfterPhysicsStep } from '@react-three/rapier';
 import {
@@ -36,12 +36,13 @@ import {
   Object3D,
   PlaneGeometry,
   Raycaster,
+  RepeatWrapping,
   SRGBColorSpace,
   Vector3,
   type InstancedMesh,
   type PerspectiveCamera,
 } from 'three';
-import { BOUNDARY, interactionGroups } from '../../config';
+import { BOUNDARY, QUALITY_TIERS, interactionGroups } from '../../config';
 import { CAMERA_CLAMP_PADDING_WU, clampToPolygon } from './polygon';
 import { WINDOW_PATTERN } from '../../config/torontoMaterials';
 import { CORRIDOR_HALF_WIDTH_WU } from '../../config/tunnel';
@@ -50,7 +51,11 @@ import { listIntersections } from './roadGraph';
 import { buildDistricts } from './districts';
 import { buildFrontage } from './frontage';
 import { buildFurniture } from './furniture';
-import { buildRoadGeometry } from './roadPaint';
+import { buildRoadGeometry, buildSidewalkColliderBoxes } from './roadPaint';
+import { buildParks, type ParksLayout } from './parks';
+import { GROUND_NOISE, buildNoiseField, sampleNoiseField } from './groundNoise';
+import { SIDEWALK } from '../../config/torontoMap';
+import { CityPackBatched } from './cityPack/CityPackBatched';
 import { HERO_LOTS, buildNamedBuildings, type CrownDecal, type NamedBox, type NamedPlacement } from './namedBuildings';
 import { buildCnTowerGeometry, buildRogersGeometry } from './heroes';
 import { needsTransparent, occlusionFader, occlusionRegistry } from './occlusionFade';
@@ -97,7 +102,10 @@ const BOARD_H = 3.5;
 // the real Toronto palette). Muted district-neutral ground; lake matches the legacy WATER_COLOR.
 // Matches the legacy CityScape ground exactly — the Phase 22 live pass proved the darker
 // first cut (#3a4048) left roads indistinguishable from ground under blue-hour light.
-const GROUND_COLOR = '#454b54';
+// Phase 25.8 (D3 L3) ladder brighten: base ground #454b54 → #4d545e (+~11%). Stays above the
+// asphalts, below the sidewalk. Only shows in fold notches / polygon slivers the district tints
+// don't reach; the lift keeps those slivers reading as ground, not a dark void. Pre-brighten: #454b54.
+const GROUND_COLOR = '#4d545e';
 const WATER_COLOR = '#2f6f93';
 const POST_COLOR = '#6b7280';
 
@@ -133,6 +141,7 @@ const occlusionKeyList: string[] = [];
 function pushQuad(
   positions: number[],
   normals: number[],
+  uvs: number[],
   x0: number,
   z0: number,
   x1: number,
@@ -141,19 +150,56 @@ function pushQuad(
 ): void {
   positions.push(x0, y, z0, x0, y, z1, x1, y, z1, x0, y, z0, x1, y, z1, x1, y, z0);
   for (let i = 0; i < 6; i++) normals.push(0, 1, 0);
+  // D6 world-planar UVs (x/z ÷ tileWu) so the shared ground-noise texture tiles across the world.
+  const t = GROUND_NOISE.tileWu;
+  uvs.push(x0 / t, z0 / t, x0 / t, z1 / t, x1 / t, z1 / t, x0 / t, z0 / t, x1 / t, z1 / t, x1 / t, z0 / t);
+}
+
+/** Build the shared D6 ground-noise CanvasTexture: one sample of the seeded tileable field
+ * (groundNoise.ts) painted into a 256² luminance map, RepeatWrapping so world-planar UVs tile it.
+ * Set as `map` on the unlit ground/tint/park materials → multiplies the vertex-colour ladder. */
+function makeGroundNoiseTexture(seed: number): CanvasTexture {
+  const field = buildNoiseField(seed, GROUND_NOISE.lattice, GROUND_NOISE.lo, GROUND_NOISE.hi);
+  const size = GROUND_NOISE.textureSize;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const tex = new CanvasTexture(canvas);
+  tex.wrapS = RepeatWrapping;
+  tex.wrapT = RepeatWrapping;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const img = ctx.createImageData(size, size);
+    for (let py = 0; py < size; py++) {
+      for (let px = 0; px < size; px++) {
+        const lum = sampleNoiseField(field, px / size, py / size);
+        const b = Math.round(lum * 255);
+        const idx = (py * size + px) * 4;
+        img.data[idx] = b;
+        img.data[idx + 1] = b;
+        img.data[idx + 2] = b;
+        img.data[idx + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+  tex.needsUpdate = true;
+  return tex;
 }
 
 /** Merged flat geometry for the three ground rects (single draw call, one flat material). */
 function buildGroundGeometry(): BufferGeometry {
   const positions: number[] = [];
   const normals: number[] = [];
+  const uvs: number[] = [];
   for (const rect of GROUND_RECTS) {
     // rect is map space; mapToWorld is the identity swap, so min/max X,Y ARE world x/z.
-    pushQuad(positions, normals, rect.minX, rect.minY, rect.maxX, rect.maxY, GROUND_Y);
+    pushQuad(positions, normals, uvs, rect.minX, rect.minY, rect.maxX, rect.maxY, GROUND_Y);
   }
   const g = new BufferGeometry();
   g.setAttribute('position', new Float32BufferAttribute(positions, 3));
   g.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+  g.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
   g.computeBoundingSphere();
   return g;
 }
@@ -167,12 +213,13 @@ function buildGroundTintGeometry(): BufferGeometry {
   const positions: number[] = [];
   const normals: number[] = [];
   const colors: number[] = [];
+  const uvs: number[] = [];
   const c = new Color();
   for (const { def, rects } of buildDistricts()) {
     c.set(def.groundTint);
     for (const rect of rects) {
       // rect is map space; mapToWorld is the identity swap, so min/max X,Y ARE world x/z.
-      pushQuad(positions, normals, rect.minX, rect.minY, rect.maxX, rect.maxY, GROUND_TINT_Y);
+      pushQuad(positions, normals, uvs, rect.minX, rect.minY, rect.maxX, rect.maxY, GROUND_TINT_Y);
       for (let i = 0; i < 6; i++) colors.push(c.r, c.g, c.b);
     }
   }
@@ -180,6 +227,34 @@ function buildGroundTintGeometry(): BufferGeometry {
   g.setAttribute('position', new Float32BufferAttribute(positions, 3));
   g.setAttribute('normal', new Float32BufferAttribute(normals, 3));
   g.setAttribute('color', new Float32BufferAttribute(colors, 3));
+  g.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
+  g.computeBoundingSphere();
+  return g;
+}
+
+// --- D7 parks: merged grass mesh (noise-textured, one draw call) ------------------------------
+const PARK_GROUND_Y = 0.01; // just above the base ground / district tint, below the road ribbon
+const PARK_GRASS_COLOR = '#3f5236'; // muted blue-hour green (unlit-literal); lighter than tints so
+// the noise reads stronger on the grass than on the darker street tints (D6 note).
+
+/** One merged vertex-coloured grass mesh for every park rect (world-planar UVs for the shared
+ * noise map). Sits above the ground/tint, below the roads — a park never covers a ribbon (parks.ts
+ * rejects any rect overlapping a ribbon). */
+function buildParksGeometry(parks: ParksLayout): BufferGeometry {
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const colors: number[] = [];
+  const uvs: number[] = [];
+  const c = new Color(PARK_GRASS_COLOR);
+  for (const p of parks.parks) {
+    pushQuad(positions, normals, uvs, p.minX, p.minY, p.maxX, p.maxY, PARK_GROUND_Y);
+    for (let i = 0; i < 6; i++) colors.push(c.r, c.g, c.b);
+  }
+  const g = new BufferGeometry();
+  g.setAttribute('position', new Float32BufferAttribute(positions, 3));
+  g.setAttribute('normal', new Float32BufferAttribute(normals, 3));
+  g.setAttribute('color', new Float32BufferAttribute(colors, 3));
+  g.setAttribute('uv', new Float32BufferAttribute(uvs, 2));
   g.computeBoundingSphere();
   return g;
 }
@@ -792,6 +867,25 @@ export function TorontoScene() {
   const roadGeometry = useMemo(() => buildRoadGeometry(streets, intersections), [streets, intersections]);
   useEffect(() => () => roadGeometry.dispose(), [roadGeometry]);
 
+  // Phase 25.8 (D5): raised-sidewalk curb colliders (top at SIDEWALK.curbHeightWu), from the same
+  // segment set the visual band uses. Gated by SIDEWALK.colliders (drive-feel kill-switch).
+  const curbBoxes = useMemo(() => buildSidewalkColliderBoxes(streets, intersections), [streets, intersections]);
+
+  // Phase 25.8 (D6): one shared ground-noise texture keyed on the seed (deterministic).
+  const groundNoiseTex = useMemo(() => makeGroundNoiseTexture(seed), [seed]);
+  useEffect(() => () => groundNoiseTex.dispose(), [groundNoiseTex]);
+
+  // Phase 25.8 (D7): parks — the grass mesh + tree ring; the rects also gate the streetwall via the
+  // frontage exclusion set (buildFrontage calls buildParks() internally, so the same rects gap the
+  // frontage that the mesh fills — deterministic, seed-independent, no drift).
+  const parks = useMemo(() => buildParks(), []);
+  const parksGeometry = useMemo(() => buildParksGeometry(parks), [parks]);
+  useEffect(() => () => parksGeometry.dispose(), [parksGeometry]);
+  const parkTreePlacements = useMemo(
+    () => parks.trees.map((t) => ({ position: t.position, rotationY: t.rotationY })),
+    [parks],
+  );
+
   // Phase 24 named landmarks: street-referenced, seed-independent (pure function of the street
   // table). Their footprints + the reserved hero lots feed the frontage engine as exclusions so
   // pack filler never collides with a landmark or the P25 CN Tower / Rogers lots.
@@ -800,11 +894,28 @@ export function TorontoScene() {
   // Sankofa footprints join the named exclusions (frontage.ts + furniture.ts consume both).
   const places = useMemo(() => buildPlacesLayer(named), [named]);
 
+  // Phase 25.8 (D8): the quality-tier dress scaling, captured ONCE at mount via a lazy useState
+  // initializer — NOT a reactive subscription, matching world/CityScape.tsx's
+  // parkedCarKeepFraction/sceneryKeepFraction precedent exactly (see that file's doc comment). A
+  // mid-run quality change must not thin buildings/furniture/colliders out from under a live run;
+  // the new tier applies on the next mount (new seed, new run, or the torontoMap toggle).
+  const [tierParams] = useState(() => {
+    const tier = QUALITY_TIERS[useGameStore.getState().settings.quality];
+    return {
+      dressDensityScalar: tier.dressDensityScalar,
+      frontageOccupancyScalar: tier.frontageOccupancyScalar,
+      parkedCarKeepFraction: tier.parkedCarKeepFraction,
+      lampOverlay: tier.lampOverlay,
+    };
+  });
+
   // Phase 25.6 re-dress: pack-building frontage (retires the box-lattice massing) + street
   // furniture + parked cars. Both are pure/deterministic and read the SAME named+places exclusions
   // internally, so a re-render never rebuilds them and the same seed reproduces the exact city.
-  const frontage = useMemo(() => buildFrontage(seed), [seed]);
-  const furniture = useMemo(() => buildFurniture(seed), [seed]);
+  // Phase 25.8 (D8): threaded with the mount-captured tierParams above (tierParams is stable
+  // across the component's lifetime, so this dependency never re-triggers a rebuild mid-run).
+  const frontage = useMemo(() => buildFrontage(seed, tierParams), [seed, tierParams]);
+  const furniture = useMemo(() => buildFurniture(seed, tierParams), [seed, tierParams]);
   // Phase 25.7 venue dressing: pure, derived off the frontage's resolved venue claims (seed-
   // independent claims, so this only rebuilds when the frontage object changes). Passed into
   // CityDress → VenueDressLayer; its dressing-prop model ids join the preload set below.
@@ -965,7 +1076,7 @@ export function TorontoScene() {
           tints above cover ~95% of the drivable area; this only shows in the fold notches /
           polygon slivers the tint quads don't reach, where a neutral dark reads as shadow. */}
       <mesh geometry={groundGeometry} frustumCulled={false}>
-        <meshBasicMaterial color={GROUND_COLOR} toneMapped={false} />
+        <meshBasicMaterial color={GROUND_COLOR} map={groundNoiseTex} toneMapped={false} />
       </mesh>
       {/* District ground tints (Phase 23, §6): one vertex-coloured quad per resolved district
           rect. A/B RESULT (this session's live pass): a LIT MeshLambertMaterial crushed the
@@ -975,8 +1086,21 @@ export function TorontoScene() {
           same mitigation the roads/curbs/dashes (and, this session, the buildings) use — the
           authored §6 tint hex IS the on-screen colour. */}
       <mesh geometry={tintGeometry} frustumCulled={false}>
-        <meshBasicMaterial vertexColors toneMapped={false} />
+        <meshBasicMaterial vertexColors map={groundNoiseTex} toneMapped={false} />
       </mesh>
+      {/* Phase 25.8 (D7): park grass rects (noise-textured, unlit vertex-coloured). Above the tint,
+          below the roads; parks.ts guarantees no rect overlaps a ribbon. */}
+      <mesh geometry={parksGeometry} frustumCulled={false}>
+        <meshBasicMaterial vertexColors map={groundNoiseTex} toneMapped={false} />
+      </mesh>
+      {/* Park trees — merge visually into the pack tree read via their own BatchedMesh (id 'tree',
+          per-instance culled). +1 draw call; deliberately kept out of CityDress to avoid touching the
+          concurrent tier-wiring there. */}
+      {parkTreePlacements.length > 0 ? (
+        <Suspense fallback={null}>
+          <CityPackBatched id="tree" placements={parkTreePlacements} unlit={cityPackUnlit} />
+        </Suspense>
+      ) : null}
       <RigidBody type="fixed" colliders={false} collisionGroups={GROUND_GROUPS}>
         {GROUND_RECTS.map((rect, i) => {
           const b = rectWorldBox(rect);
@@ -989,6 +1113,19 @@ export function TorontoScene() {
           );
         })}
       </RigidBody>
+      {/* Phase 25.8 (D5): raised-curb GROUND colliders under each raised-sidewalk segment (top at
+          curbHeightWu). Kill-switch SIDEWALK.colliders (drive-feel gated). */}
+      {SIDEWALK.colliders ? (
+        <RigidBody type="fixed" colliders={false} collisionGroups={GROUND_GROUPS}>
+          {curbBoxes.map((b, i) => (
+            <CuboidCollider
+              key={i}
+              args={[b.hx, SIDEWALK.curbHeightWu / 2, b.hz]}
+              position={[b.cx, SIDEWALK.curbHeightWu / 2, b.cz]}
+            />
+          ))}
+        </RigidBody>
+      ) : null}
 
       {/* Phase 25.6 re-dress: the pack-building frontage (retires the box-lattice massing) +
           street furniture + parked cars + traffic-light lamp overlay. Frontage buildings + all
@@ -998,7 +1135,7 @@ export function TorontoScene() {
           shove when rammed. Every layer gates on its own devToggle; `cityPackUnlit` is the material
           A/B arm. Fixed BUILDING colliders (frontage buildings, tree trunks, bus-stops, backdrop
           towers) mount inside CityDress. */}
-      <CityDress frontage={frontage} furniture={furniture} dress={dress} />
+      <CityDress frontage={frontage} furniture={furniture} dress={dress} lampOverlay={tierParams.lampOverlay} />
 
       {/* Named landmarks (Phase 24): the §3c skyline (TD/RBC/Scotia/FCP/… towers, Royal York,
           Union, The Well, Eaton galleria, Aura, the Yonge×Sheppard twins, NY Civic Centre) as

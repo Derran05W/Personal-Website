@@ -19,6 +19,17 @@
 // PLUS the node's world matrix (`baseMatrix`), which it folds into every per-instance matrix. That
 // keeps the quantized attributes intact (GPU dequantizes via the normalized flag) while still
 // placing the model correctly.
+//
+// Phase 25.8 (D9) supersession note: CLAUDE.md's Phase 25.8 checklist row still reads "13 MB
+// pack → Draco/lazy-load strategy so the shell stays < 150 KB and game boot stays sane" — that
+// concern was already fully retired by this module + scripts/city-pack.mjs back in 25.5/25.6, not
+// by anything in 25.8. The pipeline's OUTPUT (meshopt, not Draco — see the loader-wiring note
+// above) is streamed from `public/` (no bundling, no CDN): 52 GLBs / 381 KB total on disk
+// (verified via `du` over public/city-pack + public root GLBs), and this module's own decoder
+// code adds only ~22 KB gz to the LAZY game chunk. The SHELL chunk (src/app/, paints before the
+// game loads) carries none of it — `pnpm check:shell` gates that at 96.79 KB gz against a 150 KB
+// budget, comfortably green. 25.8 verified these numbers again (build audit, D9c) rather than
+// re-litigating them; the checklist line itself gets its wording caught up at the phase's exit.
 
 import { useMemo } from 'react';
 import { useGLTF } from '@react-three/drei';

@@ -240,9 +240,11 @@ export function VenueDressLayer({ dress, unlit }: VenueDressLayerProps) {
     if (!mesh || blobs.length === 0) return;
     const dummy = new Object3D();
     const color = new Color();
-    const shades = ['#3a3f4a', '#4a4038', '#42484f', '#524a42', '#3f4550'];
+    // Phase 25.8 (D10): brightened ~+30% luminance (clothing tones — the P25.7 queues read too
+    // small/dark under the awnings). Pre-25.8: #3a3f4a/#4a4038/#42484f/#524a42/#3f4550.
+    const shades = ['#4b5260', '#605349', '#565e67', '#6b6056', '#525a68'];
     blobs.forEach((b, i) => {
-      dummy.position.set(b.x, 0.45, b.z);
+      dummy.position.set(b.x, 0.5, b.z);
       dummy.rotation.set(0, 0, 0);
       dummy.scale.set(1, 1, 1);
       dummy.updateMatrix();
@@ -298,7 +300,9 @@ export function VenueDressLayer({ dress, unlit }: VenueDressLayerProps) {
       ) : null}
       {blobs.length > 0 ? (
         <instancedMesh ref={blobsRef} args={[undefined, undefined, blobs.length]} castShadow frustumCulled={false}>
-          <boxGeometry args={[0.62, 0.9, 0.42]} />
+          {/* Phase 25.8 (D10): slight scale-up (0.62/0.9/0.42 → 0.72/1.02/0.5) so the lineup reads.
+              instanceColor (setColorAt) multiplies automatically — no vertexColors flag needed. */}
+          <boxGeometry args={[0.72, 1.02, 0.5]} />
           <meshBasicMaterial toneMapped={false} />
         </instancedMesh>
       ) : null}

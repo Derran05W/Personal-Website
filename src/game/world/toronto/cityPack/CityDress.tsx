@@ -143,10 +143,15 @@ export interface CityDressProps {
   readonly furniture: FurnitureLayout;
   /** Phase 25.7 venue dressing (built off frontage.venueClaims by TorontoScene, passed in). */
   readonly dress: VenueDress;
+  /** Phase 25.8 (D8): QUALITY_TIERS[tier].lampOverlay, mount-captured by TorontoScene. The
+   * per-frame traffic-lamp phase overlay mounts only when BOTH this AND the devToggle are true —
+   * low tier drops it (a small per-frame cost the screen is too small to read anyway at that
+   * distance/tier). */
+  readonly lampOverlay: boolean;
 }
 
 /** The whole re-dressed city — each layer independently toggle-gated (perf triage / A/B). */
-export function CityDress({ frontage, furniture, dress }: CityDressProps) {
+export function CityDress({ frontage, furniture, dress, lampOverlay }: CityDressProps) {
   const unlit = useDevToggle('cityPackUnlit');
   const showBuildings = useDevToggle('packBuildings');
   const showFurniture = useDevToggle('packFurniture');
@@ -160,7 +165,7 @@ export function CityDress({ frontage, furniture, dress }: CityDressProps) {
       {showBuildings ? <BackdropTowers layout={frontage} /> : null}
       {showFurniture ? <StreetFurniture furniture={furniture} unlit={unlit} /> : null}
       {showParked ? <ParkedVehicles parked={furniture.parked.items} unlit={unlit} /> : null}
-      {showLamps ? <TrafficLampOverlay masts={furniture.trafficLights} /> : null}
+      {showLamps && lampOverlay ? <TrafficLampOverlay masts={furniture.trafficLights} /> : null}
       {showVenueDress ? <VenueDressLayer dress={dress} unlit={unlit} /> : null}
     </>
   );

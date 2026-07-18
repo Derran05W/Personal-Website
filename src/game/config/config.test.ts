@@ -127,6 +127,30 @@ describe('quality tiers', () => {
     expect(QUALITY_TIERS.high.trafficDensityModifier).toBe(1);
     expect(QUALITY_TIERS.high.parkedCarKeepFraction).toBe(1);
   });
+
+  it('Phase 25.8 (D8) Toronto dress-tier knobs are present and bounded (0,1]', () => {
+    for (const tier of Object.values(QUALITY_TIERS)) {
+      expect(tier.dressDensityScalar).toBeGreaterThan(0);
+      expect(tier.dressDensityScalar).toBeLessThanOrEqual(1);
+      expect(tier.frontageOccupancyScalar).toBeGreaterThan(0);
+      expect(tier.frontageOccupancyScalar).toBeLessThanOrEqual(1);
+      expect(typeof tier.lampOverlay).toBe('boolean');
+    }
+    // high tier is the full-fat baseline (no trimming) — this is what makes it the
+    // world/toronto TORONTO_TIER_IDENTITY (byte-identity golden tests in frontage.test.ts /
+    // furniture.test.ts rely on exactly these three values being 1).
+    expect(QUALITY_TIERS.high.dressDensityScalar).toBe(1);
+    expect(QUALITY_TIERS.high.frontageOccupancyScalar).toBe(1);
+    expect(QUALITY_TIERS.high.lampOverlay).toBe(true);
+    // low tier drops the per-frame lamp-phase overlay; med keeps it (only draw-call/tri-budget
+    // levers differ at med).
+    expect(QUALITY_TIERS.low.lampOverlay).toBe(false);
+    expect(QUALITY_TIERS.med.lampOverlay).toBe(true);
+    // low is strictly the tightest tier on every dress lever (monotonic low <= med <= high).
+    expect(QUALITY_TIERS.low.dressDensityScalar).toBeLessThan(QUALITY_TIERS.med.dressDensityScalar);
+    expect(QUALITY_TIERS.med.dressDensityScalar).toBeLessThanOrEqual(QUALITY_TIERS.high.dressDensityScalar);
+    expect(QUALITY_TIERS.low.frontageOccupancyScalar).toBeLessThan(QUALITY_TIERS.med.frontageOccupancyScalar);
+  });
 });
 
 describe('per-tier budget resolvers (Phase 18)', () => {

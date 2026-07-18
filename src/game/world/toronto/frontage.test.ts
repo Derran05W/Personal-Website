@@ -6,7 +6,8 @@
 // front the street), and (f) corner slots prefer cornerModels + stable slot ids (the 25.7 seam).
 import { describe, expect, it } from 'vitest';
 import { TORONTO_DISTRICTS, type DistrictId } from '../../config/torontoDistricts';
-import { FRONTAGE } from '../../config/torontoDress';
+import { FRONTAGE, TORONTO_TIER_IDENTITY, type TorontoTierParams } from '../../config/torontoDress';
+import { QUALITY_TIERS } from '../../config/quality';
 import { hasCityPackModel } from '../../assets/cityPackManifest';
 import { PLAYABLE_POLYGON, pointInPolygon } from './polygon';
 import { buildStreets } from './streets';
@@ -299,6 +300,54 @@ describe('buildFrontage — venue claims (T2/D1)', () => {
   it('claim facing is derived from the fronted street axis+side (all four cardinals valid)', () => {
     const allowed = new Set(['north', 'south', 'east', 'west']);
     for (const c of layout.venueClaims) expect(allowed.has(c.facing), c.venueId).toBe(true);
+  });
+});
+
+// --- Phase 25.8 (T2/D8) quality-tier wiring ---------------------------------------------------
+
+function tierParamsOf(tier: keyof typeof QUALITY_TIERS): TorontoTierParams {
+  const t = QUALITY_TIERS[tier];
+  return {
+    dressDensityScalar: t.dressDensityScalar,
+    frontageOccupancyScalar: t.frontageOccupancyScalar,
+    parkedCarKeepFraction: t.parkedCarKeepFraction,
+  };
+}
+
+describe('buildFrontage — Phase 25.8 (D8) quality-tier wiring', () => {
+  const HIGH = tierParamsOf('high');
+  const LOW = tierParamsOf('low');
+
+  it('the high tier resolves to exactly TORONTO_TIER_IDENTITY (the default)', () => {
+    expect(HIGH).toEqual(TORONTO_TIER_IDENTITY);
+  });
+
+  it('high tier is byte-identical to the pre-tier (no-arg) output — golden', () => {
+    expect(buildFrontage(SEED, HIGH)).toEqual(layout);
+    expect(buildFrontage(SEED, HIGH)).toEqual(buildFrontage(SEED));
+  });
+
+  it('same (seed, tier) -> deep-equal output (determinism)', () => {
+    expect(buildFrontage(SEED, LOW)).toEqual(buildFrontage(SEED, LOW));
+  });
+
+  it('low tier still resolves and survives every venue claim (forced-occupied + thin-exempt)', () => {
+    const low = buildFrontage(SEED, LOW);
+    expect(low.venueClaims).toHaveLength(VENUE_AUTHORS.length);
+    const tagged = low.slots.filter((s) => s.venueId !== undefined);
+    expect(tagged).toHaveLength(VENUE_AUTHORS.length);
+    expect(new Set(tagged.map((s) => s.venueId))).toEqual(new Set(VENUE_AUTHORS.map((a) => a.id)));
+  });
+
+  it('frontageOccupancyScalar changes the generic-slot roll (a different building subset is kept), even though FRONTAGE.hardCap keeps the RENDERED total flat on this map', () => {
+    const high = buildFrontage(SEED, HIGH);
+    const low = buildFrontage(SEED, LOW);
+    // Both tiers' raw (pre-cap) candidate pool comfortably exceeds FRONTAGE.hardCap (900) even at
+    // the low-tier 0.75x occupancy scalar, so thinToCap always trims to exactly the cap — the
+    // scalar's visible effect on THIS map is which 900 buildings get kept, not how many.
+    expect(low.slots.length).toBe(FRONTAGE.hardCap);
+    expect(high.slots.length).toBe(FRONTAGE.hardCap);
+    expect(low.slots.map((s) => s.slotId)).not.toEqual(high.slots.map((s) => s.slotId));
   });
 });
 

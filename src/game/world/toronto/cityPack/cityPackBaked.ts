@@ -13,7 +13,9 @@
 import { useEffect, useMemo } from 'react';
 import { BufferGeometry, Float32BufferAttribute, Matrix3, Vector3 } from 'three';
 import { useCityPackModel } from '../../../assets/cityPack';
+import { getCityPackModel } from '../../../assets/cityPackManifest';
 import { resolveCityPackScale } from '../../../config/cityPackScale';
+import { gradientLuminanceAt, vertexGradientActive } from '../../../config/torontoCohesion';
 
 /** De-quantized render data for one pack model, ready for BatchedMesh / a plain scaled <mesh>. */
 export interface BakedCityPackModel {
@@ -27,20 +29,46 @@ export interface BakedCityPackModel {
 }
 
 /** Fold `baseMatrix` into a fresh Float32 geometry (position + normal + uv + index), so the
- * output carries no normalized-int attributes and no node transform. */
-export function bakeGeometry(source: BufferGeometry, baseMatrix: import('three').Matrix4): BufferGeometry {
+ * output carries no normalized-int attributes and no node transform. When `gradient` is true, a
+ * per-vertex luminance color attribute (D4 vertex-gradient bake, config/torontoCohesion.ts) is
+ * written — a vertical ramp over the baked bbox Y (floor→roof) that gives an unlit box vertical
+ * form. `gradient` false (or strength 0) writes NO color attribute → byte-identical to before. */
+export function bakeGeometry(
+  source: BufferGeometry,
+  baseMatrix: import('three').Matrix4,
+  gradient = false,
+): BufferGeometry {
   const pos = source.getAttribute('position');
   const count = pos.count;
   const outPos = new Float32Array(count * 3);
   const v = new Vector3();
+  let minY = Infinity;
+  let maxY = -Infinity;
   for (let i = 0; i < count; i++) {
     v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(baseMatrix);
     outPos[i * 3] = v.x;
     outPos[i * 3 + 1] = v.y;
     outPos[i * 3 + 2] = v.z;
+    if (v.y < minY) minY = v.y;
+    if (v.y > maxY) maxY = v.y;
   }
   const g = new BufferGeometry();
   g.setAttribute('position', new Float32BufferAttribute(outPos, 3));
+
+  // D4 vertex-gradient bake (building family only, gated by the caller). Luminance-only ramp over
+  // the baked bbox Y; strength 0 skips it entirely (kill-switch → no attribute, no vertexColors).
+  if (gradient && vertexGradientActive()) {
+    const span = maxY - minY;
+    const outCol = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      const t = span > 1e-6 ? (outPos[i * 3 + 1] - minY) / span : 0;
+      const lum = gradientLuminanceAt(t);
+      outCol[i * 3] = lum;
+      outCol[i * 3 + 1] = lum;
+      outCol[i * 3 + 2] = lum;
+    }
+    g.setAttribute('color', new Float32BufferAttribute(outCol, 3));
+  }
 
   const normal = source.getAttribute('normal');
   if (normal) {
@@ -102,7 +130,16 @@ export function bakeGeometry(source: BufferGeometry, baseMatrix: import('three')
 export function useBakedCityPackModel(id: string): BakedCityPackModel & { material: import('three').Material } {
   const model = useCityPackModel(id);
   const scale = resolveCityPackScale(id);
-  const geometry = useMemo(() => bakeGeometry(model.geometry, model.baseMatrix), [model.geometry, model.baseMatrix]);
+  // D4 vertex-gradient bake applies to the BUILDING FAMILY only (never furniture/vehicles/props):
+  // per-category flag off the manifest, exactly the cityPackScale category seam.
+  const category = getCityPackModel(id).category;
+  const gradient = category === 'building' || category === 'building-blank';
+  // The bake reads VERTEX_GRADIENT_BAKE at build time; a strength retune applies on the next model
+  // mount / HMR reload (config mutation doesn't re-render, so it is not a useMemo dependency).
+  const geometry = useMemo(
+    () => bakeGeometry(model.geometry, model.baseMatrix, gradient),
+    [model.geometry, model.baseMatrix, gradient],
+  );
   useEffect(() => () => geometry.dispose(), [geometry]);
   const lift = useMemo(() => -(geometry.boundingBox?.min.y ?? 0) * scale, [geometry, scale]);
   return { geometry, scale, lift, material: model.material };

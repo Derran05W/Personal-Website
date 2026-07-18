@@ -213,8 +213,11 @@ export const VENUE_QUEUE = {
   spacingWu: 1.2,
   /** Alternating stagger (wu) perpendicular to the line-of-queue, every other blob. */
   staggerWu: 0.7,
-  /** Distance (wu) the queue line sits off the claimed facade's front edge. */
-  frontOffsetWu: 0.6,
+  /** Distance (wu) the queue line sits off the claimed facade's front edge. Phase 25.8 (D10):
+   * 0.6 → 2.2 so the lineup clears the awning's 1.8 wu canopy projection (AWNING.canopyDepthWu) —
+   * the P25.7 residual where queues read small/dark UNDER the awning in static top-down shots. Still
+   * inside the 4 wu sidewalk band (2.2 + staggerWu 0.7 = 2.9 < 4). Pre-25.8: 0.6. */
+  frontOffsetWu: 2.2,
   /** Extra length (wu) each end post sits beyond the first/last blob. */
   postExtraWu: 0.8,
 } as const;

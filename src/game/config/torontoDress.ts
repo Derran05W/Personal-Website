@@ -52,10 +52,52 @@ export const LAMP_OVERLAY = {
 /**
  * Quality-tier seam (D21): a single multiplier furniture.ts's row-spacing math divides by
  * (higher scalar = tighter spacing = more items). Default 1.0 = the numbers below, verbatim.
- * Actual tier wiring (low/med/high quality -> a chosen scalar) is 25.8 scope; this constant is
- * the pre-wired hook so that phase is a one-line change, not a furniture.ts rewrite.
+ * Phase 25.8 (D8) wires the ACTUAL per-tier scaling as a further multiplier on top of this —
+ * see TorontoTierParams.dressDensityScalar below — so this constant stays the single "master"
+ * density dial (independent of quality tier) while the tier scaling composes with it.
  */
 export const DRESS_DENSITY_SCALAR = 1.0;
+
+/**
+ * Phase 25.8 (D8) — the per-render quality-tier scaling `buildFrontage`/`buildFurniture`
+ * (world/toronto/frontage.ts / furniture.ts) consume as their second, OPTIONAL argument.
+ * Captured ONCE at TorontoScene mount from `config/quality.ts`'s `QUALITY_TIERS[tier]` (the
+ * Phase-18 "next run, at mount" precedent `world/CityScape.tsx` already uses for
+ * `parkedCarKeepFraction`/`sceneryKeepFraction` — see its doc comment) and threaded through as a
+ * plain data param, so neither builder ever reads the store or config/quality.ts directly and
+ * both stay pure functions of `(seed, tierParams)`. A mid-run quality change can never thin a
+ * live run's buildings/furniture/colliders out from under it — the new tier only applies on the
+ * next mount (new seed, new run, or the torontoMap toggle), exactly like the legacy-world tiers.
+ */
+export interface TorontoTierParams {
+  /** Multiplies DRESS_DENSITY_SCALAR in furniture.ts's row-spacing math (trees/hydrants/
+   * benches/trash-cans/bus-stops/manholes AND parked-vehicle along-street spacing). Traffic-light
+   * masts/stop-signs/power-boxes are intersection-rule furniture and are NEVER scaled — low tier
+   * still signals every intersection. Sourced from QUALITY_TIERS[tier].dressDensityScalar. */
+  readonly dressDensityScalar: number;
+  /** Multiplies FRONTAGE.occupancy's per-density (dense/medium/sparse) probabilities in
+   * frontage.ts's generic street-walk. A venue claim is forced-occupied regardless of this roll
+   * and always survives thinning (D1) — only unclaimed slots thin. Sourced from
+   * QUALITY_TIERS[tier].frontageOccupancyScalar. */
+  readonly frontageOccupancyScalar: number;
+  /** Multiplies PARKED.cap for furniture.ts's parked-vehicle hard cap (thinToCap) — the low
+   * tier's real dynamic-body-budget driver (200/120/50 @ the default PARKED.cap=200). Named to
+   * match the EXISTING QUALITY_TIERS.parkedCarKeepFraction field it is sourced from (Phase 18's
+   * legacy-world parked-car trim) — this is a new consumer of that same tier field, not a new
+   * concept. */
+  readonly parkedCarKeepFraction: number;
+}
+
+/** The no-op scaling: every ratio at 1.0, so `buildFrontage(seed, TORONTO_TIER_IDENTITY)` /
+ * `buildFurniture(seed, TORONTO_TIER_IDENTITY)` reproduce their pre-25.8 output byte-for-byte
+ * (asserted by the high-tier golden test). This is ALSO the default value of both builders'
+ * `tierParams` parameter, so every pre-25.8 call site (devPanel's venue lookups, debugBridge,
+ * every existing test) that omits the second argument keeps compiling and behaving unchanged. */
+export const TORONTO_TIER_IDENTITY: TorontoTierParams = {
+  dressDensityScalar: 1,
+  frontageOccupancyScalar: 1,
+  parkedCarKeepFraction: 1,
+} as const;
 
 // --- sidewalk row placement (D16 "rows") ----------------------------------------------------
 /** Where along the SIDEWALK band (config/torontoMap.ts SIDEWALK.widthWu = 4) a row sits,

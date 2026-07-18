@@ -36,7 +36,26 @@ export interface CityPackBatchedProps {
 export function CityPackBatched({ id, placements, unlit, castShadow = false }: CityPackBatchedProps) {
   const { geometry, scale, lift, material } = useBakedCityPackModel(id);
 
-  const renderMaterial = useMemo(() => (unlit ? toUnlit(material) : material), [material, unlit]);
+  // D4 vertex-gradient bake: the baked geometry carries a per-vertex luminance `color` attribute
+  // ONLY for the building family (cityPackBaked.ts). `toUnlit` copies vertexColors from the source
+  // (which has none), so the render material needs vertexColors flipped ON when the geometry carries
+  // the attribute — the ramp then multiplies over the palette texture + per-instance tint. The flag
+  // is baked into the material AT CREATION (never mutated post-hook): the unlit arm's toUnlit result
+  // is fresh, and the lit arm clones only when it must flip (never mutating the shared source).
+  const hasVertexColor = geometry.getAttribute('color') !== undefined;
+  const renderMaterial = useMemo(() => {
+    if (unlit) {
+      const m = toUnlit(material);
+      m.vertexColors = hasVertexColor;
+      return m;
+    }
+    if (material.vertexColors !== hasVertexColor) {
+      const m = material.clone();
+      m.vertexColors = hasVertexColor;
+      return m;
+    }
+    return material;
+  }, [material, unlit, hasVertexColor]);
   useEffect(
     () => () => {
       if (renderMaterial !== material) renderMaterial.dispose();

@@ -31,6 +31,26 @@ export interface QualityTierDef {
   // biggest static pool after buildings; this is the lever that pulls the LOW tier toward
   // its 120k budget after the parked-car trim.
   readonly sceneryKeepFraction: number;
+  // Phase 25.8 (D8): Toronto city-pack dress-density scale. Multiplies the pre-wired
+  // config/torontoDress.ts DRESS_DENSITY_SCALAR that world/toronto/furniture.ts's row-spacing
+  // math (trees/hydrants/benches/trash-cans/bus-stops/manholes AND parked-vehicle along-street
+  // spacing) divides by — a lower scalar widens spacing, so fewer items place. Intersection-rule
+  // furniture (traffic-light masts/stop-signs/power-boxes) is NEVER scaled by this (low tier
+  // still signals every intersection). Threaded into buildFurniture(seed, tierParams) as part of
+  // TorontoTierParams (config/torontoDress.ts), captured once at TorontoScene mount (the same
+  // "next run, at mount" precedent as parkedCarKeepFraction/sceneryKeepFraction above).
+  readonly dressDensityScalar: number;
+  // Phase 25.8 (D8): Toronto pack-building frontage occupancy scale. Multiplies
+  // config/torontoDress.ts FRONTAGE.occupancy's per-density (dense/medium/sparse) probabilities
+  // that world/toronto/frontage.ts's GENERIC street-walk rolls against — a venue claim is
+  // forced-occupied regardless of this roll and always survives (D1), only unclaimed slots thin.
+  // Threaded into buildFrontage(seed, tierParams) via the same TorontoTierParams bag.
+  readonly frontageOccupancyScalar: number;
+  // Phase 25.8 (D8): gates world/toronto/cityPack/CityDress.tsx's TrafficLampOverlay on tier AND
+  // its own devToggle ('packLightCycling') — both must be true for the per-frame lamp-phase
+  // overlay to mount. The overlay is a small per-frame cost (instance-colour writes on phase
+  // change) that buys nothing on a screen too small to read the phase anyway at low tier.
+  readonly lampOverlay: boolean;
 }
 
 export const QUALITY_TIERS = {
@@ -46,6 +66,9 @@ export const QUALITY_TIERS = {
     trafficDensityModifier: 1,
     parkedCarKeepFraction: 1,
     sceneryKeepFraction: 1,
+    dressDensityScalar: 1,
+    frontageOccupancyScalar: 1,
+    lampOverlay: true,
   },
   med: {
     targetFps: 60,
@@ -59,6 +82,9 @@ export const QUALITY_TIERS = {
     trafficDensityModifier: 0.83,
     parkedCarKeepFraction: 0.6,
     sceneryKeepFraction: 1,
+    dressDensityScalar: 0.85,
+    frontageOccupancyScalar: 1,
+    lampOverlay: true,
   },
   low: {
     targetFps: 30,
@@ -72,6 +98,9 @@ export const QUALITY_TIERS = {
     trafficDensityModifier: 0.67,
     parkedCarKeepFraction: 0.25,
     sceneryKeepFraction: 0.3,
+    dressDensityScalar: 0.55,
+    frontageOccupancyScalar: 0.75,
+    lampOverlay: false,
   },
 } as const satisfies Record<string, QualityTierDef>;
 

@@ -32,10 +32,12 @@ import {
   POWER_BOX,
   SIDEWALK_ROW,
   STOP_SIGN,
+  TORONTO_TIER_IDENTITY,
   TRAFFIC_LIGHT,
   TRAFFIC_LIGHT_FULL_CLASSES,
   TRASH_CAN_ROW,
   TREE_ROW,
+  type TorontoTierParams,
 } from '../../config/torontoDress';
 import { TORONTO_DISTRICTS, type DistrictDensity, type DistrictId, type TorontoDistrictDef } from '../../config/torontoDistricts';
 import { ROAD_CLASSES } from '../../config/torontoMap';
@@ -403,10 +405,11 @@ function buildRow(
   exclusions: readonly MapRect[],
   allRibbons: readonly MapRect[],
   rng: Rng,
+  densityScalar: number,
 ): readonly FurniturePlacement[] {
   const halfWidth = (s: Street): number => s.width / 2;
   const out: FurniturePlacement[] = [];
-  const effectiveSpacing = spec.spacingWu / DRESS_DENSITY_SCALAR;
+  const effectiveSpacing = spec.spacingWu / densityScalar;
 
   for (const street of streets) {
     const crossings = intersectionsByStreet.get(street.id) ?? [];
@@ -441,10 +444,11 @@ function buildManholes(
   intersectionsByStreet: ReadonlyMap<string, readonly StreetCrossing[]>,
   districts: readonly ResolvedDistrict[],
   rng: Rng,
+  densityScalar: number,
 ): readonly FurniturePlacement[] {
   const out: FurniturePlacement[] = [];
   const eligible = new Set<string>(MANHOLE_ROW.eligibleClasses);
-  const effectiveSpacing = MANHOLE_ROW.spacingWu / DRESS_DENSITY_SCALAR;
+  const effectiveSpacing = MANHOLE_ROW.spacingWu / densityScalar;
 
   for (const street of streets) {
     if (!eligible.has(street.cls)) continue;
@@ -472,6 +476,8 @@ function buildParked(
   districts: readonly ResolvedDistrict[],
   exclusions: readonly MapRect[],
   rng: Rng,
+  densityScalar: number,
+  cap: number,
 ): readonly ParkedVehicle[] {
   const out: ParkedVehicle[] = [];
   const eligible = new Set<string>(PARKED.eligibleClasses);
@@ -495,7 +501,7 @@ function buildParked(
         const district = districtAt(p, districts);
         const [spacingLo, spacingHi] = PARKED.spacingRangeWu;
         const districtDensity: DistrictDensity = district?.density ?? 'medium';
-        const spacing = (spacingLo + (spacingHi - spacingLo) * densityFactor[districtDensity]) / DRESS_DENSITY_SCALAR;
+        const spacing = (spacingLo + (spacingHi - spacingLo) * densityFactor[districtDensity]) / densityScalar;
         if (district && !tooCloseToExclusion(p, exclusions, 1.5)) {
           const modelId = weightedPick(streetRng, PARKED_MODELS);
           const rotationY = faceRoadRotationY(street, side) + Math.PI / 2; // parallel-parked: long axis along the street
@@ -505,15 +511,41 @@ function buildParked(
       }
     }
   }
-  return thinToCap(out, PARKED.cap);
+  return thinToCap(out, cap);
+}
+
+// --- global no-furniture-on-ribbon invariant (D10) -------------------------------------------
+
+/** Phase 25.8 (D10): a furniture point (map x,z = world x,z, identity swap) sits STRICTLY inside a
+ * street ribbon rect. The global invariant every placement must satisfy — manholes + parked are the
+ * only exemptions (both placed ON the asphalt by design). Exported for furniture.test.ts's map-wide
+ * assertion. */
+export function isOnAnyRibbon(x: number, z: number, ribbons: readonly MapRect[]): boolean {
+  return ribbons.some((r) => x > r.minX && x < r.maxX && z > r.minY && z < r.maxY);
+}
+
+/** Deterministic DROP rule enforcing the invariant above — order-preserving filter, so it never
+ * disturbs determinism. Catches the 25.6 Bloor-boundary corner masts that clamp onto a ribbon after
+ * clampInsidePolygon, and any future map-wide regression (defense-in-depth, the P6 pattern). */
+function dropOnRibbon<T extends { readonly position: readonly [number, number, number] }>(
+  items: readonly T[],
+  ribbons: readonly MapRect[],
+): T[] {
+  return items.filter((p) => !isOnAnyRibbon(p.position[0], p.position[2], ribbons));
 }
 
 // --- top-level orchestrator ------------------------------------------------------------------
 
 /** Builds the whole street-furniture + parked-vehicle layout for `seed` (deterministic,
  * mulberry32 forks — same contract as world/rng.ts). Pure function of the street/district/
- * exclusion data; no react/three. */
-export function buildFurniture(seed: number): FurnitureLayout {
+ * exclusion data; no react/three.
+ *
+ * `tierParams` (Phase 25.8 D8) defaults to TORONTO_TIER_IDENTITY — every pre-25.8 call site that
+ * omits it gets byte-identical pre-tier output. `dressDensityScalar` widens/narrows every
+ * row-spacing category's effective spacing (trees/hydrants/benches/trash-cans/bus-stops/manholes/
+ * parked); intersection-rule furniture (masts/stop-signs/power-boxes) is untouched.
+ * `parkedCarKeepFraction` scales the parked-vehicle hard cap. */
+export function buildFurniture(seed: number, tierParams: TorontoTierParams = TORONTO_TIER_IDENTITY): FurnitureLayout {
   const base = createRng(seed).fork('toronto-furniture-v1');
   const { streets } = buildStreets();
   const intersections = listIntersections(streets);
@@ -527,7 +559,12 @@ export function buildFurniture(seed: number): FurnitureLayout {
     streets.map((s) => [s.id, crossingsOn(s, intersections)]),
   );
 
-  const { trafficLights, stopSigns: stopSignsRaw } = buildTrafficLightsAndStopSigns(intersections, districts);
+  // Phase 25.8 (D8): the composed row-spacing scalar — the config "master" dial (currently 1.0,
+  // D21's pre-wired hook) times this render's tier scale. Every row-spacing category (never the
+  // intersection-rule categories built above/below this) divides its base spacingWu by this.
+  const densityScalar = DRESS_DENSITY_SCALAR * tierParams.dressDensityScalar;
+
+  const { trafficLights: trafficLightsRaw, stopSigns: stopSignsRaw } = buildTrafficLightsAndStopSigns(intersections, districts);
   const powerBoxesRaw = buildPowerBoxes(intersections, districts, base.fork('power-box'));
 
   const treesRaw = buildRow(
@@ -546,6 +583,7 @@ export function buildFurniture(seed: number): FurnitureLayout {
     exclusions,
     allRibbons,
     base.fork('tree'),
+    densityScalar,
   );
 
   const hydrantsRaw = buildRow(
@@ -564,6 +602,7 @@ export function buildFurniture(seed: number): FurnitureLayout {
     exclusions,
     allRibbons,
     base.fork('hydrant'),
+    densityScalar,
   );
 
   const benchesRaw = buildRow(
@@ -582,6 +621,7 @@ export function buildFurniture(seed: number): FurnitureLayout {
     exclusions,
     allRibbons,
     base.fork('bench'),
+    densityScalar,
   );
 
   const trashCansRaw = buildRow(
@@ -600,6 +640,7 @@ export function buildFurniture(seed: number): FurnitureLayout {
     exclusions,
     allRibbons,
     base.fork('trash-can'),
+    densityScalar,
   );
 
   const busStopEligible = new Set<string>(BUS_STOP_ROW.eligibleClasses);
@@ -619,10 +660,15 @@ export function buildFurniture(seed: number): FurnitureLayout {
     exclusions,
     allRibbons,
     base.fork('bus-stop'),
+    densityScalar,
   );
 
-  const manholesRaw = buildManholes(streets, intersectionsByStreet, districts, base.fork('manhole'));
-  const parkedRaw = buildParked(streets, intersectionsByStreet, districts, exclusions, base.fork('parked'));
+  const manholesRaw = buildManholes(streets, intersectionsByStreet, districts, base.fork('manhole'), densityScalar);
+  // Phase 25.8 (D8): the parked-vehicle hard cap scales with the SAME QUALITY_TIERS field the
+  // legacy world's cityInstances.ts thinning already uses (parkedCarKeepFraction) — a new
+  // consumer of an existing tier field, not a new concept. Never below 1.
+  const parkedCap = Math.max(1, Math.round(PARKED.cap * tierParams.parkedCarKeepFraction));
+  const parkedRaw = buildParked(streets, intersectionsByStreet, districts, exclusions, base.fork('parked'), densityScalar, parkedCap);
 
   const treeScale = resolveCityPackScale('tree');
   const treeNativeH = getCityPackModel('tree').nativeDims.h;
@@ -636,13 +682,18 @@ export function buildFurniture(seed: number): FurnitureLayout {
     parkedBody: PARKED.body,
   };
 
-  const stopSigns = orderByDistrict(stopSignsRaw);
-  const powerBoxes = orderByDistrict(powerBoxesRaw);
-  const trees = orderByDistrict(treesRaw);
-  const hydrants = orderByDistrict(hydrantsRaw);
-  const benches = orderByDistrict(benchesRaw);
-  const trashCans = orderByDistrict(trashCansRaw);
-  const busStops = orderByDistrict(busStopsRaw);
+  // Phase 25.8 (D10): enforce the no-furniture-on-ribbon invariant map-wide (manholes + parked are
+  // the on-road exemptions). The row categories are already ribbon-safe via buildRow's own gate, so
+  // this is a no-op for them and the real fix for the intersection-rule categories (masts / stop-
+  // signs / power boxes) that clamp onto a boundary ribbon (the 25.6 Bloor residual).
+  const trafficLights = dropOnRibbon(trafficLightsRaw, allRibbons);
+  const stopSigns = orderByDistrict(dropOnRibbon(stopSignsRaw, allRibbons));
+  const powerBoxes = orderByDistrict(dropOnRibbon(powerBoxesRaw, allRibbons));
+  const trees = orderByDistrict(dropOnRibbon(treesRaw, allRibbons));
+  const hydrants = orderByDistrict(dropOnRibbon(hydrantsRaw, allRibbons));
+  const benches = orderByDistrict(dropOnRibbon(benchesRaw, allRibbons));
+  const trashCans = orderByDistrict(dropOnRibbon(trashCansRaw, allRibbons));
+  const busStops = orderByDistrict(dropOnRibbon(busStopsRaw, allRibbons));
   const manholes = orderByDistrict(manholesRaw);
   const parked = orderByDistrict(parkedRaw);
 

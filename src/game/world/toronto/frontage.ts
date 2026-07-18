@@ -21,7 +21,7 @@
 // order with recorded [start,count] ranges — the blackout-address a future powergrid write pokes.
 
 import { colliderHalfExtents, type ColliderHalfExtents } from '../../config/cityPackScale';
-import { BACKDROP_TOWER, FRONTAGE } from '../../config/torontoDress';
+import { BACKDROP_TOWER, FRONTAGE, TORONTO_TIER_IDENTITY, type TorontoTierParams } from '../../config/torontoDress';
 import {
   TORONTO_DISTRICTS,
   type DistrictDensity,
@@ -35,6 +35,7 @@ import { createRng, type Rng } from '../rng';
 import { buildDistricts, districtAt, type ResolvedDistrict } from './districts';
 import { hGame } from './heightCurve';
 import { buildNamedBuildings } from './namedBuildings';
+import { buildParks } from './parks';
 import { buildPlacesLayer } from './placesLayer';
 import { PLAYABLE_POLYGON, pointInPolygon } from './polygon';
 import type { MapPoint } from './projection';
@@ -393,8 +394,13 @@ function thinPreservingClaimed(items: readonly RawSlot[], cap: number): readonly
 
 /** Build the whole pack-building frontage layout for `seed`. Deterministic (mulberry forks),
  * district-ordered (config order = buffer order), ribbon/polygon/water/overlap/exclusion-safe by
- * construction (the four massing gates + exclusions), hard-capped at FRONTAGE.hardCap. */
-export function buildFrontage(seed: number): FrontageLayout {
+ * construction (the four massing gates + exclusions), hard-capped at FRONTAGE.hardCap.
+ *
+ * `tierParams` (Phase 25.8 D8) defaults to TORONTO_TIER_IDENTITY — every pre-25.8 call site
+ * (devPanel, debugBridge, tests) that omits it gets byte-identical pre-tier output. Only
+ * `frontageOccupancyScalar` affects this builder (multiplies FRONTAGE.occupancy's per-density
+ * roll in Pass 2); venue claims (Pass 1) are forced-occupied and never scaled. */
+export function buildFrontage(seed: number, tierParams: TorontoTierParams = TORONTO_TIER_IDENTITY): FrontageLayout {
   const base = createRng(seed).fork('toronto-packdress-v1');
   const { streets } = buildStreets();
   const intersections = listIntersections(streets);
@@ -402,7 +408,11 @@ export function buildFrontage(seed: number): FrontageLayout {
   const named = buildNamedBuildings();
   const places = buildPlacesLayer(named);
 
-  const exclusions: Aabb[] = [...named.exclusions, ...places.exclusions].map((r) => ({
+  // Phase 25.8 (D7): park rects join the exclusion set (built BEFORE this walk, like named/places)
+  // so the streetwall legitimately gaps at a park. Parks are SEED-INDEPENDENT (parks.ts), so this
+  // keeps the claim gate — and thus venue claims — seed-independent (the 25.7 invariant); it also
+  // guarantees venue-claim ∩ park = ∅ by construction (a park excludes any candidate overlapping it).
+  const exclusions: Aabb[] = [...named.exclusions, ...places.exclusions, ...buildParks().exclusions].map((r) => ({
     minX: r.minX,
     maxX: r.maxX,
     minZ: r.minY,
@@ -554,7 +564,11 @@ export function buildFrontage(seed: number): FrontageLayout {
 
         const slotRng = base.fork(slotId);
         // Fixed roll order (occupancy, model, tint) → the slot's identity is stable per id.
-        const occupancy = FRONTAGE.occupancy[def.density as DistrictDensity];
+        // Phase 25.8 (D8): tierParams.frontageOccupancyScalar scales the base occupancy down at
+        // lower tiers (clamped ≤ 1 — a scalar ≥ 1 in a future tier must never exceed a
+        // probability). The SAME rng draw is compared against a smaller threshold, so a slot kept
+        // at a lower tier is always also kept at a higher one (monotone subset, never reordered).
+        const occupancy = Math.min(1, FRONTAGE.occupancy[def.density as DistrictDensity] * tierParams.frontageOccupancyScalar);
         const kept = slotRng.next() < occupancy;
         const modelId = pickModel(slotRng, def, isCorner);
         const tint = def.packStock.tints[Math.floor(slotRng.next() * def.packStock.tints.length) % def.packStock.tints.length];

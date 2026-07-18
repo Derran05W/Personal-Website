@@ -14,9 +14,12 @@ import {
   MANHOLE_ROW,
   PARKED,
   POWER_BOX,
+  TORONTO_TIER_IDENTITY,
   TRASH_CAN_ROW,
   TREE_ROW,
+  type TorontoTierParams,
 } from '../../config/torontoDress';
+import { QUALITY_TIERS } from '../../config/quality';
 import { TORONTO_DISTRICTS } from '../../config/torontoDistricts';
 import { hasCityPackModel } from '../../assets/cityPackManifest';
 import { buildFurniture, type FurniturePlacement, type ParkedVehicle } from './furniture';
@@ -75,20 +78,29 @@ describe('traffic lights — signalization rule (D16)', () => {
     expect(masts.length).toBe(2);
   });
 
-  it('every signalized (both classes full) intersection gets exactly 4 masts; every diagonal (one full) gets exactly 2; every minor x minor gets 0 masts + 1 stop sign', () => {
+  it('signalized (both classes full) intersections get UP TO 4 masts; diagonal (one full) up to 2; minor x minor 0 masts', () => {
+    // Phase 25.8 (D10): the no-furniture-on-ribbon invariant DROPS boundary corner masts that
+    // clampInsidePolygon nudges onto a ribbon (e.g. int 0 = Bathurst×Bloor, the SW map corner, keeps
+    // 2 of 4). So an interior signalized intersection keeps all 4, but a boundary one keeps fewer —
+    // the count is a MAXIMUM per classification, never exceeded, and interior ones hit the max. The
+    // strict "no mast on any ribbon" side of this is asserted map-wide in furnitureRibbon.test.ts.
     const FULL = new Set(['spine', 'artery', 'major']);
     let checkedSignalized = 0;
     let checkedDiagonal = 0;
     let checkedStopSign = 0;
+    let signalizedFull = 0; // interior intersections that keep all 4
     intersections.forEach((c, idx) => {
       const nsFull = FULL.has(c.nsCls);
       const ewFull = FULL.has(c.ewCls);
       const masts = layout.trafficLights.filter((m) => m.intersectionIndex === idx);
       if (nsFull && ewFull) {
-        expect(masts.length, `intersection ${idx}`).toBe(4);
+        expect(masts.length, `intersection ${idx}`).toBeGreaterThanOrEqual(1);
+        expect(masts.length, `intersection ${idx}`).toBeLessThanOrEqual(4);
+        if (masts.length === 4) signalizedFull++;
         checkedSignalized++;
       } else if (nsFull || ewFull) {
-        expect(masts.length, `intersection ${idx}`).toBe(2);
+        expect(masts.length, `intersection ${idx}`).toBeGreaterThanOrEqual(1);
+        expect(masts.length, `intersection ${idx}`).toBeLessThanOrEqual(2);
         checkedDiagonal++;
       } else {
         expect(masts.length, `intersection ${idx}`).toBe(0);
@@ -97,9 +109,11 @@ describe('traffic lights — signalization rule (D16)', () => {
     });
     expect(checkedSignalized).toBeGreaterThan(0);
     expect(checkedDiagonal).toBeGreaterThan(0);
-    // stop-sign (minor x minor) crossings may legitimately be zero on this street grid — no
-    // lower-bound assertion, but the count must match layout.stopSigns exactly either way.
-    expect(layout.stopSigns.items.length).toBe(checkedStopSign);
+    // The vast majority of signalized intersections are interior → keep all 4 (only the handful of
+    // boundary ones are trimmed by the invariant); this keeps the test's detection power.
+    expect(signalizedFull).toBeGreaterThan(checkedSignalized / 2);
+    // stop-sign (minor x minor) crossings: ≤ 1 stop sign each (the invariant may drop a boundary one).
+    expect(layout.stopSigns.items.length).toBeLessThanOrEqual(checkedStopSign);
   });
 
   it('every mast model id is "traffic-light" and every stop sign is "stop-sign" (real manifest ids)', () => {
@@ -278,6 +292,83 @@ describe('counts — every category is non-empty on the real map (sanity, not a 
     expect(layout.busStops.items.length).toBeGreaterThan(0);
     expect(layout.manholes.items.length).toBeGreaterThan(0);
     expect(layout.parked.items.length).toBeGreaterThan(0);
+  });
+});
+
+// --- Phase 25.8 (T2/D8) quality-tier wiring -----------------------------------------------
+
+function tierParamsOf(tier: keyof typeof QUALITY_TIERS): TorontoTierParams {
+  const t = QUALITY_TIERS[tier];
+  return {
+    dressDensityScalar: t.dressDensityScalar,
+    frontageOccupancyScalar: t.frontageOccupancyScalar,
+    parkedCarKeepFraction: t.parkedCarKeepFraction,
+  };
+}
+
+describe('buildFurniture — Phase 25.8 (D8) quality-tier wiring', () => {
+  const HIGH = tierParamsOf('high');
+  const MED = tierParamsOf('med');
+  const LOW = tierParamsOf('low');
+
+  it('the high tier resolves to exactly TORONTO_TIER_IDENTITY (the default)', () => {
+    expect(HIGH).toEqual(TORONTO_TIER_IDENTITY);
+  });
+
+  it('high tier is byte-identical to the pre-tier (no-arg) output — golden', () => {
+    expect(buildFurniture(SEED, HIGH)).toEqual(layout);
+    expect(buildFurniture(SEED, HIGH)).toEqual(buildFurniture(SEED));
+  });
+
+  it('same (seed, tier) -> deep-equal output (determinism)', () => {
+    expect(buildFurniture(SEED, LOW)).toEqual(buildFurniture(SEED, LOW));
+  });
+
+  it('dressDensityScalar thins every row-spacing category monotonically (low <= med <= high)', () => {
+    const high = buildFurniture(SEED, HIGH);
+    const med = buildFurniture(SEED, MED);
+    const low = buildFurniture(SEED, LOW);
+    for (const cat of ['trees', 'hydrants', 'benches', 'trashCans', 'busStops', 'manholes'] as const) {
+      expect(low[cat].items.length, cat).toBeLessThanOrEqual(med[cat].items.length);
+      expect(med[cat].items.length, cat).toBeLessThanOrEqual(high[cat].items.length);
+    }
+    // Trees are the biggest category and comfortably clear of their capMapWide at every tier on
+    // this seed, so they're guaranteed to actually move (not just tie at a shared cap).
+    expect(low.trees.items.length).toBeLessThan(high.trees.items.length);
+  });
+
+  it('intersection-rule furniture (masts/stop-signs/power-boxes) is NEVER scaled by tier', () => {
+    const high = buildFurniture(SEED, HIGH);
+    const low = buildFurniture(SEED, LOW);
+    expect(low.trafficLights.length).toBe(high.trafficLights.length);
+    expect(low.stopSigns.items.length).toBe(high.stopSigns.items.length);
+    expect(low.powerBoxes.items.length).toBe(high.powerBoxes.items.length);
+  });
+
+  it('parkedCarKeepFraction scales PARKED.cap (the low-tier dynamic-body-budget driver)', () => {
+    const high = buildFurniture(SEED, HIGH);
+    const med = buildFurniture(SEED, MED);
+    const low = buildFurniture(SEED, LOW);
+    expect(high.parked.items.length).toBeLessThanOrEqual(PARKED.cap);
+    expect(med.parked.items.length).toBeLessThanOrEqual(Math.round(PARKED.cap * QUALITY_TIERS.med.parkedCarKeepFraction));
+    expect(low.parked.items.length).toBeLessThanOrEqual(Math.round(PARKED.cap * QUALITY_TIERS.low.parkedCarKeepFraction));
+    expect(low.parked.items.length).toBeLessThan(med.parked.items.length);
+    expect(med.parked.items.length).toBeLessThan(high.parked.items.length);
+    // The plan's worked numbers at this PARKED.cap (200): 200/120/50.
+    expect(low.parked.items.length).toBeLessThanOrEqual(50);
+  });
+
+  it('district ranges stay contiguous/valid under low-tier thinning (sacred convention holds at every tier)', () => {
+    const low = buildFurniture(SEED, LOW);
+    for (const ordered of [low.trees, low.parked, low.hydrants, low.manholes]) {
+      let cursor = 0;
+      for (const r of ordered.ranges) {
+        expect(r.start).toBe(cursor);
+        expect(r.count).toBeGreaterThan(0);
+        cursor += r.count;
+      }
+      expect(cursor).toBe(ordered.items.length);
+    }
   });
 });
 

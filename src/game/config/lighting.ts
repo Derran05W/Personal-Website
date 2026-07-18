@@ -41,9 +41,15 @@ export const LIGHTING = {
   // --- Linear fog: distant geometry dissolves into the sky's horizon band --------------
   // Fog COLOUR is the sky horizon colour (sky.horizon below) so the two match exactly — set
   // in world/lighting.ts, not duplicated here. near/far are leva-live for framing the haze.
+  //
+  // Phase 25.8 (D2/D3 L1): near 70→140, far 380→650. The D2 probe found the WARM fog
+  // (#dd8b55) is a CONTRAST-COMPRESSOR under the tight §5.3 camera — the old near=70/far=380
+  // ramp sat right across the visible frame, pulling bright crosswalks DOWN toward mid-orange
+  // and lifting darks UP into a muddy flat mid. Pushing the ramp out doubles the crisp near
+  // range (the drive-past reads sharp) while distant towers still haze into the horizon band.
   fog: {
-    near: 70,
-    far: 380,
+    near: 140,
+    far: 650,
   },
 
   // --- Gradient sky (CanvasTexture on scene.background) ---------------------------------
