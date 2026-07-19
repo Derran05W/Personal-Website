@@ -22,12 +22,11 @@
 // swat candidates, so it's an empty map until SWAT are on the field.
 
 import { SPAWN, SQUAD } from '../config';
-import type { WorldData } from '../world/types';
 import { playerVehicle } from '../vehicles/playerRef';
+import { navProviderRef } from './navProvider';
 import { unitsRef } from './pursuitTypes';
 import {
   assignFlankSlots,
-  clampToDrivable,
   computeFlankSlots,
   reconcileTimers,
   releaseStuckClaims,
@@ -78,13 +77,15 @@ function collectSwatCandidates(): SquadCandidate[] {
 
 /**
  * One 10 Hz squad update: recompute the two flank slots ahead of the player, clamp them onto
- * drivable ground, release stuck claims, (re)assign the slots to SWAT candidates with incumbency
- * hysteresis, and publish. No-op that clears state when no run is live. Driven by SquadMount at
- * the SQUAD_STEPS_PER_UPDATE cadence. `dt` defaults to the 10 Hz update dt.
+ * drivable ground (via the active NavProvider — map-agnostic since Phase 30 D1), release stuck
+ * claims, (re)assign the slots to SWAT candidates with incumbency hysteresis, and publish. No-op
+ * that clears state when no run is live OR no provider is published. Driven by SquadMount at the
+ * SQUAD_STEPS_PER_UPDATE cadence. `dt` defaults to the 10 Hz update dt.
  */
-export function updateSquad(world: WorldData, dt: number = SQUAD_UPDATE_DT): void {
+export function updateSquad(dt: number = SQUAD_UPDATE_DT): void {
+  const provider = navProviderRef.current;
   const player = playerVehicle.current?.readState();
-  if (!player) {
+  if (!player || provider === null) {
     resetSquad();
     return;
   }
@@ -95,10 +96,10 @@ export function updateSquad(world: WorldData, dt: number = SQUAD_UPDATE_DT): voi
   const playerVel = { x: player.velocity.x, z: player.velocity.z };
   const playerYaw = yawFromQuat(rot.x, rot.y, rot.z, rot.w);
 
-  // Slots ahead of the player, snapped out of any building/fenced tile they'd land in.
+  // Slots ahead of the player, snapped out of any building/void they'd land in (nearest road).
   const raw = computeFlankSlots(playerPos, playerVel, playerYaw, SQUAD);
   const nextTargets: FlankSlot[] = raw.map((s) => {
-    const c = clampToDrivable({ x: s.x, z: s.z }, world, SQUAD);
+    const c = provider.nearestRoadPoint(s.x, s.z);
     return { id: s.id, x: c.x, z: c.z };
   });
 

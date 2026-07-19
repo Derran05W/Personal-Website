@@ -27,6 +27,13 @@ export const ARCHETYPES = [
   'produceStand', // Kensington-only market stall table + produce
   'garbageCanTipped', // sparse, map-wide, near parks
   'raccoon', // sparse, map-wide, near parks — knockable light prop + squeak
+  // Phase 30 (T2 debt-1): Toronto city-pack street furniture with no legacy equivalent —
+  // registered so world/propDynamics.ts's resolveSwapTarget()/PROPS.masses/forceThresholds
+  // (config/world.ts) work uniformly for them, exactly like every archetype above. Never
+  // placed by the legacy generator; only world/toronto/torontoColliders.ts registers them.
+  'trashCan',
+  'stopSign',
+  'busStop',
 ] as const;
 
 export type ArchetypeName = (typeof ARCHETYPES)[number];

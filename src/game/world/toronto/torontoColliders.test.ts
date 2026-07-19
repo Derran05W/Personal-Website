@@ -9,7 +9,8 @@
 // hardcoded totals (a seed/tuning change can never silently desync this suite from reality).
 import { describe, expect, it } from 'vitest';
 import { TORONTO_DISTRICTS } from '../../config/torontoDistricts';
-import { POWER_GRID, PROPS } from '../../config';
+import { PROPS } from '../../config';
+import { POWER_BOX } from '../../config/torontoDress';
 import { buildFrontage } from './frontage';
 import { buildFurniture } from './furniture';
 import { buildInfill } from './infill';
@@ -21,6 +22,7 @@ import {
   torontoBuildingEntryAt,
   torontoBusStopEntry,
   torontoConeEntry,
+  torontoFurnitureEntry,
   torontoParkedCarEntry,
   torontoTransformerEntry,
   torontoTreeEntry,
@@ -78,15 +80,16 @@ describe.each(SEEDS)('registry coverage per layer — seed %d', (seed) => {
     }
   });
 
-  it('power boxes → one transformer entry each, hp = POWER_GRID.transformerHp', () => {
+  it('power boxes → one transformer entry each, hp = POWER_BOX.hp, instanceId matches its slot', () => {
     const boxes = furniture.powerBoxes.items;
     expect(boxes.length).toBeGreaterThan(0);
-    for (const p of boxes) {
-      const entry = torontoTransformerEntry(p.districtId);
+    boxes.forEach((p, i) => {
+      const entry = torontoTransformerEntry(p.districtId, i);
       expect(entry.kind).toBe('transformer');
-      expect(entry.hp).toBe(POWER_GRID.transformerHp);
+      expect(entry.hp).toBe(POWER_BOX.hp);
+      expect(entry.instanceId).toBe(i);
       expect(isValidDistrictIndex(entry.districtId)).toBe(true);
-    }
+    });
   });
 
   it('parked cars → one propDynamic/parkedCar entry each, hp = PROPS.parkedCarHp', () => {
@@ -112,20 +115,65 @@ describe.each(SEEDS)('registry coverage per layer — seed %d', (seed) => {
     expect(entry.districtId).toBe(-1);
   });
 
-  it('tree trunks → one propStatic/tree entry each; bus stops → propStatic, no archetype', () => {
-    for (const t of furniture.trees.items) {
-      const entry = torontoTreeEntry(t.districtId);
+  it('tree trunks → one propStatic/tree entry each; bus stops → propStatic/busStop (Phase 30 T2 debt-1)', () => {
+    furniture.trees.items.forEach((t, i) => {
+      const entry = torontoTreeEntry(t.districtId, i);
       expect(entry.kind).toBe('propStatic');
       expect(entry.archetype).toBe('tree');
+      expect(entry.instanceId).toBe(i);
       expect(isValidDistrictIndex(entry.districtId)).toBe(true);
-    }
+    });
     expect(furniture.busStops.items.length).toBeGreaterThan(0);
-    for (const b of furniture.busStops.items) {
-      const entry = torontoBusStopEntry(b.districtId);
+    furniture.busStops.items.forEach((b, i) => {
+      const entry = torontoBusStopEntry(b.districtId, i);
       expect(entry.kind).toBe('propStatic');
-      expect(entry.archetype).toBeUndefined();
+      expect(entry.archetype).toBe('busStop');
+      expect(entry.instanceId).toBe(i);
       expect(isValidDistrictIndex(entry.districtId)).toBe(true);
-    }
+    });
+  });
+
+  it('hydrants/benches/trash-cans/traffic-lights/stop-signs → one propStatic entry each with a real archetype (Phase 30 T2 debt-1)', () => {
+    expect(furniture.hydrants.items.length).toBeGreaterThan(0);
+    furniture.hydrants.items.forEach((h, i) => {
+      const entry = torontoFurnitureEntry('hydrant', h.districtId, i);
+      expect(entry.kind).toBe('propStatic');
+      expect(entry.archetype).toBe('hydrant');
+      expect(entry.instanceId).toBe(i);
+      expect(isValidDistrictIndex(entry.districtId)).toBe(true);
+    });
+
+    expect(furniture.benches.items.length).toBeGreaterThan(0);
+    furniture.benches.items.forEach((b, i) => {
+      const entry = torontoFurnitureEntry('bench', b.districtId, i);
+      expect(entry.kind).toBe('propStatic');
+      expect(entry.archetype).toBe('bench');
+      expect(entry.instanceId).toBe(i);
+    });
+
+    expect(furniture.trashCans.items.length).toBeGreaterThan(0);
+    furniture.trashCans.items.forEach((t, i) => {
+      const entry = torontoFurnitureEntry('trashCan', t.districtId, i);
+      expect(entry.kind).toBe('propStatic');
+      expect(entry.archetype).toBe('trashCan');
+      expect(entry.instanceId).toBe(i);
+    });
+
+    expect(furniture.trafficLights.length).toBeGreaterThan(0);
+    furniture.trafficLights.forEach((m, i) => {
+      const entry = torontoFurnitureEntry('trafficLight', m.districtId, i);
+      expect(entry.kind).toBe('propStatic');
+      expect(entry.archetype).toBe('trafficLight');
+      expect(entry.instanceId).toBe(i);
+    });
+
+    expect(furniture.stopSigns.items.length).toBeGreaterThan(0);
+    furniture.stopSigns.items.forEach((s, i) => {
+      const entry = torontoFurnitureEntry('stopSign', s.districtId, i);
+      expect(entry.kind).toBe('propStatic');
+      expect(entry.archetype).toBe('stopSign');
+      expect(entry.instanceId).toBe(i);
+    });
   });
 
   it('named buildings + hero lots + places boxes → spatially-resolved building entries, real (non -1) districts', () => {

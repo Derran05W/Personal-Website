@@ -121,6 +121,22 @@ export const POWER_BOX = {
    * (D16 arithmetic: ~50 signalized x 4 corners / 3). */
   everyNthSignalizedCorner: 3,
   capMapWide: 80,
+  /** Phase 30 (T2 debt-3): Toronto's OWN transformer hit points — deliberately NOT
+   * POWER_GRID.transformerHp (that constant is shared with the legacy world's transformerBox
+   * and stays untouched at 30 so this retune can never regress legacy's signed-off feel).
+   * P29 notes debt 3: at hp 30 a power box needed ~2 solid hits (a straight-on approach lets
+   * the suspension climb the tiny 0.26 wu box with no damage; only a proper T-bone connects).
+   * Halved to 15 so one solid T-bone is lethal, matching the legacy one-ram transformer feel. */
+  hp: 15,
+  /** Phase 30 (T2 debt-1): rigid-body mass (kg) for the flying replica once a dead box
+   * launches. Feel-tunable placeholder in the streetlight/trafficLight mass range
+   * (PROPS.masses) — a similar street-fixture bulk. */
+  launchMassKg: 120,
+  /** Phase 30 (T2 debt-1): the launch is DEATH-driven (transformerDestroyed), not a live
+   * contact — there is no real Rapier contact force to read at that moment, so this stands in
+   * as the "forceMag" world/propDynamics.ts's computeLaunchImpulse scales the pop off of.
+   * Same order of magnitude as PROPS.forceThresholds.trafficLight (600 N). */
+  deathLaunchForce: 600,
 } as const;
 
 export const TREE_ROW = {

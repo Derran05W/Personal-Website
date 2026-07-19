@@ -451,6 +451,13 @@ export const PROPS = {
     produceStand: 35,
     raccoon: 12,
     awning: 45,
+    // Phase 30 (T2 debt-1): Toronto-only city-pack furniture with no legacy analog — same
+    // "toy-physics plausible" convention as the rest of this table, sized relative to the
+    // nearest comparable legacy prop (trashCan ~ mailbox; stopSign ~ a thin post, lighter
+    // than hydrant's cast iron; busStop ~ a small shelter, near trafficLight's mast bulk).
+    trashCan: 25,
+    stopSign: 45,
+    busStop: 170,
   },
   // Per-archetype contact-force magnitude (N) an impact must REACH to swap the prop to
   // dynamic; below it the prop stays nailed down (love-taps are free — TDD §5.10). An
@@ -473,6 +480,10 @@ export const PROPS = {
     garbageCanTipped: 150,
     produceStand: 200,
     awning: 250,
+    // Phase 30 (T2 debt-1): see the masses table above for the sizing rationale.
+    trashCan: 250,
+    stopSign: 400,
+    busStop: 700,
   },
   // Launch feel once swapped. The impulse applied at the contact point (so the prop tumbles):
   //   dir     = normalize(propPos − impactPoint), then dir.y += launchUpKick

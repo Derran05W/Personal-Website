@@ -34,7 +34,7 @@ import { StreetcarTraffic } from './ai/StreetcarMount';
 import { StreetcarMesh } from './ai/StreetcarMesh';
 import { CnTower, Stadium, Flatiron } from './world/landmarks';
 import { RunLoopSystem } from './combat/runLoop';
-import { SpawnDirector } from './ai/SpawnDirectorMount';
+import { SpawnDirector, TorontoPursuitDirector } from './ai/SpawnDirectorMount';
 import { HeliMount } from './ai/HeliMount';
 import { HeliMesh } from './ai/HeliMesh';
 import { Searchlight } from './fx/Searchlight';
@@ -318,6 +318,31 @@ export default function Game() {
                 <ParticlesMount key={`particles-${worldKey}`} />
                 <SkidMarks />
                 <PowerGridSystem key={`grid-${worldKey}`} />
+                {/* Phase 30 (D3): the full pursuit + combat escalation stack on the Toronto map.
+                    The pursuit unit meshes register their factories + drive their per-step tick
+                    lists; TorontoPursuitDirector owns spawn/despawn/caps AND publishes the Toronto
+                    NavProvider (roadNav road-follow + squad flank-clamp read it). Same components
+                    the legacy branch mounts below — projectiles/tracers/explosions/tank telegraph
+                    (Phase 16 lesson: PROVE TankMesh/Explosions/Telegraph mount, don't assume) and
+                    the ambient heli trio (grid-independent searchlight → the money shot reads over
+                    the P29 ground-tint blackouts). RunLoopSystem (WRECKED/BUSTED/water) is already
+                    mounted inside TorontoScene — NOT re-mounted here. LightPool (dark-district
+                    ground pool) is the T2 powergrid adapter — mounted by the orchestrator once it
+                    lands; the searchlight money shot needs only the heli trio + ground tint. */}
+                <PoliceMesh key={`toronto-police-${worldKey}`} />
+                <ArmoredMesh key={`toronto-armored-${worldKey}`} />
+                <SwatMesh key={`toronto-swat-${worldKey}`} />
+                <GunTruckMesh key={`toronto-guntruck-${worldKey}`} />
+                <TankMesh key={`toronto-tank-${worldKey}`} />
+                <ProjectilesMount key={`toronto-projectiles-${worldKey}`} />
+                <Tracers key={`toronto-tracers-${worldKey}`} />
+                <Explosions key={`toronto-explosions-${worldKey}`} />
+                <TankTelegraph />
+                <TorontoPursuitDirector key={`toronto-director-${worldKey}`} seed={seed} />
+                <SquadMount key={`toronto-squad-${worldKey}`} />
+                <HeliMount />
+                <HeliMesh />
+                <Searchlight />
               </>
             ) : (
               <>
@@ -379,8 +404,9 @@ export default function Game() {
                 <DamageStatesMount key={`dmgstates-${worldKey}`} />
                 <SpawnDirector key={`director-${worldKey}`} world={world} seed={seed} />
                 {/* SWAT-squad flank coordinator (Phase 10): publishes flank-slot claims SWAT units
-                read to box in the player. Gameplay infra (ships), keyed like the director. */}
-                <SquadMount key={`squad-${worldKey}`} world={world} />
+                read to box in the player. Gameplay infra (ships), keyed like the director. Phase 30:
+                map-agnostic (clamps via the NavProvider the director publishes) — no world prop. */}
+                <SquadMount key={`squad-${worldKey}`} />
                 <RunLoopSystem key={`runloop-${worldKey}`} />
                 {/* Heat/score accrual runs in fixed-step land (Phase 8) — pausing Physics
                 pauses accrual for free. */}

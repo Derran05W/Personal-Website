@@ -41,6 +41,7 @@ import {
   stepFade,
   streetlightEmitters,
   type LightState,
+  type StreetlightEmitter,
 } from './lightPool';
 
 const SIZE = LIGHT_POOL.size;
@@ -49,11 +50,24 @@ const REASSIGN_INTERVAL = 1 / LIGHT_POOL.reassignHz;
 // pooled point lights (EXPLOSION.light.parkY).
 const PARK_Y = -100;
 
-export function LightPool({ world }: { world: WorldData }) {
-  // Streetlight emitters for this world — derived (and cached) once. `world` is stable for a
-  // mounted instance (the game keys this component on the world, remounting on regenerate),
-  // so a stale emitter index can never outlive its world.
-  const emitters = useMemo(() => streetlightEmitters(world), [world]);
+export interface LightPoolProps {
+  /** Legacy world source (world/types.ts) — mutually exclusive with `emitters` below. */
+  readonly world?: WorldData;
+  /** Phase 30 (T2 debt-2): a pre-built emitter list, for callers with no WorldData (Toronto —
+   * powergrid/lightPool.ts's torontoStreetlightEmitters() derives one from traffic-light
+   * masts). Takes precedence over `world` when both are somehow passed. */
+  readonly emitters?: readonly StreetlightEmitter[];
+}
+
+export function LightPool({ world, emitters: emittersProp }: LightPoolProps) {
+  // Streetlight emitters — either the caller's own pre-built list (Toronto) or derived (and
+  // cached) once from a legacy WorldData. `world`/`emittersProp` are stable for a mounted
+  // instance (the game keys this component on the world/seed, remounting on regenerate), so a
+  // stale emitter index can never outlive its source.
+  const emitters = useMemo(
+    () => emittersProp ?? (world ? streetlightEmitters(world) : []),
+    [world, emittersProp],
+  );
 
   // Refs to the real lights, indexed by pool slot.
   const lightsRef = useRef<(PointLight | null)[]>([]);

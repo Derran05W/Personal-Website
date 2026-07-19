@@ -44,13 +44,20 @@ function placement(overrides: Partial<PropPlacement> = {}): PropPlacement {
 
 // --- PROP_ARCHETYPES ------------------------------------------------------------------------
 
+// Phase 30 (T2 debt-1): archetypes with no legacy PROP_DIMS geometry — the legacy generator
+// never places them (world/archetypes.ts's own doc comment), so propColliderBox() can't size
+// them; PROP_ARCHETYPES excludes them alongside the two building archetypes.
+const TORONTO_ONLY_ARCHETYPES: readonly ArchetypeName[] = ['trashCan', 'stopSign', 'busStop'];
+
 describe('PROP_ARCHETYPES', () => {
-  it('is every ARCHETYPES entry except the two building archetypes', () => {
+  it('is every ARCHETYPES entry except the two building archetypes and the Toronto-only ones', () => {
     expect(PROP_ARCHETYPES).not.toContain('buildingSmall');
     expect(PROP_ARCHETYPES).not.toContain('buildingTower');
-    expect(PROP_ARCHETYPES.length).toBe(ARCHETYPES.length - 2);
+    for (const name of TORONTO_ONLY_ARCHETYPES) expect(PROP_ARCHETYPES).not.toContain(name);
+    expect(PROP_ARCHETYPES.length).toBe(ARCHETYPES.length - 2 - TORONTO_ONLY_ARCHETYPES.length);
     for (const name of ARCHETYPES) {
       if (name === 'buildingSmall' || name === 'buildingTower') continue;
+      if ((TORONTO_ONLY_ARCHETYPES as readonly string[]).includes(name)) continue;
       expect(PROP_ARCHETYPES).toContain(name);
     }
   });

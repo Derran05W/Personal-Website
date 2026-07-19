@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generate } from '../world/generate';
+import { buildFurniture } from '../world/toronto/furniture';
+import { torontoDistrictIndex, TORONTO_DISTRICT_COUNT } from '../world/toronto/districts';
 import {
   assign,
   beginAssign,
@@ -9,6 +11,7 @@ import {
   setDistrictDarkSource,
   stepFade,
   streetlightEmitters,
+  torontoStreetlightEmitters,
   type DarkPredicate,
   type LightState,
   type StreetlightEmitter,
@@ -37,6 +40,41 @@ describe('streetlightEmitters', () => {
     // A different seed is a different WorldData object → a distinct (also-cached) result.
     const other = streetlightEmitters(generate(999));
     expect(other).not.toBe(a);
+  });
+});
+
+// Phase 30 (T2 debt-2) — the Toronto WorldData-shaped emitter adapter.
+describe('torontoStreetlightEmitters', () => {
+  it('reshapes a lamp source list into StreetlightEmitter[] (x/z from position[0]/[2], districtId passed through)', () => {
+    const out = torontoStreetlightEmitters([
+      { position: [10, 0, 20], districtId: 3 },
+      { position: [-5, 0, 7.5], districtId: 0 },
+    ]);
+    expect(out).toEqual([
+      { x: 10, z: 20, districtId: 3 },
+      { x: -5, z: 7.5, districtId: 0 },
+    ]);
+  });
+
+  it('returns an empty list for an empty source (never throws)', () => {
+    expect(torontoStreetlightEmitters([])).toEqual([]);
+  });
+
+  it.each([416, 9417])('seed %d: one emitter per real traffic-light mast, every districtId valid', (seed) => {
+    const furniture = buildFurniture(seed);
+    expect(furniture.trafficLights.length).toBeGreaterThan(0);
+    const masts = furniture.trafficLights.map((m) => ({
+      position: m.position,
+      districtId: torontoDistrictIndex(m.districtId),
+    }));
+    const emitters = torontoStreetlightEmitters(masts);
+    expect(emitters.length).toBe(furniture.trafficLights.length);
+    for (let i = 0; i < emitters.length; i++) {
+      expect(emitters[i].x).toBe(furniture.trafficLights[i].position[0]);
+      expect(emitters[i].z).toBe(furniture.trafficLights[i].position[2]);
+      expect(emitters[i].districtId).toBeGreaterThanOrEqual(0);
+      expect(emitters[i].districtId).toBeLessThan(TORONTO_DISTRICT_COUNT);
+    }
   });
 });
 

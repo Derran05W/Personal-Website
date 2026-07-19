@@ -31,9 +31,15 @@ export interface CityPackBatchedProps {
   readonly unlit: boolean;
   /** Pack-wide default false (D14). */
   readonly castShadow?: boolean;
+  /** Phase 30 (T2 debt-1): optional handle-registration callback, called with the live
+   * BatchedMesh once its instances are populated, and again with `null` on teardown/repopulate
+   * (material flip, placement-count change, unmount). Opt-in — only StreetFurniture's
+   * launchable categories pass this (see cityPack/batchedRegistry.ts's header for why it isn't
+   * automatic for every CityPackBatched call site). */
+  readonly onMesh?: (mesh: BatchedMesh | null) => void;
 }
 
-export function CityPackBatched({ id, placements, unlit, castShadow = false }: CityPackBatchedProps) {
+export function CityPackBatched({ id, placements, unlit, castShadow = false, onMesh }: CityPackBatchedProps) {
   const { geometry, scale, lift, material } = useBakedCityPackModel(id);
 
   // D4 vertex-gradient bake: the baked geometry carries a per-vertex luminance `color` attribute
@@ -67,30 +73,58 @@ export function CityPackBatched({ id, placements, unlit, castShadow = false }: C
   const indexCount = geometry.getIndex()?.count ?? vertexCount;
   const ref = useRef<BatchedMesh>(null);
 
+  // Latest-ref indirection for `onMesh` (Phase 30 T2 debt-1): the populate effect below must NOT
+  // depend on onMesh's identity — a caller passing an inline arrow (StreetFurniture does, one per
+  // furniture category) gets a NEW function every render, and if that were a dependency the effect
+  // would re-run, hit the `instanceCount > 0` early return (already populated), and skip straight
+  // past the `onMesh?.(bm)` call below without ever re-registering — a real prop, permanently
+  // orphaned from the batched registry after the first parent re-render. Reading through a ref
+  // keeps registration tied ONLY to the object's real populate/dispose lifecycle while always
+  // calling the CURRENT callback.
+  const onMeshRef = useRef(onMesh);
+  useEffect(() => {
+    onMeshRef.current = onMesh;
+  }, [onMesh]);
+
   // Populate the (R3F-owned) BatchedMesh once it exists / is recreated. `renderMaterial` is in the
   // deps because args include it — a material flip recreates the object, and this re-populates the
   // fresh one. The `instanceCount` guard makes the populate idempotent under a StrictMode double
   // effect on the same object (a fresh object has 0 instances; an already-filled one is skipped).
+  //
+  // Phase 30 (T2 debt-1) BUG FIX: onMesh registration MUST run on every invocation of this effect
+  // (not only the branch that populates), including the StrictMode-driven second invoke after the
+  // first invoke's cleanup already unregistered it. The populate guard above short-circuits with
+  // an early `return` — when that early return also skipped the registration call, the sequence
+  // under React 19 StrictMode's dev double-invoke (effect → cleanup → effect) was: register →
+  // unregister (cleanup) → [populate guard skips, registration never re-runs] → net UNREGISTERED,
+  // even though the mesh was fully populated and live. Found live (Playwright verification:
+  // recentImpacts showed real archetype hits at forces far over threshold, but occupancy stayed
+  // 0 and registeredCategories() came back empty). Fix: populate is still guarded/idempotent, but
+  // the onMesh call (and its cleanup) is UNCONDITIONAL whenever a live `bm` exists.
   useEffect(() => {
     const bm = ref.current;
-    if (!bm || bm.instanceCount > 0) return;
-    bm.perObjectFrustumCulled = true;
-    const geometryId = bm.addGeometry(geometry);
-    const m = new Matrix4();
-    const q = new Quaternion();
-    const t = new Vector3();
-    const sv = new Vector3(scale, scale, scale);
-    const c = new Color();
-    for (const p of placements) {
-      const instanceId = bm.addInstance(geometryId);
-      q.setFromAxisAngle(Y_AXIS, p.rotationY ?? 0);
-      t.set(p.position[0], p.position[1] + lift, p.position[2]);
-      m.compose(t, q, sv);
-      bm.setMatrixAt(instanceId, m);
-      c.set(p.tint ?? 0xffffff);
-      bm.setColorAt(instanceId, c);
+    if (!bm) return;
+    if (bm.instanceCount === 0) {
+      bm.perObjectFrustumCulled = true;
+      const geometryId = bm.addGeometry(geometry);
+      const m = new Matrix4();
+      const q = new Quaternion();
+      const t = new Vector3();
+      const sv = new Vector3(scale, scale, scale);
+      const c = new Color();
+      for (const p of placements) {
+        const instanceId = bm.addInstance(geometryId);
+        q.setFromAxisAngle(Y_AXIS, p.rotationY ?? 0);
+        t.set(p.position[0], p.position[1] + lift, p.position[2]);
+        m.compose(t, q, sv);
+        bm.setMatrixAt(instanceId, m);
+        c.set(p.tint ?? 0xffffff);
+        bm.setColorAt(instanceId, c);
+      }
+      bm.computeBoundingSphere();
     }
-    bm.computeBoundingSphere();
+    onMeshRef.current?.(bm);
+    return () => onMeshRef.current?.(null);
   }, [geometry, scale, lift, placements, renderMaterial]);
 
   if (placements.length === 0) return null;

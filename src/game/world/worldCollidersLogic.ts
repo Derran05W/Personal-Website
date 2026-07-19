@@ -55,10 +55,15 @@ export function buildingColliderBox(
 }
 
 // --- Street-prop archetypes ------------------------------------------------------------------
-// Every ARCHETYPES entry except the two building archetypes (which propPlacements.ts never
-// emits — buildings come from world.buildings, not placements).
+// Every ARCHETYPES entry the LEGACY generator can actually place and propColliderBox() below
+// can size: excludes the two building archetypes (propPlacements.ts never emits them —
+// buildings come from world.buildings, not placements) AND the Phase 30 Toronto-only
+// archetypes (trashCan/stopSign/busStop — world/archetypes.ts's own doc comment: "never placed
+// by the legacy generator", no PROP_DIMS geometry exists for them, and Toronto sizes their
+// colliders through config/cityPackScale.ts's colliderHalfExtents() instead).
+const TORONTO_ONLY_ARCHETYPES: ReadonlySet<ArchetypeName> = new Set(['trashCan', 'stopSign', 'busStop']);
 export const PROP_ARCHETYPES: readonly ArchetypeName[] = ARCHETYPES.filter(
-  (name) => name !== 'buildingSmall' && name !== 'buildingTower',
+  (name) => name !== 'buildingSmall' && name !== 'buildingTower' && !TORONTO_ONLY_ARCHETYPES.has(name),
 );
 
 // Tree canopy apex height, derived by replaying world/geometry/streetProps.ts's buildTree()
@@ -190,6 +195,15 @@ export function propColliderBox(archetype: ArchetypeName): ColliderBox {
     case 'buildingSmall':
     case 'buildingTower':
       throw new Error(`propColliderBox: ${archetype} is a building archetype, not a street prop`);
+    // Phase 30 (T2 debt-1): Toronto-only archetypes (world/archetypes.ts) with no legacy
+    // geometry — the legacy generator never places them, and Toronto's own furniture-launch
+    // pool (world/toronto/cityPack/furnitureDynamics.ts) sizes its colliders from
+    // config/cityPackScale.ts's colliderHalfExtents() instead, never this function. Present
+    // only to keep this switch exhaustive over the shared ArchetypeName union.
+    case 'trashCan':
+    case 'stopSign':
+    case 'busStop':
+      throw new Error(`propColliderBox: ${archetype} is Toronto-only — never routed through the legacy prop-collider path`);
   }
 }
 

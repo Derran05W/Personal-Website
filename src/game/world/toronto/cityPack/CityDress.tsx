@@ -9,13 +9,21 @@
 import { Suspense } from 'react';
 import { RigidBody } from '@react-three/rapier';
 import { useEffect, useMemo, useRef } from 'react';
-import { Color, Object3D, type InstancedMesh } from 'three';
+import { Color, Object3D, type BatchedMesh, type InstancedMesh } from 'three';
 import { interactionGroups } from '../../../config';
 import { colliderHalfExtents } from '../../../config/cityPackScale';
 import { useDevToggle } from '../../../core/devToggles';
 import { RegisteredCuboidCollider } from '../../landmarks/registeredCollider';
-import { torontoBuildingEntry, torontoTransformerEntry, torontoTreeEntry, torontoBusStopEntry } from '../torontoColliders';
+import {
+  torontoBuildingEntry,
+  torontoTransformerEntry,
+  torontoTreeEntry,
+  torontoBusStopEntry,
+  torontoFurnitureEntry,
+} from '../torontoColliders';
+import { registerBatchedFurniture, unregisterBatchedFurniture } from './batchedRegistry';
 import { CityPackBatched } from './CityPackBatched';
+import { FurnitureDynamicsMount } from './FurnitureDynamicsMount';
 import { ParkedVehicles } from './ParkedVehicles';
 import { TrafficLampOverlay } from './TrafficLampOverlay';
 import { VenueDressLayer } from './VenueDressLayer';
@@ -147,10 +155,15 @@ function BackdropTowers({ boxes }: { boxes: readonly BackdropBox[] }) {
   );
 }
 
-/** Street furniture: one BatchedMesh per prop type + tree-trunk / bus-stop colliders (D12). Small
- * furniture (masts/hydrants/benches/trash/stop/manhole) is colliderless this phase — power boxes
- * get their OWN collider (PowerBoxes below): they take the legacy transformer role (Phase 29 D2),
- * so they need a real hp-bearing collider a car can actually hit. */
+/** Street furniture: one BatchedMesh per prop type + fixed colliders. Phase 30 (T2 debt-1):
+ * every category except manhole-cover now gets a REAL collider (hydrant/bench/trash-can/
+ * traffic-light-mast/stop-sign previously had none at all — colliderless furniture can never
+ * be hit) AND registers its BatchedMesh into the Toronto batched registry
+ * (cityPack/batchedRegistry.ts) so cityPack/furnitureDynamics.ts's launch pool can hide the
+ * exact struck instance and spawn a flying replica. Power boxes get their OWN collider
+ * (PowerBoxes below): they take the legacy transformer role (Phase 29 D2), so they need a real
+ * hp-bearing collider a car can actually hit — but their BatchedMesh is built HERE (the
+ * 'power-box' category), so their onMesh registration lives in this component too. */
 function StreetFurniture({ furniture, unlit }: { furniture: FurnitureLayout; unlit: boolean }) {
   const cats = useMemo(
     () => [
@@ -168,23 +181,49 @@ function StreetFurniture({ furniture, unlit }: { furniture: FurnitureLayout; unl
   );
   const trunk = furniture.colliderSpecs.treeTrunk;
   const busStop = furniture.colliderSpecs.busStop;
+  // Phase 30 (T2 debt-1): generic pack-model collider box for the categories that previously had
+  // none — the SAME colliderHalfExtents() resolver every other dynamic/static pack collider in
+  // this codebase uses (ParkedVehicles.tsx, PowerBoxes below), so sizing stays derived from the
+  // manifest's own measured dims + config/cityPackScale.ts, never a hand-picked number here.
+  const hydrantHalf = useMemo(() => colliderHalfExtents('fire-hydrant'), []);
+  const benchHalf = useMemo(() => colliderHalfExtents('bench'), []);
+  const trashCanHalf = useMemo(() => colliderHalfExtents('trash-can'), []);
+  const trafficLightHalf = useMemo(() => colliderHalfExtents('traffic-light'), []);
+  const stopSignHalf = useMemo(() => colliderHalfExtents('stop-sign'), []);
 
   return (
     <Suspense fallback={null}>
       {cats.map(({ id, placements }) => (
-        <CityPackBatched key={id} id={id} placements={placements} unlit={unlit} />
+        <CityPackBatched
+          key={id}
+          id={id}
+          placements={placements}
+          unlit={unlit}
+          // Every category except manhole-cover is launchable (Phase 30 T2 debt-1) — its
+          // BatchedMesh is registered so furnitureDynamics.ts can hide/launch struck instances.
+          onMesh={
+            id === 'manhole-cover'
+              ? undefined
+              : (mesh: BatchedMesh | null) => {
+                  if (mesh) registerBatchedFurniture(id, { mesh });
+                  else unregisterBatchedFurniture(id);
+                }
+          }
+        />
       ))}
-      {/* Phase 29 (D1): tree trunks + bus stops register as 'propStatic' (tree trunks carry the
-          matching legacy 'tree' archetype for mass/threshold parity; bus stops have no legacy
-          equivalent, so no archetype). See torontoColliders.ts's file header for the documented
-          swap-visual gap (Toronto never builds the legacy InstancedMesh propDynamics.ts's
-          fixed->dynamic swap depends on, so these never visually launch this phase — the
-          registration is still correct/forward-compatible for damage mass factors). */}
+      {/* Phase 29 (D1) + Phase 30 (T2 debt-1): every colliderable furniture category registers
+          as 'propStatic' with a real archetype (PROPS.masses/forceThresholds) + instanceId
+          (index into that category's CityPackBatched mesh, matching placement-array order —
+          CityPackBatched populates addInstance() in that exact order on first build) so
+          cityPack/furnitureDynamics.ts's impact-driven swap can locate and hide/launch the
+          exact struck instance. Tree trunks keep their own dedicated trunk-only collider box
+          (never the canopy footprint) — see that entry builder's doc comment for the
+          "trunk stays registered on launch" rule. */}
       <RigidBody type="fixed" colliders={false} collisionGroups={BUILDING_GROUPS}>
         {furniture.trees.items.map((t, i) => (
           <RegisteredCuboidCollider
             key={`tree-${i}`}
-            entry={torontoTreeEntry(t.districtId)}
+            entry={torontoTreeEntry(t.districtId, i)}
             halfExtents={[trunk.hx, trunk.hy, trunk.hz]}
             position={[t.position[0], trunk.hy, t.position[2]]}
           />
@@ -192,10 +231,55 @@ function StreetFurniture({ furniture, unlit }: { furniture: FurnitureLayout; unl
         {furniture.busStops.items.map((b, i) => (
           <RegisteredCuboidCollider
             key={`bus-${i}`}
-            entry={torontoBusStopEntry(b.districtId)}
+            entry={torontoBusStopEntry(b.districtId, i)}
             halfExtents={[busStop.hx, busStop.hy, busStop.hz]}
             position={[b.position[0], busStop.hy, b.position[2]]}
             rotationY={b.rotationY}
+          />
+        ))}
+        {furniture.hydrants.items.map((h, i) => (
+          <RegisteredCuboidCollider
+            key={`hydrant-${i}`}
+            entry={torontoFurnitureEntry('hydrant', h.districtId, i)}
+            halfExtents={[hydrantHalf.hx, hydrantHalf.hy, hydrantHalf.hz]}
+            position={[h.position[0], hydrantHalf.hy, h.position[2]]}
+            rotationY={h.rotationY}
+          />
+        ))}
+        {furniture.benches.items.map((b, i) => (
+          <RegisteredCuboidCollider
+            key={`bench-${i}`}
+            entry={torontoFurnitureEntry('bench', b.districtId, i)}
+            halfExtents={[benchHalf.hx, benchHalf.hy, benchHalf.hz]}
+            position={[b.position[0], benchHalf.hy, b.position[2]]}
+            rotationY={b.rotationY}
+          />
+        ))}
+        {furniture.trashCans.items.map((t, i) => (
+          <RegisteredCuboidCollider
+            key={`trash-${i}`}
+            entry={torontoFurnitureEntry('trashCan', t.districtId, i)}
+            halfExtents={[trashCanHalf.hx, trashCanHalf.hy, trashCanHalf.hz]}
+            position={[t.position[0], trashCanHalf.hy, t.position[2]]}
+            rotationY={t.rotationY}
+          />
+        ))}
+        {furniture.trafficLights.map((m, i) => (
+          <RegisteredCuboidCollider
+            key={`mast-${i}`}
+            entry={torontoFurnitureEntry('trafficLight', m.districtId, i)}
+            halfExtents={[trafficLightHalf.hx, trafficLightHalf.hy, trafficLightHalf.hz]}
+            position={[m.position[0], trafficLightHalf.hy, m.position[2]]}
+            rotationY={m.rotationY}
+          />
+        ))}
+        {furniture.stopSigns.items.map((s, i) => (
+          <RegisteredCuboidCollider
+            key={`stop-${i}`}
+            entry={torontoFurnitureEntry('stopSign', s.districtId, i)}
+            halfExtents={[stopSignHalf.hx, stopSignHalf.hy, stopSignHalf.hz]}
+            position={[s.position[0], stopSignHalf.hy, s.position[2]]}
+            rotationY={s.rotationY}
           />
         ))}
       </RigidBody>
@@ -208,7 +292,10 @@ function StreetFurniture({ furniture, unlit }: { furniture: FurnitureLayout; unl
  * district index — the district-blackout entry point (grid.ts/powergrid/emitters.ts). Unlike
  * the rest of StreetFurniture, power boxes NEED a real collider (they had none before this
  * phase — colliderless furniture can never be hit), sized from the pack model's own footprint
- * via the same colliderHalfExtents() every dynamic-vehicle path already uses. */
+ * via the same colliderHalfExtents() every dynamic-vehicle path already uses. `instanceId`
+ * (Phase 30 T2 debt-1) is the index into the 'power-box' CityPackBatched mesh (built by
+ * StreetFurniture, same array order) — cityPack/furnitureDynamics.ts's death-driven scan reads
+ * it to find and launch the exact box a transformerDestroyed event just killed. */
 function PowerBoxes({ furniture }: { furniture: FurnitureLayout }) {
   const half = colliderHalfExtents('power-box');
   const items = furniture.powerBoxes.items;
@@ -218,7 +305,7 @@ function PowerBoxes({ furniture }: { furniture: FurnitureLayout }) {
       {items.map((p, i) => (
         <RegisteredCuboidCollider
           key={i}
-          entry={torontoTransformerEntry(p.districtId)}
+          entry={torontoTransformerEntry(p.districtId, i)}
           halfExtents={[half.hx, half.hy, half.hz]}
           position={[p.position[0], half.hy, p.position[2]]}
           rotationY={p.rotationY}
@@ -281,6 +368,11 @@ export function CityDress({ frontage, furniture, infill, dress, lampOverlay }: C
           had none before), gated on the SAME showFurniture toggle since they're conceptually a
           furniture item. */}
       {showFurniture ? <PowerBoxes furniture={furniture} /> : null}
+      {/* Phase 30 (T2 debt-1): the street-furniture launch pool — hides a struck/dead
+          instance's BatchedMesh entry and spawns a pooled flying replica. Gated on the SAME
+          showFurniture toggle (nothing to launch when furniture itself is hidden); must be a
+          descendant of <Physics> (true for every CityDress mount site). */}
+      {showFurniture ? <FurnitureDynamicsMount /> : null}
       {showParked ? <ParkedVehicles parked={furniture.parked.items} unlit={unlit} registryKind="parkedCar" /> : null}
       {showLamps && lampOverlay ? <TrafficLampOverlay masts={furniture.trafficLights} /> : null}
       {showVenueDress ? <VenueDressLayer dress={dress} unlit={unlit} /> : null}

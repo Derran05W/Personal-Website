@@ -14,34 +14,37 @@
 // that file's applySideDamage header) and so the HP/heat/score chain sees a real `other` side
 // instead of silently skipping every building hit.
 //
-// Furniture WITH a real collider (currently only tree trunks + bus stops — see
-// cityPack/CityDress.tsx's StreetFurniture) registers `kind: 'propStatic'`: tree trunks carry
-// the LEGACY 'tree' archetype (matches DAMAGE.archetypeMassKg / PROPS masses/forceThresholds
-// exactly, so a tree hit deals/receives the same mass-scaled damage a legacy tree would), bus
-// stops carry no archetype (no legacy equivalent exists — massFactorOf() falls back to its
-// documented factor-1 default, same as an unlisted archetype).
+// Furniture WITH a real collider — tree trunks, bus stops, and (Phase 30 T2 debt-1) hydrants,
+// benches, trash cans, traffic-light masts, and stop signs (see cityPack/CityDress.tsx's
+// StreetFurniture) — registers `kind: 'propStatic'` with a real `archetype` (tree/busStop/
+// hydrant/bench/trashCan/trafficLight/stopSign, all in PROPS.masses/forceThresholds) and an
+// `instanceId` pointing at that archetype's CityPackBatched instance.
 //
-// HONEST GAP (flagged, not hidden): world/propDynamics.ts's fixed->dynamic swap
-// (PropSwapController.handleImpact) requires `getArchetypeHandles(archetype)` — the LEGACY
-// world/instancing.ts InstancedMesh registry, built only by world/CityArchetypes.tsx (never
-// mounted under the Toronto branch). So even though tree trunks carry a swap-eligible
-// archetype+threshold, `handles.length === 0` for Toronto and the swap silently no-ops (see
-// that file's own comment on the guard) — no visual launch, no propDestroyed event, for ANY
-// Toronto 'propStatic' entry, this phase. This is a real architecture gap between the plan's
-// assumption ("same archetypes -> same tuning" implies the swap "just works") and Toronto's
-// actual pack-based rendering (BatchedMesh, not InstancedMesh) — registering the archetype
-// name anyway is still correct and forward-compatible (right mass/threshold now; a future
-// Toronto-aware swap visual can reuse these entries unchanged), it just doesn't visually launch
-// yet. "Impacts launch props + score accrues" is instead satisfied by PARKED CARS (below) and
-// LANE-CLOSURE CONES, which start life as REAL dynamic bodies (never need the swap at all) and
-// so shove/tumble via plain Rapier physics from the moment they're registered.
+// GAP CLOSED (Phase 30 T2 debt-1): Phase 29 flagged that world/propDynamics.ts's fixed->dynamic
+// swap needs `getArchetypeHandles(archetype)` — the LEGACY world/instancing.ts InstancedMesh
+// registry, never built under the Toronto branch (BatchedMesh, not InstancedMesh) — so a
+// Toronto propStatic hit silently no-op'd. This phase does NOT wire Toronto through that
+// legacy registry (BatchedMesh has no InstancedMesh-shaped API to satisfy it); instead
+// world/toronto/cityPack/furnitureDynamics.ts is a SIBLING controller that reuses
+// world/propDynamics.ts's exported pure tuning (resolveSwapTarget/computeLaunchImpulse/
+// selectEvictionIndex/isExpired — the same PROPS-config-driven math, never re-derived) against
+// a Toronto-native batched-instance registry (cityPack/batchedRegistry.ts) that CAN hide a
+// BatchedMesh instance (`setVisibleAt`) and spawn a pooled dynamic replica of the real GLB
+// model. Tree trunks are the one archetype with a special rule: the trunk collider stays
+// registered/enabled on launch (only the canopy/whole-tree VISUAL launches) — see that
+// module's header for why.
 //
 // Power boxes take the LEGACY TRANSFORMER role directly (`kind: 'transformer'`, hp
-// POWER_GRID.transformerHp) — combat/damage.ts's handleTransformerDeath() only OPTIONALLY reads
-// getArchetypeHandles() (for the wrecked-instance tint + position), gracefully skipping that
-// half when the archetype has no live mesh (see that function's doc comment: "the event still
-// fires either way") — so transformerDestroyed correctly fires end-to-end for Toronto with NO
-// dependency on the legacy instancing system, unlike the general prop-swap path above.
+// POWER_BOX.hp — Toronto's OWN tuned value, Phase 30 T2 debt-3; see that config's doc comment
+// for why it is never POWER_GRID.transformerHp) — combat/damage.ts's handleTransformerDeath()
+// only OPTIONALLY reads getArchetypeHandles() (for the wrecked-instance tint + position),
+// gracefully skipping that half when the archetype has no live mesh (see that function's doc
+// comment: "the event still fires either way") — so transformerDestroyed correctly fires
+// end-to-end for Toronto with NO dependency on the legacy instancing system. Phase 30 (T2
+// debt-1) adds the VISUAL half back for Toronto: furnitureDynamics.ts subscribes
+// transformerDestroyed directly and scans the district's registered power-box entries
+// (world/registry.ts's allEntries()) for the one whose hp just hit 0, then hides + launches it
+// — see that module for the "one death -> one box" scan.
 //
 // Parked vehicles (street + lot) and lane-closure cones are already REAL dynamic bodies at
 // creation (cityPack/ParkedVehicles.tsx) — they never go through the fixed->dynamic swap at
@@ -54,7 +57,9 @@
 // (world/toronto/infill.ts's DynamicConeSpec carries none — registry.ts's -1 "not districted"
 // convention applies).
 
-import { PROPS, POWER_GRID } from '../../config';
+import { PROPS } from '../../config';
+import { POWER_BOX } from '../../config/torontoDress';
+import type { ArchetypeName } from '../archetypes';
 import type { EntityEntry } from '../registry';
 import type { DistrictId } from '../../config/torontoDistricts';
 import { torontoDistrictIndex } from './districts';
@@ -74,9 +79,15 @@ export function torontoBuildingEntryAt(districtIndex: number): EntityEntry {
 
 /** Power-box props take the legacy TRANSFORMER role (D2): hp-bearing, dies via the same
  * combat/damage.ts handleTransformerDeath() path, emits transformerDestroyed with this
- * district's index — the district-blackout entry point. */
-export function torontoTransformerEntry(districtId: DistrictId): EntityEntry {
-  return { kind: 'transformer', districtId: torontoDistrictIndex(districtId), hp: POWER_GRID.transformerHp };
+ * district's index — the district-blackout entry point. hp is POWER_BOX.hp (Phase 30 T2
+ * debt-3), Toronto's OWN tuned value — deliberately NOT the legacy POWER_GRID.transformerHp
+ * (see that config's doc comment for why the two must never share a number). `instanceId`
+ * (Phase 30 T2 debt-1, optional so every pre-existing one-arg call site still compiles) is the
+ * index into the 'power-box' CityPackBatched mesh (furniture.powerBoxes.items order) — the
+ * furniture-launch pool's post-death scan (world/toronto/cityPack/furnitureDynamics.ts) uses
+ * it to find and hide/launch the exact box that died. */
+export function torontoTransformerEntry(districtId: DistrictId, instanceId?: number): EntityEntry {
+  return { kind: 'transformer', instanceId, districtId: torontoDistrictIndex(districtId), hp: POWER_BOX.hp };
 }
 
 /** Street/lot parked car — already a real dynamic body (cityPack/ParkedVehicles.tsx); registers
@@ -100,14 +111,34 @@ export function torontoConeEntry(): EntityEntry {
 }
 
 /** Tree trunk collider (StreetFurniture's shared TREE_ROW.trunk collider) — the one furniture
- * archetype with a real legacy tuning match. See file header for the swap-gap caveat. */
-export function torontoTreeEntry(districtId: DistrictId): EntityEntry {
-  return { kind: 'propStatic', archetype: 'tree', districtId: torontoDistrictIndex(districtId) };
+ * archetype with a real legacy tuning match. `instanceId` (Phase 30 T2 debt-1, optional —
+ * every pre-existing one-arg call site still compiles) is the index into the 'tree'
+ * CityPackBatched mesh (furniture.trees.items order); the swap-gap this file's header used to
+ * document is CLOSED by world/toronto/cityPack/furnitureDynamics.ts, which reads it to hide
+ * the visual instance and launch a flying replica — see that module for the tree-specific
+ * rule (the TRUNK collider stays registered/enabled; only the canopy model launches). */
+export function torontoTreeEntry(districtId: DistrictId, instanceId?: number): EntityEntry {
+  return { kind: 'propStatic', archetype: 'tree', instanceId, districtId: torontoDistrictIndex(districtId) };
 }
 
-/** Bus-stop collider — no legacy archetype equivalent exists (busStop isn't in
- * world/archetypes.ts's ARCHETYPES list), so this carries no archetype (massFactorOf's
- * documented factor-1 default applies, same as any unlisted archetype). */
-export function torontoBusStopEntry(districtId: DistrictId): EntityEntry {
-  return { kind: 'propStatic', districtId: torontoDistrictIndex(districtId) };
+/** Bus-stop collider. Phase 30 (T2 debt-1): now carries the 'busStop' archetype (added to
+ * world/archetypes.ts + config/world.ts's PROPS.masses/forceThresholds) so it participates in
+ * the launch pool like every other furniture archetype — previously archetype-less (factor-1
+ * damage default only). `instanceId` is the index into the 'bus-stop' CityPackBatched mesh. */
+export function torontoBusStopEntry(districtId: DistrictId, instanceId?: number): EntityEntry {
+  return { kind: 'propStatic', archetype: 'busStop', instanceId, districtId: torontoDistrictIndex(districtId) };
+}
+
+/** Generic launchable-furniture collider (Phase 30 T2 debt-1): hydrant / bench / trash-can /
+ * traffic-light mast / stop-sign all register through this one builder — `archetype` picks up
+ * PROPS.masses/forceThresholds via the SAME resolveSwapTarget() gate every other propStatic
+ * archetype uses (world/propDynamics.ts), and `instanceId` is the index into that category's
+ * CityPackBatched mesh (its placement-array order — CityPackBatched populates addInstance() in
+ * that exact order on first build, so index i there IS instance id i). */
+export function torontoFurnitureEntry(
+  archetype: ArchetypeName,
+  districtId: DistrictId,
+  instanceId: number,
+): EntityEntry {
+  return { kind: 'propStatic', archetype, instanceId, districtId: torontoDistrictIndex(districtId) };
 }

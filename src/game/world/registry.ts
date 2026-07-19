@@ -89,6 +89,15 @@ export function entityCount(): number {
   return entries.size;
 }
 
+/** Snapshot of every currently-registered [handle, entry] pair. Phase 30 (T2 debt-1): the
+ * Toronto furniture-launch pool uses this to locate WHICH power box in a district just died
+ * (transformerDestroyed only carries a districtId, and a district can hold several boxes) —
+ * a rare, event-driven scan, not a hot-path primitive. Returns a fresh array each call so a
+ * caller can safely iterate while other code mutates the registry mid-loop. */
+export function allEntries(): ReadonlyArray<readonly [number, EntityEntry]> {
+  return Array.from(entries.entries());
+}
+
 /** Full teardown — city remount on seed change unregisters per-collider, but a hard reset
  * (route away) may tear the Physics tree down wholesale; the next city mount calls this
  * first so stale handles from a dead world can never alias new ones. */

@@ -49,7 +49,7 @@ import { CORRIDOR_HALF_WIDTH_WU } from '../../config/tunnel';
 import { TORONTO_BLACKOUT } from '../../config/torontoMap';
 import { buildStreets } from './streets';
 import { listIntersections } from './roadGraph';
-import { buildDistricts, torontoDistrictIndexAt } from './districts';
+import { buildDistricts, torontoDistrictIndex, torontoDistrictIndexAt } from './districts';
 import { buildGroundTintRanges, darkenColorRange } from './groundTintBlackout';
 import { RegisteredCuboidCollider, RegisteredCylinderCollider } from '../landmarks/registeredCollider';
 import { torontoBuildingEntryAt } from './torontoColliders';
@@ -82,6 +82,8 @@ import { spawnPoseRef } from '../spawn';
 import { computeLookTarget, type Vec3 } from '../../fx/cameraRig';
 import { BlueHourRig } from '../BlueHourRig';
 import { RunLoopSystem } from '../../combat/runLoop';
+import { LightPool } from '../../powergrid/LightPoolMount';
+import { torontoStreetlightEmitters } from '../../powergrid/lightPool';
 import { useDevToggle } from '../../core/devToggles';
 import { preloadCityPack } from '../../assets/cityPack';
 import { CityPackPreview } from './cityPack/CityPackPreview';
@@ -970,6 +972,17 @@ export function TorontoScene() {
   // across the component's lifetime, so this dependency never re-triggers a rebuild mid-run).
   const frontage = useMemo(() => buildFrontage(seed, tierParams), [seed, tierParams]);
   const furniture = useMemo(() => buildFurniture(seed, tierParams), [seed, tierParams]);
+  // Phase 30 (T2 debt-2): the LightPool adapter — Toronto has no 'streetlight' archetype, so
+  // its traffic-light masts stand in as the pool's emitter source (powergrid/lightPool.ts's
+  // torontoStreetlightEmitters), keyed to the SAME 15-district grid powergrid/grid.ts already
+  // tracks for Toronto (torontoDistrictIndex — the mast's own DistrictId resolved once here).
+  const torontoLightEmitters = useMemo(
+    () =>
+      torontoStreetlightEmitters(
+        furniture.trafficLights.map((m) => ({ position: m.position, districtId: torontoDistrictIndex(m.districtId) })),
+      ),
+    [furniture],
+  );
   // Phase 28 infill: corner fill (frontage.cornerFills, built above) + back-lot/laneway/parking-
   // lot/construction/lane-closure (world/toronto/infill.ts). Pure/deterministic, derived off the
   // already-built frontage layout (its slots + cornerFills are the avoid-set every new layer
@@ -1133,6 +1146,11 @@ export function TorontoScene() {
       {/* Run lifecycle + WATER→WRECKED death path (the legacy tree that normally carries this is
           not mounted in this branch). */}
       <RunLoopSystem />
+      {/* Phase 30 (T2 debt-2): the trailing dynamic-light pool, Toronto-adapted — same pool/
+          budget/hysteresis as the legacy mount, fed traffic-light-mast emitters instead of a
+          WorldData's streetlights. Dark-district exclusion reads the SAME canonical combined
+          source (grid.ts + emitters.ts) the legacy mount wires, via LightPool's own effect. */}
+      <LightPool emitters={torontoLightEmitters} />
 
       {/* Base ground: merged flat mesh (uncovered fallback under the district tints) + fixed
           GROUND colliders (top face at y=0). Kept UNLIT (like the ribbons) — the district

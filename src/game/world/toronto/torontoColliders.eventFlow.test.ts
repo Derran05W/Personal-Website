@@ -18,7 +18,8 @@ import { initHeatSystem, __resetPassiveAccumulatorForTest } from '../../state/he
 import { gridRef, initPowerGrid, __resetGridForTest } from '../../powergrid/grid';
 import { clearFlickers } from '../../powergrid/emitters';
 import { HEAT } from '../../config/heat';
-import { POWER_GRID, PROPS } from '../../config';
+import { PROPS } from '../../config';
+import { POWER_BOX } from '../../config/torontoDress';
 import { torontoParkedCarEntry, torontoTransformerEntry } from './torontoColliders';
 
 vi.mock('../../powergrid/emitters', async (importOriginal) => {
@@ -44,11 +45,11 @@ afterEach(() => {
 
 describe('power-box -> transformerDestroyed -> district blackout', () => {
   it('draining a power-box entry to 0 hp emits transformerDestroyed with its districtId', () => {
-    const entry = torontoTransformerEntry('financial'); // hp = POWER_GRID.transformerHp
+    const entry = torontoTransformerEntry('financial'); // hp = POWER_BOX.hp
     const listener = vi.fn();
     gameEvents.on('transformerDestroyed', listener);
 
-    applyEntityDamage(entry, POWER_GRID.transformerHp); // exactly lethal
+    applyEntityDamage(entry, POWER_BOX.hp); // exactly lethal
 
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener).toHaveBeenCalledWith(expect.objectContaining({ districtId: entry.districtId }));
@@ -60,7 +61,7 @@ describe('power-box -> transformerDestroyed -> district blackout', () => {
     const listener = vi.fn();
     gameEvents.on('transformerDestroyed', listener);
 
-    applyEntityDamage(entry, POWER_GRID.transformerHp - 1);
+    applyEntityDamage(entry, POWER_BOX.hp - 1);
     expect(listener).not.toHaveBeenCalled();
     expect(entry.hp).toBe(1);
   });
@@ -69,7 +70,7 @@ describe('power-box -> transformerDestroyed -> district blackout', () => {
     const off = initPowerGrid(15); // Toronto district count (world/toronto/districts.ts)
     const entry = torontoTransformerEntry('harbourfront');
 
-    applyEntityDamage(entry, POWER_GRID.transformerHp);
+    applyEntityDamage(entry, POWER_BOX.hp);
 
     expect(gridRef.current.lit[entry.districtId]).toBe(false);
     off();

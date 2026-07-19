@@ -52,6 +52,32 @@ export function streetlightEmitters(world: WorldData): StreetlightEmitter[] {
   return out;
 }
 
+// --- Toronto adapter (Phase 30 T2 debt-2) ---------------------------------------------------
+// Toronto has no `WorldData` (that shape is the legacy tile-world generator's own) and no
+// standalone 'streetlight' archetype — the map's real street lighting comes from its
+// traffic-light masts (world/toronto/furniture.ts's LampMast), which already carry a world
+// position + districtId per mast. This adapter reshapes those into the SAME
+// `StreetlightEmitter[]` LightPool (the mount below) already knows how to trail/assign —
+// nothing downstream of `emitters()` needs to know its source was masts, not lampposts.
+
+/** The minimal shape torontoStreetlightEmitters needs from a lamp source — LampMast
+ * (world/toronto/furniture.ts) satisfies this structurally, but this module deliberately takes
+ * no dependency on world/toronto/** (powergrid/ stays map-agnostic); the caller (TorontoScene)
+ * resolves `districtId` to a plain numeric index (torontoDistrictIndex) before calling this. */
+export interface TorontoLampSource {
+  readonly position: readonly [number, number, number];
+  readonly districtId: number;
+}
+
+/** Toronto's WorldData-shaped streetlight-emitter source (Phase 30 T2 debt-2): every
+ * traffic-light mast becomes one pool emitter at its world (x, z), keyed to the SAME 15-district
+ * grid powergrid/grid.ts already tracks for Toronto (initPowerGrid(15) — Phase 29). Pure
+ * reshape, no caching needed (the caller memoizes on its own furniture layout, mirroring
+ * world/toronto/frontage.ts's "TorontoScene owns the useMemo" convention). */
+export function torontoStreetlightEmitters(masts: readonly TorontoLampSource[]): StreetlightEmitter[] {
+  return masts.map((m) => ({ x: m.position[0], z: m.position[2], districtId: m.districtId }));
+}
+
 // --- Dark-district read seam ----------------------------------------------------------------
 
 export type DarkPredicate = (districtId: number) => boolean;
