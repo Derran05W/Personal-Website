@@ -218,8 +218,17 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     density: 'medium',
     bounds: { west: street('spadina'), east: street('university'), north: street('queen'), south: street('king') },
     // Brick strip (D10: "brown-building + building-red (brick)"), warm near-white tints.
+    // Part-8 (D2) stock widening: big-building added at low weight (a taller entertainment-strip
+    // anchor here and there) — entertainment isn't a backdropTowers district so a street-level
+    // big-building reads as a bigger venue, not a tower-district anomaly.
     packStock: {
-      models: [pk('building-red', 0.45), pk('brown-building', 0.4), pk('rb-blank', 0.1), pk('gb-blank', 0.05)],
+      models: [
+        pk('building-red', 0.4),
+        pk('brown-building', 0.37),
+        pk('rb-blank', 0.1),
+        pk('gb-blank', 0.05),
+        pk('big-building', 0.08),
+      ],
       cornerModels: CORNERS_STANDARD,
       tints: ['#e8c8c0', '#e0c0b8', '#f0d0c8'],
       treeDensity: 'rows',
@@ -234,8 +243,15 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     density: 'medium',
     bounds: { west: street('bathurst'), east: street('spadina'), north: street('queen'), south: street('front') },
     // Same brick flavour as entertainment (D10 groups the two), warm near-white tints.
+    // Part-8 (D2): big-building added at low weight (same rationale as entertainment).
     packStock: {
-      models: [pk('brown-building', 0.45), pk('building-red', 0.4), pk('rb-blank', 0.1), pk('gb-blank', 0.05)],
+      models: [
+        pk('brown-building', 0.42),
+        pk('building-red', 0.37),
+        pk('rb-blank', 0.1),
+        pk('gb-blank', 0.05),
+        pk('big-building', 0.08),
+      ],
       cornerModels: CORNERS_STANDARD,
       tints: ['#e0c0b8', '#e8c8c0', '#f0d0c8'],
       treeDensity: 'rows',
@@ -250,8 +266,16 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     density: 'dense',
     bounds: { west: street('bathurst'), east: street('university'), north: street('dundas'), south: street('queen') },
     // D10 sketch: "red/green family + corners heavy, brown-building, warm tints".
+    // Part-8 (D2): big-building added at low weight (widening variety per the density/life flip).
     packStock: {
-      models: [pk('building-red', 0.3), pk('building-green', 0.3), pk('brown-building', 0.15), pk('rb-blank', 0.15), pk('gb-blank', 0.1)],
+      models: [
+        pk('building-red', 0.27),
+        pk('building-green', 0.27),
+        pk('brown-building', 0.15),
+        pk('rb-blank', 0.13),
+        pk('gb-blank', 0.1),
+        pk('big-building', 0.08),
+      ],
       cornerModels: CORNERS_STANDARD,
       tints: ['#f0e0c8', '#e8d0b8', '#f0d8c0'],
       treeDensity: 'rows',
@@ -267,8 +291,16 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     bounds: { west: street('bathurst'), east: street('spadina'), north: street('college'), south: street('dundas') },
     // D10 sketch groups chinatownKensington with queenWest/willowdale (red/green + corners
     // heavy, brown-building, warm tints) — slightly more brown-building for the market masonry.
+    // Part-8 (D2): big-building added at low weight (market-edge variety).
     packStock: {
-      models: [pk('brown-building', 0.35), pk('building-red', 0.25), pk('building-green', 0.2), pk('rb-blank', 0.1), pk('gb-blank', 0.1)],
+      models: [
+        pk('brown-building', 0.32),
+        pk('building-red', 0.23),
+        pk('building-green', 0.18),
+        pk('rb-blank', 0.1),
+        pk('gb-blank', 0.09),
+        pk('big-building', 0.08),
+      ],
       cornerModels: CORNERS_STANDARD,
       tints: ['#e8d0b8', '#f0e0c8', '#f0d8c0'],
       treeDensity: 'rows',
@@ -319,9 +351,16 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     // Bent from the brief's first draft (spadina->bay) — narrowed to spadina->university so it
     // doesn't overlap bloorYorkville (see module header + districts.ts).
     bounds: { west: street('spadina'), east: street('university'), north: zone('bloor'), south: street('college') },
-    // D10 sketch: "brown-building sparse + greenhouse garnish".
+    // D10 sketch: "brown-building sparse + greenhouse garnish". Part-8 (D2): big-building added at
+    // low weight (a Discovery-District research tower here and there).
     packStock: {
-      models: [pk('brown-building', 0.65), pk('greenhouse', 0.15), pk('gb-blank', 0.1), pk('rb-blank', 0.1)],
+      models: [
+        pk('brown-building', 0.55),
+        pk('greenhouse', 0.15),
+        pk('gb-blank', 0.1),
+        pk('rb-blank', 0.12),
+        pk('big-building', 0.08),
+      ],
       cornerModels: CORNERS_NO_PIZZA,
       tints: ['#d8d0c0', '#d0c8b8', '#e0d8c8'],
       treeDensity: 'sparse',
@@ -336,8 +375,15 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     density: 'medium',
     bounds: { west: street('yonge'), east: street('jarvis'), north: street('king'), south: street('front') },
     // D10 sketch groups stLawrence with entertainment/kingWest — brick, warm near-white tints.
+    // Part-8 (D2): big-building added at low weight (Old Town's occasional loft-conversion scale-up).
     packStock: {
-      models: [pk('brown-building', 0.45), pk('building-red', 0.4), pk('rb-blank', 0.1), pk('gb-blank', 0.05)],
+      models: [
+        pk('brown-building', 0.42),
+        pk('building-red', 0.37),
+        pk('rb-blank', 0.1),
+        pk('gb-blank', 0.05),
+        pk('big-building', 0.06),
+      ],
       cornerModels: CORNERS_STANDARD,
       tints: ['#f0d0c8', '#e8c8c0', '#e0c0b8'],
       treeDensity: 'rows',
@@ -370,9 +416,19 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     // Bent from the brief's first draft (bay->jarvis) — becomes university->church, the middle
     // strip between uoft and churchWellesley (see module header + districts.ts).
     bounds: { west: street('university'), east: street('church'), north: zone('bloor'), south: street('college') },
-    // D10 sketch: "building-green + blanks, pale-gold tints".
+    // D10 sketch: "building-green + blanks, pale-gold tints". Part-8 (D2) stock widening:
+    // brown-building + big-building added at low weight (boutique-scale variety), greenhouse at
+    // low weight (Yorkville's ravine-adjacent residential streets qualify as "residential/
+    // park-adjacent" per the D2 rule).
     packStock: {
-      models: [pk('building-green', 0.55), pk('gb-blank', 0.25), pk('rb-blank', 0.2)],
+      models: [
+        pk('building-green', 0.45),
+        pk('gb-blank', 0.2),
+        pk('rb-blank', 0.16),
+        pk('brown-building', 0.1),
+        pk('big-building', 0.06),
+        pk('greenhouse', 0.03),
+      ],
       cornerModels: CORNERS_STANDARD,
       tints: ['#f0e8c0', '#e8d8b8', '#e8e0c0'],
       treeDensity: 'rows',
@@ -404,9 +460,17 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     density: 'dense',
     bounds: { west: zone('capsuleWest'), east: zone('capsuleEast'), north: zone('capsuleTop'), south: street('parkhome') },
     // D10 sketch: "red/green family + corners heavy, brown-building, warm tints" (grouped with
-    // queenWest/chinatownKensington).
+    // queenWest/chinatownKensington). Part-8 (D2): big-building added at low weight (Willowdale's
+    // occasional mid-rise infill).
     packStock: {
-      models: [pk('building-red', 0.3), pk('building-green', 0.25), pk('brown-building', 0.2), pk('rb-blank', 0.15), pk('gb-blank', 0.1)],
+      models: [
+        pk('building-red', 0.27),
+        pk('building-green', 0.23),
+        pk('brown-building', 0.18),
+        pk('rb-blank', 0.14),
+        pk('gb-blank', 0.1),
+        pk('big-building', 0.08),
+      ],
       cornerModels: CORNERS_STANDARD,
       tints: ['#f0d8c0', '#f0e0c8', '#e8d0b8'],
       treeDensity: 'rows',
@@ -438,9 +502,19 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     heightRangeM: [6, 10],
     density: 'sparse',
     bounds: { west: zone('foldWest'), east: zone('foldEast'), north: zone('sheppard'), south: zone('bloor') },
-    // D10 sketch: "mixed family", sparse interior — minimal corner variety.
+    // D10 sketch: "mixed family", sparse interior — minimal corner variety. Part-8 (D2):
+    // big-building + greenhouse added at low weight (the sparse fold interior reads as
+    // residential/park-adjacent — the corridor between the two ravines).
     packStock: {
-      models: [pk('building-red', 0.25), pk('building-green', 0.25), pk('brown-building', 0.2), pk('rb-blank', 0.15), pk('gb-blank', 0.15)],
+      models: [
+        pk('building-red', 0.22),
+        pk('building-green', 0.22),
+        pk('brown-building', 0.18),
+        pk('rb-blank', 0.13),
+        pk('gb-blank', 0.13),
+        pk('big-building', 0.07),
+        pk('greenhouse', 0.05),
+      ],
       cornerModels: CORNERS_NO_PIZZA,
       tints: ['#d0d0d0', '#d8d8d8', '#e0e0e0'],
       treeDensity: 'sparse',

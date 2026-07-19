@@ -16,31 +16,39 @@ import { CityPackBatched } from './CityPackBatched';
 import { ParkedVehicles } from './ParkedVehicles';
 import { TrafficLampOverlay } from './TrafficLampOverlay';
 import { VenueDressLayer } from './VenueDressLayer';
-import { slotsForModel, type FrontageLayout } from '../frontage';
-import type { FurnitureLayout, FurniturePlacement } from '../furniture';
+import { LANE_CLOSURE } from '../../../config/torontoDress';
+import { type BackdropBox, type FrontageLayout, type PlacedBox } from '../frontage';
+import type { FurnitureLayout } from '../furniture';
+import type { DecorPlacement, InfillLayout } from '../infill';
 import type { VenueDress } from '../venueDress';
 import type { CityPackPlacement } from './CityPackInstances';
 
 const BUILDING_GROUPS = interactionGroups('BUILDING');
 
-/** FurniturePlacement → CityPackPlacement (drop the districtId; furniture carries no tint). */
-function toPlacements(items: readonly FurniturePlacement[]): readonly CityPackPlacement[] {
+/** FurniturePlacement/DecorPlacement → CityPackPlacement (drop the districtId; neither carries a
+ * tint). Shared by StreetFurniture (25.6) and Phase 28's DecorInstances. */
+function toPlacements(items: readonly { readonly modelId: string; readonly position: readonly [number, number, number]; readonly rotationY: number }[]): readonly CityPackPlacement[] {
   return items.map((p) => ({ position: p.position, rotationY: p.rotationY }));
 }
 
-/** Frontage pack buildings: one BatchedMesh per model id + one fixed RigidBody of BUILDING cuboids
- * (the slot half-extents are already post-yaw, so the colliders mount axis-aligned). */
-function FrontageBuildings({ layout, unlit }: { layout: FrontageLayout; unlit: boolean }) {
-  const byModel = useMemo(
-    () =>
-      layout.modelIds.map((id) => ({
-        id,
-        placements: slotsForModel(layout, id).map(
-          (s): CityPackPlacement => ({ position: s.position, rotationY: s.rotationY, tint: s.tint }),
-        ),
-      })),
-    [layout],
-  );
+/**
+ * Generic batched pack-model renderer + fixed BUILDING colliders, keyed by modelId (Phase 28: the
+ * "extend the data the batchers consume" seam) — one BatchedMesh per unique model id across ANY
+ * combination of layers passed in, so a model id shared by e.g. frontage + corner-fill + back-lot
+ * collapses to ONE draw call regardless of which layer placed it. Was `FrontageBuildings` (25.6),
+ * generalized from `FrontageLayout` to a flat `PlacedBox[]` so every fixed-collider layer (frontage
+ * slots, corner fill, back-lot pack row, parking-lot cars, construction fence/dumpster/billboard)
+ * shares this ONE component instead of each inventing its own. */
+function FixedPackInstances({ items, unlit }: { items: readonly PlacedBox[]; unlit: boolean }) {
+  const byModel = useMemo(() => {
+    const ids = [...new Set(items.map((s) => s.modelId))].sort();
+    return ids.map((id) => ({
+      id,
+      placements: items
+        .filter((s) => s.modelId === id)
+        .map((s): CityPackPlacement => ({ position: s.position, rotationY: s.rotationY, tint: s.tint })),
+    }));
+  }, [items]);
 
   return (
     <Suspense fallback={null}>
@@ -48,18 +56,36 @@ function FrontageBuildings({ layout, unlit }: { layout: FrontageLayout; unlit: b
         <CityPackBatched key={id} id={id} placements={placements} unlit={unlit} />
       ))}
       <RigidBody type="fixed" colliders={false} collisionGroups={BUILDING_GROUPS}>
-        {layout.slots.map((s) => (
-          <CuboidCollider key={s.slotId} args={[s.hx, s.hy, s.hz]} position={[s.position[0], s.hy, s.position[2]]} />
+        {items.map((s, i) => (
+          <CuboidCollider key={i} args={[s.hx, s.hy, s.hz]} position={[s.position[0], s.hy, s.position[2]]} />
         ))}
       </RigidBody>
     </Suspense>
   );
 }
 
-/** D7 backdrop towers: legacy extruded coloured boxes (one InstancedMesh + fixed colliders), the
- * exact P23 material (unlit + instanceColor). Only the three tower districts populate this. */
-function BackdropTowers({ layout }: { layout: FrontageLayout }) {
-  const boxes = layout.towerBoxes;
+/** Colliderless decorative props (laneway clutter, construction decor, lane-closure road-bits) —
+ * one BatchedMesh per unique model id, no colliders (Phase 28 D4/D6/D7). */
+function DecorInstances({ items, unlit }: { items: readonly DecorPlacement[]; unlit: boolean }) {
+  const byModel = useMemo(() => {
+    const ids = [...new Set(items.map((d) => d.modelId))].sort();
+    return ids.map((id) => ({ id, placements: toPlacements(items.filter((d) => d.modelId === id)) }));
+  }, [items]);
+
+  return (
+    <Suspense fallback={null}>
+      {byModel.map(({ id, placements }) => (
+        <CityPackBatched key={id} id={id} placements={placements} unlit={unlit} />
+      ))}
+    </Suspense>
+  );
+}
+
+/** D7/D3 backdrop-style boxes: legacy extruded coloured boxes (one InstancedMesh + fixed colliders),
+ * the exact P23 material (unlit + instanceColor). Generalized from `FrontageLayout` to a flat
+ * `BackdropBox[]` (Phase 28) so the D7 tower-district backdrop AND the D3 back-lot boxes share this
+ * ONE component — callers merge both arrays before passing in. */
+function BackdropTowers({ boxes }: { boxes: readonly BackdropBox[] }) {
   const ref = useRef<InstancedMesh>(null);
   useEffect(() => {
     const mesh = ref.current;
@@ -141,6 +167,11 @@ function StreetFurniture({ furniture, unlit }: { furniture: FurnitureLayout; unl
 export interface CityDressProps {
   readonly frontage: FrontageLayout;
   readonly furniture: FurnitureLayout;
+  /** Phase 28 infill: corner fill lives on `frontage.cornerFills`; back-lot/laneway/parking-lots/
+   * construction/lane-closures live here. Optional so any pre-28 test harness that constructs
+   * CityDressProps by hand without it still compiles — CityDress treats a missing/empty layout as
+   * "nothing to add" (every array empty). */
+  readonly infill?: InfillLayout;
   /** Phase 25.7 venue dressing (built off frontage.venueClaims by TorontoScene, passed in). */
   readonly dress: VenueDress;
   /** Phase 25.8 (D8): QUALITY_TIERS[tier].lampOverlay, mount-captured by TorontoScene. The
@@ -150,23 +181,46 @@ export interface CityDressProps {
   readonly lampOverlay: boolean;
 }
 
+const EMPTY_INFILL: InfillLayout = { fixed: [], boxes: [], decor: [], cones: [], counts: {} };
+
 /** The whole re-dressed city — each layer independently toggle-gated (perf triage / A/B). */
-export function CityDress({ frontage, furniture, dress, lampOverlay }: CityDressProps) {
+export function CityDress({ frontage, furniture, infill, dress, lampOverlay }: CityDressProps) {
   const unlit = useDevToggle('cityPackUnlit');
   const showBuildings = useDevToggle('packBuildings');
   const showFurniture = useDevToggle('packFurniture');
   const showParked = useDevToggle('packParked');
   const showLamps = useDevToggle('packLightCycling');
   const showVenueDress = useDevToggle('venueDress');
+  const showInfill = useDevToggle('packInfill');
+  const layer = infill ?? EMPTY_INFILL;
+
+  // Phase 28: merge every fixed-collider layer (frontage + corner fill + back-lot pack row +
+  // parking-lot cars + construction fence/dumpster/billboard) into ONE FixedPackInstances call —
+  // a model id shared across layers (e.g. 'building-red-corner' from both the regular street-walk
+  // and corner fill) collapses to a single BatchedMesh/draw call instead of one per layer. Same for
+  // the box layer (D7 backdrop towers + D3 back-lot boxes).
+  const fixedItems = useMemo<readonly PlacedBox[]>(
+    () => (showInfill ? [...frontage.slots, ...frontage.cornerFills, ...layer.fixed] : frontage.slots),
+    [frontage, layer, showInfill],
+  );
+  const boxes = useMemo<readonly BackdropBox[]>(
+    () => (showInfill ? [...frontage.towerBoxes, ...layer.boxes] : frontage.towerBoxes),
+    [frontage, layer, showInfill],
+  );
 
   return (
     <>
-      {showBuildings ? <FrontageBuildings layout={frontage} unlit={unlit} /> : null}
-      {showBuildings ? <BackdropTowers layout={frontage} /> : null}
+      {showBuildings ? <FixedPackInstances items={fixedItems} unlit={unlit} /> : null}
+      {showBuildings ? <BackdropTowers boxes={boxes} /> : null}
       {showFurniture ? <StreetFurniture furniture={furniture} unlit={unlit} /> : null}
       {showParked ? <ParkedVehicles parked={furniture.parked.items} unlit={unlit} /> : null}
       {showLamps && lampOverlay ? <TrafficLampOverlay masts={furniture.trafficLights} /> : null}
       {showVenueDress ? <VenueDressLayer dress={dress} unlit={unlit} /> : null}
+      {/* Phase 28 (D4/D6/D7): laneway clutter + construction decor + lane-closure road-bits
+          (colliderless) and lane-closure cones (dynamic, knockable — reuses ParkedVehicles' body
+          renderer with LANE_CLOSURE.coneBody instead of the parked-car spec). */}
+      {showInfill && layer.decor.length > 0 ? <DecorInstances items={layer.decor} unlit={unlit} /> : null}
+      {showInfill && layer.cones.length > 0 ? <ParkedVehicles parked={layer.cones} unlit={unlit} body={LANE_CLOSURE.coneBody} /> : null}
     </>
   );
 }

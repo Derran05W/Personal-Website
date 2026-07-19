@@ -73,6 +73,12 @@ export interface DevToggles {
    * venue boxes (the venue facades themselves are just claimed frontage slots and stay). Meaningful
    * only with `torontoMap` on. */
   venueDress: boolean;
+  /** Phase 28 layer toggle (default ON within the Toronto branch): the whole "Infill" pass —
+   * corner fill (frontage.ts), back-lot second row, laneway clutter, parking lots, construction
+   * sites, and lane closures (world/toronto/infill.ts). Toggle off ≈ the Phase 25.6-27 city minus
+   * every Phase 28 addition (frontage/furniture/venue layers untouched). Meaningful only with
+   * `torontoMap` on. */
+  packInfill: boolean;
 }
 
 const toggles: DevToggles = {
@@ -90,6 +96,7 @@ const toggles: DevToggles = {
   packParked: true,
   packLightCycling: true,
   venueDress: true,
+  packInfill: true,
 };
 const listeners = new Set<() => void>();
 

@@ -773,6 +773,21 @@ export default function DevPanel() {
     [],
   );
 
+  // --- Infill (P28): one toggle for the whole density pass ------------------------------------
+  // Corner fill + back-lot second row + laneway clutter + parking lots + construction sites +
+  // lane closures. Same leva-free devToggles seam as every other City Pack layer.
+  useControls(
+    'Infill (P28)',
+    () => ({
+      packInfill: {
+        value: getDevToggles().packInfill,
+        onChange: (value: boolean) => setDevToggle('packInfill', value),
+      },
+      note: { value: 'needs Toronto map on; corner fill/back-lot/laneway/parking/construction/lane closures', disabled: true },
+    }),
+    [],
+  );
+
   // --- Venues (P25.7): business-personalization toggle + teleport-to-venue drive-past ---------
   // `venueDress` gates the whole dressing layer (fascia bands / awnings / kit props / queues / Alo
   // plaque). The per-venue teleport buttons drop the car on the venue's camera-visible side so the

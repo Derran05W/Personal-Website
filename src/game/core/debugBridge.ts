@@ -536,6 +536,9 @@ declare global {
       landmarks: () => readonly { id: string; x: number; z: number }[];
       /** Phase 25.7: gate the whole venue-dressing layer (fascia/awnings/props/queues/plaque). */
       setVenueDress: (value: boolean) => void;
+      /** Phase 28: gate the whole "Infill" layer (corner fill/back-lot/laneway/parking-lots/
+       * construction/lane-closures) — the scripted mirror of the "Infill (P28)" devPanel toggle. */
+      setPackInfill: (value: boolean) => void;
       /** Phase 25.7: teleport-to-venue drive-past targets ({id,x,z,facing}[]) — the same
        * camera-ward standoff frontage.venueViewpoint the devPanel buttons use. Seed-independent
        * (venue claims are pure geometry), computed off the store seed. */
@@ -633,6 +636,7 @@ window.__smashy = {
   setPackParked: (value) => setDevToggle('packParked', value),
   setPackLightCycling: (value) => setDevToggle('packLightCycling', value),
   setVenueDress: (value) => setDevToggle('venueDress', value),
+  setPackInfill: (value) => setDevToggle('packInfill', value),
   venues: () =>
     buildFrontage(getGameState().seed).venueClaims.map((c) => ({
       id: c.venueId,

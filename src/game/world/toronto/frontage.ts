@@ -21,7 +21,14 @@
 // order with recorded [start,count] ranges — the blackout-address a future powergrid write pokes.
 
 import { colliderHalfExtents, type ColliderHalfExtents } from '../../config/cityPackScale';
-import { BACKDROP_TOWER, FRONTAGE, TORONTO_TIER_IDENTITY, type TorontoTierParams } from '../../config/torontoDress';
+import {
+  BACKDROP_TOWER,
+  BLANK_TINTS,
+  CORNER_FILL,
+  FRONTAGE,
+  TORONTO_TIER_IDENTITY,
+  type TorontoTierParams,
+} from '../../config/torontoDress';
 import {
   TORONTO_DISTRICTS,
   type DistrictDensity,
@@ -78,6 +85,21 @@ export function insidePolygon(fp: Aabb): boolean {
 }
 
 // --- output shapes ---------------------------------------------------------------------------
+
+/** The minimal shape any generic pack-model batched-render + fixed-collider consumer needs
+ * (CityDress.tsx's FixedPackInstances). FrontageSlot below is a structural superset (adds
+ * slotId/districtId/isCorner/venueId) — Part-8's new layers (world/toronto/infill.ts's back-lot
+ * pack row, parking-lot cars, construction fixtures) share this SAME rendering seam instead of
+ * inventing a parallel one (CLAUDE.md: "extend the data the batchers consume"). */
+export interface PlacedBox {
+  readonly modelId: string;
+  readonly position: readonly [number, number, number];
+  readonly rotationY: number;
+  readonly tint?: string;
+  readonly hx: number;
+  readonly hy: number;
+  readonly hz: number;
+}
 
 /** One placed pack-building frontage slot. Position is WORLD-space [x, 0, z] (ground = 0); the
  * mounting task grounds the model floor via its groundOffset. `hx`/`hy`/`hz` are the POST-YAW
@@ -158,6 +180,11 @@ export interface FrontageLayout {
   readonly modelIds: readonly string[];
   /** D7 sparse backdrop boxes behind the frontage in the three tower districts. */
   readonly towerBoxes: readonly BackdropBox[];
+  /** Part-8 (D1): narrow corner-pool buildings filling the block-corner notch FRONTAGE's own
+   * cornerClearanceWu leaves bare, at each intersection's 4 quadrants. Kept OUT of `slots`/
+   * `ranges`/`hardCap` (a separate supplementary layer, not subject to the street-wall tri-budget
+   * cap) — CityDress.tsx merges this with `slots` purely for batched rendering + colliders. */
+  readonly cornerFills: readonly FrontageSlot[];
   /** Phase 25.7 (T2): the resolved venue claims (≤18), in VENUE_AUTHORS order. Each corresponds
    * 1:1 to a FrontageSlot carrying its `venueId`; venueDress.ts consumes THIS (never the slots) so
    * dressing is derived from a single self-contained claim record. Empty is impossible for the real
@@ -182,7 +209,7 @@ const WATER_Z = ZONE_BOUNDARIES[3];
  * `side` = +1 places the building on the street's +perp side (larger x for ns / larger z for ew);
  * the front then points back toward the centreline (−side along the perpendicular axis). Verified
  * against CityPackPreview.tsx's building-red/rb-blank flank placements. */
-function frontageRotationY(axis: Street['axis'], side: 1 | -1): number {
+export function frontageRotationY(axis: Street['axis'], side: 1 | -1): number {
   if (axis === 'ns') return side === 1 ? -Math.PI / 2 : Math.PI / 2;
   return side === 1 ? Math.PI : 0;
 }
@@ -190,7 +217,7 @@ function frontageRotationY(axis: Street['axis'], side: 1 | -1): number {
 /** The cardinal the front face points, for the SAME (axis, side) frontageRotationY yaws (verified
  * by rotating local +Z by that yaw): ns/+1 → −X (west), ns/−1 → +X (east), ew/+1 → −Z (north),
  * ew/−1 → +Z (south). Used only for VenueClaim.facing (D4 fascia-face selection). */
-function frontageFacing(axis: Street['axis'], side: 1 | -1): FacadeFacing {
+export function frontageFacing(axis: Street['axis'], side: 1 | -1): FacadeFacing {
   if (axis === 'ns') return side === 1 ? 'west' : 'east';
   return side === 1 ? 'north' : 'south';
 }
@@ -199,7 +226,7 @@ function frontageFacing(axis: Street['axis'], side: 1 | -1): FacadeFacing {
  * width) always runs ALONG the street; the depth (native z) always runs perpendicular. For an ns
  * street the perpendicular is world X, so hx = native depth, hz = native frontage; for an ew
  * street it is the identity. */
-function worldHalfExtents(half: ColliderHalfExtents, axis: Street['axis']): { hx: number; hy: number; hz: number } {
+export function worldHalfExtents(half: ColliderHalfExtents, axis: Street['axis']): { hx: number; hy: number; hz: number } {
   if (axis === 'ns') return { hx: half.hz, hy: half.hy, hz: half.hx };
   return { hx: half.hx, hy: half.hy, hz: half.hz };
 }
@@ -314,7 +341,7 @@ function weightedPick(rng: Rng, entries: readonly PackStockEntry[]): string {
 
 /** Corner slots prefer cornerModels; an empty corner pool (financial/harbourfront/northYorkCentre
  * — big-building-only districts) falls back to the regular model pool (D10). */
-function pickModel(rng: Rng, def: TorontoDistrictDef, isCorner: boolean): string {
+export function pickModel(rng: Rng, def: TorontoDistrictDef, isCorner: boolean): string {
   const pool = isCorner && def.packStock.cornerModels.length > 0 ? def.packStock.cornerModels : def.packStock.models;
   return weightedPick(rng, pool);
 }
@@ -389,9 +416,107 @@ function buildBackdropTowers(
   return thinToCap(out, BACKDROP_TOWER.capMapWide);
 }
 
+// --- corner fill (Part-8 D1) ------------------------------------------------------------------
+
+/** Which of a corner's two adjoining streets is wider (ROAD_CLASSES) — the corner-fill piece
+ * faces that one, reusing the SAME frontageRotationY/worldHalfExtents axis convention the regular
+ * street-walk uses. Ties favour 'ns' (arbitrary, deterministic). */
+function biggerAxis(i: Intersection): Street['axis'] {
+  return ROAD_CLASSES[i.nsCls] >= ROAD_CLASSES[i.ewCls] ? 'ns' : 'ew';
+}
+
+/** Tint pick shared by the generic walk + corner fill (D2): blank facades (rb-blank/gb-blank)
+ * draw from the district's BLANK_TINTS pool (packStock.tints + derived pastel variants) instead
+ * of the plain packStock.tints, for extra variety without new assets. Every non-blank model keeps
+ * the original packStock.tints pool untouched. */
+export function pickTint(rng: Rng, def: TorontoDistrictDef, modelId: string): string {
+  const pool = modelId === 'rb-blank' || modelId === 'gb-blank' ? BLANK_TINTS[def.id] : def.packStock.tints;
+  return pool[Math.floor(rng.next() * pool.length) % pool.length];
+}
+
+/**
+ * D1: at each intersection's 4 quadrants (the diagonal notch FRONTAGE.cornerClearanceWu leaves
+ * bare on both adjoining streets), attempt a corner-pool building facing whichever street is
+ * wider, seeded by district-density occupancy (CORNER_FILL.occupancy). Position sits flush
+ * against BOTH streets' sidewalks (facade line = ribbon edge + SIDEWALK.widthWu on each axis),
+ * exactly filling the notch. REJECT (never relocate) against every gate the generic walk uses
+ * PLUS the real, already-thinned frontage footprint set (`keepFootprints` — the final `capped`
+ * slots, not the pre-cap raw list) and previously-kept corner fills, so a corner piece never
+ * overlaps a real building or another corner. A too-tight corner (e.g. a narrow minor×minor
+ * intersection, or a corner-pool model that doesn't fit) is simply skipped by these gates — no
+ * explicit geometry special-casing per intersection shape (fold corridor / capsule edges
+ * included), matching the same "errors are cosmetic, not blocking" posture as the backdrop towers.
+ */
+function buildCornerFill(
+  intersections: readonly Intersection[],
+  districts: readonly ResolvedDistrict[],
+  exclusions: readonly Aabb[],
+  ribbons: readonly Aabb[],
+  keepFootprints: readonly Aabb[],
+  base: Rng,
+): readonly RawSlot[] {
+  const out: RawSlot[] = [];
+  const kept: Aabb[] = [];
+  intersections.forEach((intersection, idx) => {
+    const axis = biggerAxis(intersection);
+    const nsHalf = ROAD_CLASSES[intersection.nsCls] / 2;
+    const ewHalf = ROAD_CLASSES[intersection.ewCls] / 2;
+    for (const nsSign of [1, -1] as const) {
+      for (const ewSign of [1, -1] as const) {
+        const rng = base.fork(`corner:${intersection.nsId}:${intersection.ewId}:${nsSign}:${ewSign}`);
+        // Model-independent reference point (a nominal 6 wu into the quadrant) for the district
+        // lookup, same "never depends on the specific model rolled" principle as districtRefPoint.
+        const refPoint: MapPoint = { x: intersection.x + nsSign * (nsHalf + 6), y: intersection.y + ewSign * (ewHalf + 6) };
+        const def = districtAt(refPoint, districts);
+        if (!def) continue;
+        const occupancy = CORNER_FILL.occupancy[def.density as DistrictDensity];
+        if (rng.next() >= occupancy) continue;
+        const modelId = pickModel(rng, def, true);
+        const tint = pickTint(rng, def, modelId);
+        const half = colliderHalfExtents(modelId);
+        const world = worldHalfExtents(half, axis);
+        const depthHalf = axis === 'ns' ? world.hx : world.hz;
+        const widthHalf = axis === 'ns' ? world.hz : world.hx;
+        const facingSide: 1 | -1 = axis === 'ns' ? nsSign : ewSign;
+        const x =
+          axis === 'ns'
+            ? intersection.x + nsSign * (nsHalf + SIDEWALK.widthWu + depthHalf)
+            : intersection.x + nsSign * (nsHalf + SIDEWALK.widthWu + widthHalf);
+        const z =
+          axis === 'ns'
+            ? intersection.y + ewSign * (ewHalf + SIDEWALK.widthWu + widthHalf)
+            : intersection.y + ewSign * (ewHalf + SIDEWALK.widthWu + depthHalf);
+        const fp: Aabb = { minX: x - world.hx, maxX: x + world.hx, minZ: z - world.hz, maxZ: z + world.hz };
+        if (fp.maxZ >= WATER_Z) continue;
+        if (!insidePolygon(fp)) continue;
+        if (exclusions.some((r) => overlaps(fp, r))) continue;
+        if (ribbons.some((r) => overlaps(fp, r))) continue;
+        if (keepFootprints.some((r) => overlaps(fp, r))) continue;
+        if (kept.some((r) => overlaps(fp, r))) continue;
+        kept.push(fp);
+        out.push({
+          slotId: `corner:${intersection.nsId}x${intersection.ewId}:${nsSign > 0 ? 'p' : 'n'}${ewSign > 0 ? 'p' : 'n'}`,
+          modelId,
+          position: [x, 0, z],
+          rotationY: frontageRotationY(axis, facingSide),
+          tint,
+          districtId: def.id,
+          isCorner: true,
+          hx: world.hx,
+          hy: world.hy,
+          hz: world.hz,
+          order: 1_000_000 + idx * 4 + (nsSign > 0 ? 0 : 2) + (ewSign > 0 ? 0 : 1),
+          claimed: false,
+        });
+      }
+    }
+  });
+  return thinToCap(out, CORNER_FILL.capMapWide);
+}
+
 // --- deterministic even-stride thinning to a cap ---------------------------------------------
 
-function thinToCap<T>(items: readonly T[], cap: number): readonly T[] {
+export function thinToCap<T>(items: readonly T[], cap: number): readonly T[] {
   if (items.length <= cap) return items.slice();
   const stride = items.length / cap;
   const out: T[] = [];
@@ -601,7 +726,9 @@ export function buildFrontage(seed: number, tierParams: TorontoTierParams = TORO
         const occupancy = Math.min(1, FRONTAGE.occupancy[def.density as DistrictDensity] * tierParams.frontageOccupancyScalar);
         const kept = slotRng.next() < occupancy;
         const modelId = pickModel(slotRng, def, isCorner);
-        const tint = def.packStock.tints[Math.floor(slotRng.next() * def.packStock.tints.length) % def.packStock.tints.length];
+        // Part-8 (D2): blank facades (rb-blank/gb-blank) draw from BLANK_TINTS for extra variety;
+        // every other model keeps the original packStock.tints pool (pickTint's own fallback).
+        const tint = pickTint(slotRng, def, modelId);
         if (!kept) continue;
 
         const half = colliderHalfExtents(modelId);
@@ -660,11 +787,37 @@ export function buildFrontage(seed: number, tierParams: TorontoTierParams = TORO
 
   const towerBoxes = buildBackdropTowers(streets, districts, exclusions, base.fork('backdrop-towers'));
 
-  const counts: Record<string, number> = { total: slots.length, towerBoxes: towerBoxes.length };
+  // Part-8 (D1): corner fill runs against the REAL, already-thinned frontage footprint set (the
+  // final `slots`, not the pre-cap `raw` list) — a corner piece never overlaps a rendered building.
+  const slotFootprints: Aabb[] = slots.map((s) => ({
+    minX: s.position[0] - s.hx,
+    maxX: s.position[0] + s.hx,
+    minZ: s.position[2] - s.hz,
+    maxZ: s.position[2] + s.hz,
+  }));
+  const cornerFillRaw = buildCornerFill(intersections, districts, exclusions, ribbons, slotFootprints, base.fork('corner-fill'));
+  const cornerFills: FrontageSlot[] = cornerFillRaw.map((s) => ({
+    slotId: s.slotId,
+    modelId: s.modelId,
+    position: s.position,
+    rotationY: s.rotationY,
+    tint: s.tint,
+    districtId: s.districtId,
+    isCorner: s.isCorner,
+    hx: s.hx,
+    hy: s.hy,
+    hz: s.hz,
+  }));
+
+  const counts: Record<string, number> = {
+    total: slots.length,
+    towerBoxes: towerBoxes.length,
+    cornerFills: cornerFills.length,
+  };
   for (const id of DISTRICT_ORDER) counts[id] = 0;
   for (const s of slots) counts[s.districtId] += 1;
 
-  return { slots, ranges, modelIds, towerBoxes, venueClaims, counts };
+  return { slots, ranges, modelIds, towerBoxes, cornerFills, venueClaims, counts };
 }
 
 function buildRanges(slots: readonly FrontageSlot[]): readonly DistrictRange[] {

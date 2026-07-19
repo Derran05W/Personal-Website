@@ -414,6 +414,99 @@ describe('buildFrontage — Phase 25.8 (D8) quality-tier wiring', () => {
   });
 });
 
+// --- Part-8 (D1) corner fill --------------------------------------------------------------------
+
+describe('buildFrontage — corner fill (D1)', () => {
+  it('counts.cornerFills matches cornerFills.length, and is non-empty on the real map', () => {
+    expect(layout.counts.cornerFills).toBe(layout.cornerFills.length);
+    expect(layout.cornerFills.length).toBeGreaterThan(0);
+  });
+
+  it('every corner-fill model id is a real manifest entry', () => {
+    for (const s of layout.cornerFills) expect(hasCityPackModel(s.modelId), s.slotId).toBe(true);
+  });
+
+  it('every corner-fill slot id follows the corner: grammar and is unique', () => {
+    const ids = new Set(layout.cornerFills.map((s) => s.slotId));
+    expect(ids.size).toBe(layout.cornerFills.length);
+    for (const s of layout.cornerFills) expect(s.slotId).toMatch(/^corner:.+x.+:[pn][pn]$/);
+  });
+
+  it('every corner-fill rotationY is one of the four cardinal frontage yaws', () => {
+    const allowed = [0, Math.PI, Math.PI / 2, -Math.PI / 2];
+    for (const s of layout.cornerFills) {
+      expect(allowed.some((a) => Math.abs(a - s.rotationY) < 1e-9), s.slotId).toBe(true);
+    }
+  });
+
+  it('every corner-fill tint is near-white (D11), same invariant as the regular street-wall', () => {
+    for (const s of layout.cornerFills) {
+      const hex = s.tint.replace('#', '');
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      expect(Math.min(r, g, b), s.slotId).toBeGreaterThanOrEqual(0xb0);
+    }
+  });
+
+  describe.each([SEED, SEED + 9001])('reject-never-relocate invariants at seed %i', (seed) => {
+    const l = seed === SEED ? layout : buildFrontage(seed);
+    const ribbons: Aabb[] = buildRibbons(buildStreets().streets).map((r) => ({ minX: r.minX, maxX: r.maxX, minZ: r.minZ, maxZ: r.maxZ }));
+    const named = buildNamedBuildings();
+    const places = buildPlacesLayer(named);
+    const ex: Aabb[] = [...named.exclusions, ...places.exclusions].map((r) => ({ minX: r.minX, maxX: r.maxX, minZ: r.minY, maxZ: r.maxY }));
+    const cfp = (s: FrontageSlot): Aabb => ({ minX: s.position[0] - s.hx, maxX: s.position[0] + s.hx, minZ: s.position[2] - s.hz, maxZ: s.position[2] + s.hz });
+
+    it('no corner fill overlaps a road ribbon', () => {
+      const offenders = l.cornerFills.filter((s) => ribbons.some((r) => overlaps(cfp(s), r)));
+      expect(offenders.map((s) => s.slotId)).toEqual([]);
+    });
+
+    it('no corner fill overlaps a named/hero/places exclusion, or dips into the water band', () => {
+      const offenders: string[] = [];
+      for (const s of l.cornerFills) {
+        const fp = cfp(s);
+        if (ex.some((r) => overlaps(fp, r))) offenders.push(`${s.slotId} exclusion`);
+        if (fp.maxZ >= WATER_Z) offenders.push(`${s.slotId} water`);
+      }
+      expect(offenders).toEqual([]);
+    });
+
+    it('no corner fill overlaps a real frontage slot', () => {
+      const slotFps = l.slots.map(cfp);
+      const offenders = l.cornerFills.filter((s) => slotFps.some((r) => overlaps(cfp(s), r)));
+      expect(offenders.map((s) => s.slotId)).toEqual([]);
+    });
+
+    it('no two corner fills overlap each other', () => {
+      const offenders: string[] = [];
+      for (let i = 0; i < l.cornerFills.length; i++) {
+        for (let j = i + 1; j < l.cornerFills.length; j++) {
+          if (overlaps(cfp(l.cornerFills[i]), cfp(l.cornerFills[j]))) {
+            offenders.push(`${l.cornerFills[i].slotId} x ${l.cornerFills[j].slotId}`);
+          }
+        }
+      }
+      expect(offenders).toEqual([]);
+    });
+
+    it('every footprint is inside the playable polygon', () => {
+      const offenders: string[] = [];
+      for (const s of l.cornerFills) {
+        const b = cfp(s);
+        const corners = [
+          { x: b.minX, y: b.minZ },
+          { x: b.maxX, y: b.minZ },
+          { x: b.maxX, y: b.maxZ },
+          { x: b.minX, y: b.maxZ },
+        ];
+        if (!corners.every((c) => pointInPolygon(c, PLAYABLE_POLYGON))) offenders.push(s.slotId);
+      }
+      expect(offenders).toEqual([]);
+    });
+  });
+});
+
 describe('slotsForModel — preserves district order per batch', () => {
   it('filtering by model id keeps the district-ordered subsequence', () => {
     for (const id of layout.modelIds) {

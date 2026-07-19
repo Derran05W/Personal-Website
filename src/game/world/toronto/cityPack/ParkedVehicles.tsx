@@ -18,13 +18,26 @@ import { colliderHalfExtents } from '../../../config/cityPackScale';
 import { PARKED } from '../../../config/torontoDress';
 import { toUnlit } from '../../../assets/cityPack';
 import { useBakedCityPackModel } from './cityPackBaked';
-import type { ParkedVehicle } from '../furniture';
 
 const PROP_DYNAMIC_GROUPS = interactionGroups('PROP_DYNAMIC');
 
-/** All parked cars of ONE model id — one shared baked geometry + one shared unlit material across
- * every body. Suspends until the GLB streams. */
-function ParkedModelGroup({ id, cars, unlit }: { id: string; cars: readonly ParkedVehicle[]; unlit: boolean }) {
+/** The minimal shape this renderer needs — ParkedVehicle (furniture.ts) and Phase 28's
+ * DynamicConeSpec (infill.ts, lane-closure cones) both satisfy this structurally. */
+export interface DynamicPlacement {
+  readonly modelId: string;
+  readonly position: readonly [number, number, number];
+  readonly rotationY: number;
+}
+
+export interface DynamicBodySpec {
+  readonly massKg: number;
+  readonly linearDamping: number;
+  readonly angularDamping: number;
+}
+
+/** All dynamic instances of ONE model id — one shared baked geometry + one shared unlit material
+ * across every body. Suspends until the GLB streams. */
+function ParkedModelGroup({ id, cars, unlit, body }: { id: string; cars: readonly DynamicPlacement[]; unlit: boolean; body: DynamicBodySpec }) {
   const { geometry, scale, lift, material } = useBakedCityPackModel(id);
   const renderMaterial = useMemo(() => (unlit ? toUnlit(material) : material), [material, unlit]);
   useEffect(() => () => { if (renderMaterial !== material) renderMaterial.dispose(); }, [renderMaterial, material]);
@@ -40,12 +53,12 @@ function ParkedModelGroup({ id, cars, unlit }: { id: string; cars: readonly Park
           canSleep
           position={[car.position[0], half.hy, car.position[2]]}
           rotation={[0, car.rotationY, 0]}
-          linearDamping={PARKED.body.linearDamping}
-          angularDamping={PARKED.body.angularDamping}
+          linearDamping={body.linearDamping}
+          angularDamping={body.angularDamping}
           collisionGroups={PROP_DYNAMIC_GROUPS}
         >
           {/* Cuboid centred on the body origin (= geometric centre at rest → COM ≈ centre). */}
-          <CuboidCollider args={[half.hx, half.hy, half.hz]} mass={PARKED.body.massKg} />
+          <CuboidCollider args={[half.hx, half.hy, half.hz]} mass={body.massKg} />
           {/* Mesh floor lands on the ground at rest: body origin sits at hy, the model floor is
               `lift` above the model origin, so the mesh drops by (hy − lift). */}
           <mesh geometry={geometry} material={renderMaterial} position={[0, lift - half.hy, 0]} scale={scale} />
@@ -56,22 +69,26 @@ function ParkedModelGroup({ id, cars, unlit }: { id: string; cars: readonly Park
 }
 
 export interface ParkedVehiclesProps {
-  readonly parked: readonly ParkedVehicle[];
+  readonly parked: readonly DynamicPlacement[];
   readonly unlit: boolean;
+  /** Rigid-body spec (mass/damping) — defaults to PARKED.body (street-parked cars). Phase 28
+   * reuses this SAME component for lane-closure cones with LANE_CLOSURE.coneBody instead of
+   * inventing a parallel dynamic-body renderer. */
+  readonly body?: DynamicBodySpec;
 }
 
-/** Mounts every parked car, grouped by model id so each model's geometry/material load once. The
- * grouping keys are seed-stable (furniture.ts is deterministic), so React's hook order per
- * ParkedModelGroup is stable. */
-export function ParkedVehicles({ parked, unlit }: ParkedVehiclesProps) {
-  const byModel = new Map<string, ParkedVehicle[]>();
+/** Mounts every dynamic instance, grouped by model id so each model's geometry/material load once.
+ * The grouping keys are seed-stable (furniture.ts/infill.ts are deterministic), so React's hook
+ * order per ParkedModelGroup is stable. */
+export function ParkedVehicles({ parked, unlit, body = PARKED.body }: ParkedVehiclesProps) {
+  const byModel = new Map<string, DynamicPlacement[]>();
   for (const car of parked) (byModel.get(car.modelId) ?? byModel.set(car.modelId, []).get(car.modelId)!).push(car);
   const ids = [...byModel.keys()].sort();
 
   return (
     <Suspense fallback={null}>
       {ids.map((id) => (
-        <ParkedModelGroup key={id} id={id} cars={byModel.get(id)!} unlit={unlit} />
+        <ParkedModelGroup key={id} id={id} cars={byModel.get(id)!} unlit={unlit} body={body} />
       ))}
     </Suspense>
   );

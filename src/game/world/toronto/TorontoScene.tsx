@@ -50,6 +50,7 @@ import { buildStreets } from './streets';
 import { listIntersections } from './roadGraph';
 import { buildDistricts } from './districts';
 import { buildFrontage } from './frontage';
+import { buildInfill } from './infill';
 import { buildFurniture } from './furniture';
 import { buildRoadGeometry, buildSidewalkColliderBoxes } from './roadPaint';
 import { buildParks, type ParksLayout } from './parks';
@@ -916,6 +917,11 @@ export function TorontoScene() {
   // across the component's lifetime, so this dependency never re-triggers a rebuild mid-run).
   const frontage = useMemo(() => buildFrontage(seed, tierParams), [seed, tierParams]);
   const furniture = useMemo(() => buildFurniture(seed, tierParams), [seed, tierParams]);
+  // Phase 28 infill: corner fill (frontage.cornerFills, built above) + back-lot/laneway/parking-
+  // lot/construction/lane-closure (world/toronto/infill.ts). Pure/deterministic, derived off the
+  // already-built frontage layout (its slots + cornerFills are the avoid-set every new layer
+  // respects) — same "rebuild only when seed/tier changes" contract as frontage/furniture above.
+  const infill = useMemo(() => buildInfill(seed, frontage, tierParams), [seed, frontage, tierParams]);
   // Phase 25.7 venue dressing: pure, derived off the frontage's resolved venue claims (seed-
   // independent claims, so this only rebuilds when the frontage object changes). Passed into
   // CityDress → VenueDressLayer; its dressing-prop model ids join the preload set below.
@@ -923,7 +929,7 @@ export function TorontoScene() {
 
   // Preload every used pack GLB once the slice mounts (never at module scope — a `torontoMap`-off
   // load fetches nothing). Covers frontage buildings, furniture props, parked cars, traffic lights,
-  // and the venue-dressing kit props.
+  // the venue-dressing kit props, and the Phase 28 infill layer's fixed/decor/cone model ids.
   useEffect(() => {
     const ids = new Set<string>(frontage.modelIds);
     ids.add('traffic-light');
@@ -937,8 +943,12 @@ export function TorontoScene() {
     ids.add('manhole-cover');
     for (const car of furniture.parked.items) ids.add(car.modelId);
     for (const prop of dress.props) ids.add(prop.modelId);
+    for (const s of frontage.cornerFills) ids.add(s.modelId);
+    for (const f of infill.fixed) ids.add(f.modelId);
+    for (const d of infill.decor) ids.add(d.modelId);
+    for (const c of infill.cones) ids.add(c.modelId);
     preloadCityPack([...ids]);
-  }, [frontage, furniture, dress]);
+  }, [frontage, furniture, dress, infill]);
 
   // Publish this slice's spawn pose so devPanel's "teleport reset" (and the fell-out net below)
   // send the car back to Finch, not the legacy map centre — the Toronto equivalent of
@@ -1127,15 +1137,18 @@ export function TorontoScene() {
         </RigidBody>
       ) : null}
 
-      {/* Phase 25.6 re-dress: the pack-building frontage (retires the box-lattice massing) +
-          street furniture + parked cars + traffic-light lamp overlay. Frontage buildings + all
-          furniture render through per-model-type BatchedMeshes with per-instance frustum culling
-          (world/toronto/cityPack) — one draw call per model at any count, only in-frustum instances
-          submit triangles (the 25.6 tri-budget lever). Parked cars are sleeping dynamic bodies that
-          shove when rammed. Every layer gates on its own devToggle; `cityPackUnlit` is the material
-          A/B arm. Fixed BUILDING colliders (frontage buildings, tree trunks, bus-stops, backdrop
-          towers) mount inside CityDress. */}
-      <CityDress frontage={frontage} furniture={furniture} dress={dress} lampOverlay={tierParams.lampOverlay} />
+      {/* Phase 25.6 re-dress + Phase 28 infill: the pack-building frontage (retires the box-lattice
+          massing) + street furniture + parked cars + traffic-light lamp overlay + corner fill/
+          back-lot/laneway/parking-lots/construction/lane-closures. Frontage/corner-fill/back-lot
+          buildings + all furniture/decor render through per-model-type BatchedMeshes with
+          per-instance frustum culling (world/toronto/cityPack) — one draw call per model at any
+          count (shared model ids across layers collapse to ONE mesh), only in-frustum instances
+          submit triangles. Parked cars + lane-closure cones are sleeping dynamic bodies that shove
+          when rammed. Every layer gates on its own devToggle; `cityPackUnlit` is the material A/B
+          arm. Fixed BUILDING colliders (frontage/corner-fill/back-lot buildings, tree trunks,
+          bus-stops, backdrop/back-lot towers, parking-lot cars, construction fixtures) mount inside
+          CityDress. */}
+      <CityDress frontage={frontage} furniture={furniture} infill={infill} dress={dress} lampOverlay={tierParams.lampOverlay} />
 
       {/* Named landmarks (Phase 24): the §3c skyline (TD/RBC/Scotia/FCP/… towers, Royal York,
           Union, The Well, Eaton galleria, Aura, the Yonge×Sheppard twins, NY Civic Centre) as
