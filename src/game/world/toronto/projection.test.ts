@@ -101,11 +101,12 @@ describe('projection — the Yonge spine is a straight vertical at x=1500', () =
 });
 
 describe('projection — zone-boundary anchors land on their constants', () => {
+  // Part-8 (D1): compacted control-ys — was 170/1170/1830/3700 pre-compaction.
   const cases: ReadonlyArray<[string, number]> = [
-    ['yonge-finch', 170],
-    ['yonge-sheppard', 1170],
-    ['yonge-bloor', 1830],
-    ['shore-yonge', 3700],
+    ['yonge-finch', 102],
+    ['yonge-sheppard', 702],
+    ['yonge-bloor', 1362],
+    ['shore-yonge', 2484],
   ];
   it.each(cases)('%s → y=%d (|Δ| < 1e-6)', (id, y) => {
     const a = anchor(id);
@@ -137,10 +138,11 @@ describe('projection — derived Yonge-line y table (regenerated §2 anchor tabl
   };
 
   it('sanity-checks the spec-approximate y values (a >5 wu miss signals a bug)', () => {
-    expect(Math.abs(yOf('yonge-eglinton') - 1573)).toBeLessThan(5);
-    expect(Math.abs(yOf('yonge-stclair') - 1706)).toBeLessThan(5);
-    expect(Math.abs(yOf('yonge-king') - 3177)).toBeLessThan(5);
-    expect(Math.abs(yOf('yonge-front') - 3294)).toBeLessThan(5);
+    // Part-8 (D1): compacted — was 1573/1706/3177/3294 pre-compaction.
+    expect(Math.abs(yOf('yonge-eglinton') - 1105)).toBeLessThan(5);
+    expect(Math.abs(yOf('yonge-stclair') - 1238)).toBeLessThan(5);
+    expect(Math.abs(yOf('yonge-king') - 2170)).toBeLessThan(5);
+    expect(Math.abs(yOf('yonge-front') - 2240)).toBeLessThan(5);
   });
 
   it('is strictly increasing and each row sits in its expected zone', () => {
@@ -178,34 +180,40 @@ describe('projection — derived Yonge-line y table (regenerated §2 anchor tabl
       front: round2(yOf('yonge-front')),
       queensQuay: round2(yOf('yonge-queensquay')),
     };
+    // Part-8 (D1) regenerated golden — pre-compaction values (college 2457.43, dundas 2715.79,
+    // eglinton 1572.85, front 3294.01, king 3177.14, queen 2937.24, queensQuay 3632.34,
+    // stClair 1706.16) superseded.
     expect(table).toMatchInlineSnapshot(`
       {
-        "college": 2457.43,
-        "dundas": 2715.79,
-        "eglinton": 1572.85,
-        "front": 3294.01,
-        "king": 3177.14,
-        "queen": 2937.24,
-        "queensQuay": 3632.34,
-        "stClair": 1706.16,
+        "college": 1738.46,
+        "dundas": 1893.47,
+        "eglinton": 1104.85,
+        "front": 2240.41,
+        "king": 2170.28,
+        "queen": 2026.34,
+        "queensQuay": 2443.4,
+        "stClair": 1238.16,
       }
     `);
   });
 });
 
 describe('projection — cross-street tolerance anchors (wobbly building-centroid proxies)', () => {
-  // x-expectations are the spec §2 anchor values; ±80 wu because the proxies (Osgoode Hall,
-  // Old City Hall, …) sit off the true centreline (anchors.json notes call for wide tolerance).
+  // x-expectations are the spec §2 anchor values re-derived via scaleAboutYonge (Part-8 D1: was
+  // 1080/1330/1670/1840 pre-compaction). Tolerance is ALSO compaction-scaled (±80 → ±48 wu — the
+  // proxies' real-world scatter shrinks by the same DENSITY.scale, since x itself is an exact
+  // scaleAboutYonge of the pre-compaction projection) because the proxies (Osgoode Hall, Old City
+  // Hall, …) sit off the true centreline (anchors.json notes call for wide tolerance).
   const xCases: ReadonlyArray<[string, number]> = [
-    ['queen-university', 1080],
-    ['queen-bay', 1330],
-    ['queen-church', 1670],
-    ['queen-jarvis', 1840],
+    ['queen-university', 1248],
+    ['queen-bay', 1398],
+    ['queen-church', 1602],
+    ['queen-jarvis', 1704],
   ];
-  it.each(xCases)('%s projects within 80 wu of x=%d', (id, expectedX) => {
+  it.each(xCases)('%s projects within 48 wu of x=%d', (id, expectedX) => {
     const a = anchor(id);
     const p = TORONTO_PROJECTION.project({ lat: a.lat!, lon: a.lon! });
-    expect(Math.abs(p.x - expectedX)).toBeLessThanOrEqual(80);
+    expect(Math.abs(p.x - expectedX)).toBeLessThanOrEqual(48);
     expect(TORONTO_PROJECTION.zoneAt(p.y)).toBe('downtown');
   });
 
@@ -213,8 +221,10 @@ describe('projection — cross-street tolerance anchors (wobbly building-centroi
     // FORCED DEVIATION from the orchestrator's suggested 40 wu bound: these anchors are
     // building-centroid proxies, not points on the Queen centreline. Their latitudes scatter
     // up to ~0.0018° off Yonge&Queen (Moss Park Armoury/queen-jarvis is the outlier), and in
-    // the downtown zone the N-S scale is ≈61,500 wu/° — so that scatter is ≈111 wu. A 40 wu
-    // bound is not physical; loosened to 120 wu (real proxy scatter). Reported to orchestrator.
+    // the downtown zone the N-S scale is ≈61,500 wu/° — so that scatter is ≈111 wu pre-Part-8.
+    // Part-8 (D1): the downtown N-S scale itself compacts by DENSITY.scale, so the SAME real
+    // scatter now measures ≈72 wu (120 × 0.6) — loosened from 40 wu, then re-scaled, not
+    // re-derived from scratch. Reported to orchestrator.
     const refY = TORONTO_PROJECTION.project({
       lat: anchor('yonge-queen').lat!,
       lon: anchor('yonge-queen').lon!,
@@ -222,7 +232,7 @@ describe('projection — cross-street tolerance anchors (wobbly building-centroi
     for (const [id] of xCases) {
       const a = anchor(id);
       const y = TORONTO_PROJECTION.project({ lat: a.lat!, lon: a.lon! }).y;
-      expect(Math.abs(y - refY)).toBeLessThanOrEqual(120);
+      expect(Math.abs(y - refY)).toBeLessThanOrEqual(72);
     }
   });
 
@@ -236,17 +246,21 @@ describe('projection — cross-street tolerance anchors (wobbly building-centroi
 describe('projection — derived zone scales', () => {
   it('N-S m/wu sit inside sanity bands', () => {
     const s = TORONTO_PROJECTION.derivedZoneScales();
-    expect(s.northYork).toBeGreaterThanOrEqual(1.8);
-    expect(s.northYork).toBeLessThanOrEqual(2.8);
+    // Part-8 (D1): compaction SHRINKS every non-fold zone's wu span by DENSITY.scale (0.6) while
+    // the real lat/lon distances stay fixed, so metres-per-wu grows by 1/0.6 ≈ 1.667× — bands
+    // re-centred around the new ≈3.71 / ≈3.02 values (was ≈2.23 / ≈1.81 pre-compaction).
+    expect(s.northYork).toBeGreaterThanOrEqual(3.0);
+    expect(s.northYork).toBeLessThanOrEqual(4.5);
     expect(s.fold).toBeGreaterThanOrEqual(10);
     expect(s.fold).toBeLessThanOrEqual(18);
-    expect(s.downtown).toBeGreaterThanOrEqual(1.5);
-    expect(s.downtown).toBeLessThanOrEqual(2.2);
-    // Downtown deviates from the spec table's 1.55 m/wu because the real Bloor→shore distance
-    // is 3.39 km, not 2.9 km — the polygon's fixed y-constants (1830→3700) win, stretching the
-    // implied scale to ≈1.81. The water band shares the Bloor→shore slope (south extrapolation).
+    expect(s.downtown).toBeGreaterThanOrEqual(2.5);
+    expect(s.downtown).toBeLessThanOrEqual(3.5);
+    // Downtown deviates from the pre-compaction spec table's implied m/wu because the real
+    // Bloor→shore distance is 3.39 km, not 2.9 km — the polygon's fixed y-constants win,
+    // stretching the implied scale. The water band shares the Bloor→shore slope (south
+    // extrapolation). ewMPerWu is BASE_EW_M_PER_WU (1.55) / DENSITY.scale (0.6) exactly.
     expect(s.water).toBeCloseTo(s.downtown, 6);
-    expect(s.ewMPerWu).toBe(1.55);
+    expect(s.ewMPerWu).toBeCloseTo(1.55 / 0.6, 9);
   });
 
   it('pins exact derived scales', () => {
@@ -257,12 +271,14 @@ describe('projection — derived zone scales', () => {
       downtown: round2(s.downtown * 100) / 100,
       ewMPerWu: s.ewMPerWu,
     };
+    // Part-8 (D1) regenerated golden — pre-compaction values (downtown 1.8097, ewMPerWu 1.55,
+    // northYork 2.2264; fold is UNSCALED and stays 15.2812) superseded.
     expect(pinned).toMatchInlineSnapshot(`
       {
-        "downtown": 1.8097,
-        "ewMPerWu": 1.55,
+        "downtown": 3.0162,
+        "ewMPerWu": 2.5833333333333335,
         "fold": 15.281199999999998,
-        "northYork": 2.2264,
+        "northYork": 3.7107,
       }
     `);
   });
@@ -289,7 +305,8 @@ describe('projection — round-trip unproject∘project', () => {
 
 describe('projection — ZONE_BOUNDARIES and mapToWorld seam', () => {
   it('exports the boundary constants', () => {
-    expect([...ZONE_BOUNDARIES]).toEqual([0, 1170, 1830, 3700, 4100]);
+    // Part-8 (D1): compacted boundaries — was [0, 1170, 1830, 3700, 4100] pre-compaction.
+    expect([...ZONE_BOUNDARIES]).toEqual([0, 702, 1362, 2484, 2724]);
   });
 
   it('buildProjection reproduces the default projection', () => {

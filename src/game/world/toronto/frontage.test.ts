@@ -10,17 +10,18 @@ import { FRONTAGE, TORONTO_TIER_IDENTITY, type TorontoTierParams } from '../../c
 import { QUALITY_TIERS } from '../../config/quality';
 import { hasCityPackModel } from '../../assets/cityPackManifest';
 import { PLAYABLE_POLYGON, pointInPolygon } from './polygon';
+import { ZONE_BOUNDARIES } from './projection';
 import { buildStreets } from './streets';
 import { buildRibbons } from './roadGraph';
 import { buildNamedBuildings } from './namedBuildings';
 import { buildPlacesLayer } from './placesLayer';
-import { buildFrontage, overlaps, slotsForModel, type Aabb, type FrontageSlot } from './frontage';
+import { BACKDROP_RIBBON_MARGIN_WU, buildFrontage, overlaps, slotsForModel, type Aabb, type FrontageSlot } from './frontage';
 import { VENUE_AUTHORS } from './venues';
 import { FACADE_MODEL_IDS } from '../../config/venueDressing';
 
 const SEED = 416;
 const layout = buildFrontage(SEED);
-const WATER_Z = 3700;
+const WATER_Z = ZONE_BOUNDARIES[3]; // Part-8 (D1): live (compacted) shore y — was a stale 3700 literal
 
 function footprint(s: FrontageSlot): Aabb {
   return { minX: s.position[0] - s.hx, maxX: s.position[0] + s.hx, minZ: s.position[2] - s.hz, maxZ: s.position[2] + s.hz };
@@ -66,7 +67,7 @@ describe('buildFrontage — inside the playable polygon + out of the lake', () =
     }
     expect(offenders).toEqual([]);
   });
-  it('no footprint intrudes into the water band (z >= 3700)', () => {
+  it('no footprint intrudes into the water band (z >= the live shore y)', () => {
     expect(layout.slots.filter((s) => footprint(s).maxZ >= WATER_Z)).toEqual([]);
   });
 });
@@ -207,6 +208,68 @@ describe('buildFrontage — backdrop towers (D7)', () => {
     const allowed = new Set(TORONTO_DISTRICTS.filter((d) => d.packStock.backdropTowers).map((d) => d.id));
     for (const b of layout.towerBoxes) expect(allowed.has(b.districtId)).toBe(true);
     expect(layout.towerBoxes.length).toBeLessThanOrEqual(90);
+  });
+
+  // Live-verification FIX 1 (Part-8, "density/life flip"): BACKDROP_TOWER.setbackFromFacadeWu
+  // was an ABSOLUTE 18 wu while block interiors compacted ×DENSITY.scale — boxes could reach a
+  // street ribbon or an adjacent block. Now DENSITY-derived AND the placer explicitly rejects
+  // (never relocates) any candidate whose footprint intersects a ribbon (+ BACKDROP_RIBBON_MARGIN_WU),
+  // the water band, or a hero/named-building/park exclusion. Checked over the WHOLE build at two
+  // seeds, not just a sample.
+  describe('zero backdrop-footprint overlap with any street ribbon, at two seeds', () => {
+    it.each([SEED, SEED + 9001])('seed %i: no backdrop box overlaps a ribbon inflated by BACKDROP_RIBBON_MARGIN_WU', (s) => {
+      const l = s === SEED ? layout : buildFrontage(s);
+      const ribbons = buildRibbons(buildStreets().streets).map((r): Aabb => ({
+        minX: r.minX - BACKDROP_RIBBON_MARGIN_WU,
+        maxX: r.maxX + BACKDROP_RIBBON_MARGIN_WU,
+        minZ: r.minZ - BACKDROP_RIBBON_MARGIN_WU,
+        maxZ: r.maxZ + BACKDROP_RIBBON_MARGIN_WU,
+      }));
+      const offenders: string[] = [];
+      l.towerBoxes.forEach((b, i) => {
+        const fp: Aabb = { minX: b.x - b.hx, maxX: b.x + b.hx, minZ: b.z - b.hz, maxZ: b.z + b.hz };
+        if (ribbons.some((r) => overlaps(fp, r))) offenders.push(`towerBoxes[${i}] (${b.districtId})`);
+      });
+      expect(offenders).toEqual([]);
+      expect(l.towerBoxes.length).toBeGreaterThan(0);
+    });
+  });
+
+  it('no backdrop box overlaps a named/hero/places/park exclusion, or dips into the water band', () => {
+    const named = buildNamedBuildings();
+    const places = buildPlacesLayer(named);
+    const ex: Aabb[] = [...named.exclusions, ...places.exclusions].map((r) => ({
+      minX: r.minX,
+      maxX: r.maxX,
+      minZ: r.minY,
+      maxZ: r.maxY,
+    }));
+    const offenders: string[] = [];
+    layout.towerBoxes.forEach((b, i) => {
+      const fp: Aabb = { minX: b.x - b.hx, maxX: b.x + b.hx, minZ: b.z - b.hz, maxZ: b.z + b.hz };
+      if (ex.some((r) => overlaps(fp, r))) offenders.push(`towerBoxes[${i}] exclusion`);
+      if (fp.maxZ >= WATER_Z) offenders.push(`towerBoxes[${i}] water`);
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  // Additional finding beyond the live-verification ask: at the tighter compacted spacing, two
+  // adjacent backdrop rows (e.g. financial/harbourfront meeting at Front St) could fuse into one
+  // oversized mass — 8 self-overlapping pairs at seed 416 pre-fix. The placer now also rejects a
+  // candidate against every already-kept backdrop footprint.
+  it.each([SEED, SEED + 9001])('seed %i: no two backdrop boxes overlap each other', (s) => {
+    const l = s === SEED ? layout : buildFrontage(s);
+    const offenders: string[] = [];
+    for (let i = 0; i < l.towerBoxes.length; i++) {
+      for (let j = i + 1; j < l.towerBoxes.length; j++) {
+        const a = l.towerBoxes[i];
+        const b = l.towerBoxes[j];
+        const fa: Aabb = { minX: a.x - a.hx, maxX: a.x + a.hx, minZ: a.z - a.hz, maxZ: a.z + a.hz };
+        const fb: Aabb = { minX: b.x - b.hx, maxX: b.x + b.hx, minZ: b.z - b.hz, maxZ: b.z + b.hz };
+        if (overlaps(fa, fb)) offenders.push(`towerBoxes[${i}] x towerBoxes[${j}]`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });
 

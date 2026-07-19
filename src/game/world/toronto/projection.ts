@@ -4,18 +4,24 @@
 // projection is piecewise-linear in both axes, calibrated ONLY from researcher-verified
 // anchors (data/toronto/anchors.json), transcribed once into TORONTO_CALIBRATION below.
 //
-//   N-S  f(lat): piecewise-linear through four control latitudes → fixed map y
-//        (Finch→170, Sheppard→1170, Bloor→1830, shore→3700). North of Finch extends the
-//        Finch–Sheppard slope; south of shore extends the Bloor–shore slope. This is what
-//        folds ~9 km of midtown into a 660 wu corridor while keeping downtown near 1:1.
+//   N-S  f(lat): piecewise-linear through four control latitudes → fixed map y. North of Finch
+//        extends the Finch–Sheppard slope; south of shore extends the Bloor–shore slope. This is
+//        what folds ~9 km of midtown into a narrow fold corridor while keeping downtown near 1:1.
+//        Part-8 (D1, "density/life flip"): the whole map compacts ~0.6× (config/torontoMap.ts's
+//        DENSITY.scale) EXCEPT the fold segment, which is exempt (its span is preserved verbatim,
+//        only its start shifts). BASE_NS_Y below records the original §1/§2 control-y constants
+//        (Finch→170, Sheppard→1170, Bloor→1830, shore→3700); LIVE_*_Y are what f(lat) actually
+//        resolves to post-compaction — re-derived below, never hand-tuned twice.
 //   E-W  Yonge must read as a perfectly straight vertical at x=1500 (§2 — it is the spine
 //        that makes the whole shape legible). Real Yonge tilts ~0.046° of lon over the map,
 //        so the Yonge centreline longitude is itself a piecewise-linear function of latitude
 //        (lonYonge, through every verified yonge_line anchor); x is the lon OFFSET from that
-//        centreline, converted metres→wu at a single uniform E-W scale.
+//        centreline, converted metres→wu at a single uniform E-W scale (also DENSITY-scaled).
 //
 // Determinism: pure arithmetic, no state, no Math.random — same input → same output on every
 // machine (the whole world generator depends on this, see world/rng.ts).
+
+import { DENSITY } from '../../config/torontoMap';
 
 /** {lat, lon} in WGS84 degrees. */
 export interface LatLon {
@@ -72,9 +78,51 @@ export interface TorontoProjection {
   readonly calib: TorontoCalibration;
 }
 
+// --- Part-8 (D1) compaction derivation --------------------------------------------------
+// BASE = the §1/§2 spec's ORIGINAL (pre-compaction) control-y constants, kept as named constants
+// (never re-literalized downstream — everything below re-derives from these + DENSITY.scale).
+const BASE_NS_Y = {
+  finch: 170,
+  sheppard: 1170,
+  bloor: 1830,
+  shore: 3700,
+  waterBottom: 4100,
+} as const;
+
+// Control-point-to-control-point spans (§1/§2 BASE geometry): top margin (map top → Finch),
+// North York proper (Finch → Sheppard), the fold (Sheppard → Bloor, EXEMPT), downtown (Bloor →
+// shore), and the water margin (shore → map bottom).
+const BASE_SPANS = {
+  topMargin: BASE_NS_Y.finch - 0,
+  northYork: BASE_NS_Y.sheppard - BASE_NS_Y.finch,
+  fold: BASE_NS_Y.bloor - BASE_NS_Y.sheppard, // exempt — carried through unscaled below
+  downtown: BASE_NS_Y.shore - BASE_NS_Y.bloor,
+  water: BASE_NS_Y.waterBottom - BASE_NS_Y.shore,
+} as const;
+
+// FOLD SEGMENT EXEMPT (D1): every span scales by DENSITY.scale EXCEPT the fold, which is carried
+// through verbatim — only its START shifts (via the cumulative sum below) to sit right after the
+// compacted North York zone.
+const SCALED_SPANS = {
+  topMargin: BASE_SPANS.topMargin * DENSITY.scale,
+  northYork: BASE_SPANS.northYork * DENSITY.scale,
+  fold: BASE_SPANS.fold,
+  downtown: BASE_SPANS.downtown * DENSITY.scale,
+  water: BASE_SPANS.water * DENSITY.scale,
+} as const;
+
+// Live control ys: cumulative sum of the scaled spans (never hand-written literals).
+const LIVE_FINCH_Y = SCALED_SPANS.topMargin;
+const LIVE_SHEPPARD_Y = LIVE_FINCH_Y + SCALED_SPANS.northYork;
+const LIVE_BLOOR_Y = LIVE_SHEPPARD_Y + SCALED_SPANS.fold;
+const LIVE_SHORE_Y = LIVE_BLOOR_Y + SCALED_SPANS.downtown;
+const LIVE_WATER_BOTTOM_Y = LIVE_SHORE_Y + SCALED_SPANS.water;
+
 // CALIBRATION SINGLE SOURCE — every lat/lon here is transcribed verbatim from
 // data/toronto/anchors.json (status:"verified" rows only). projection.test.ts fs-reads that
-// file and fails on ANY drift in either direction. needs_agent rows never appear here.
+// file and fails on ANY drift in either direction. needs_agent rows never appear here. The `y`
+// values are the LIVE (compacted) control-ys derived above — BASE_NS_Y above is the spec-original
+// record those derive from.
 export const TORONTO_CALIBRATION = {
   yongeLine: [
     { id: 'yonge-steeles', lat: 43.796, lon: -79.422 }, // off-map centreline extension (see below)
@@ -92,15 +140,32 @@ export const TORONTO_CALIBRATION = {
     { id: 'yonge-queensquay', lat: 43.6415, lon: -79.377 },
   ],
   nsControls: [
-    { id: 'yonge-finch', lat: 43.7814, y: 170 },
-    { id: 'yonge-sheppard', lat: 43.7614, y: 1170 },
-    { id: 'yonge-bloor', lat: 43.6708, y: 1830 },
-    { id: 'shore-yonge', lat: 43.6404, y: 3700 },
+    { id: 'yonge-finch', lat: 43.7814, y: LIVE_FINCH_Y },
+    { id: 'yonge-sheppard', lat: 43.7614, y: LIVE_SHEPPARD_Y },
+    { id: 'yonge-bloor', lat: 43.6708, y: LIVE_BLOOR_Y },
+    { id: 'shore-yonge', lat: 43.6404, y: LIVE_SHORE_Y },
   ],
 } as const satisfies TorontoCalibration;
 
-// Zone band edges in map y (§1/§2): [top, finch/sheppard fold, fold/downtown, shore, water bottom].
-export const ZONE_BOUNDARIES = [0, 1170, 1830, 3700, 4100] as const;
+// Zone band edges in LIVE map y (§1/§2, compacted): [top, finch/sheppard fold, fold/downtown,
+// shore, water bottom].
+export const ZONE_BOUNDARIES = [0, LIVE_SHEPPARD_Y, LIVE_BLOOR_Y, LIVE_SHORE_Y, LIVE_WATER_BOTTOM_Y] as const;
+
+/**
+ * Part-8 (D1/D2): re-derives an OLD (pre-compaction, BASE) map-y literal into its LIVE
+ * (compacted) position — the y-axis analogue of `scaleAboutYonge` (polygon.ts). Applies the same
+ * per-zone affine transform ZONE_BOUNDARIES itself was derived from: a uniform ×DENSITY.scale in
+ * north_york (from the shared origin 0), a pure SHIFT in the fold (exempt from scaling), and an
+ * affine scale+offset in downtown/water (anchored at Bloor / shore respectively). Every hand-
+ * authored BASE y literal migrating from a pre-Part-8 module (signposts, vibe-prop anchors, …)
+ * goes through this ONE function rather than being re-derived ad hoc.
+ */
+export function scaleBaseY(oldY: number): number {
+  if (oldY <= BASE_NS_Y.sheppard) return oldY * DENSITY.scale; // north_york (incl. top margin)
+  if (oldY <= BASE_NS_Y.bloor) return LIVE_SHEPPARD_Y + (oldY - BASE_NS_Y.sheppard); // fold — exempt, shift only
+  if (oldY <= BASE_NS_Y.shore) return LIVE_BLOOR_Y + (oldY - BASE_NS_Y.bloor) * DENSITY.scale; // downtown
+  return LIVE_SHORE_Y + (oldY - BASE_NS_Y.shore) * DENSITY.scale; // water
+}
 
 // --- Metric constants ------------------------------------------------------------------
 // One degree of latitude ≈ a fixed distance; one degree of longitude shrinks by cos(lat).
@@ -109,7 +174,11 @@ export const ZONE_BOUNDARIES = [0, 1170, 1830, 3700, 4100] as const;
 const M_PER_DEG_LAT = 111320;
 const REF_LAT_DEG = 43.7;
 const M_PER_DEG_LON = 111320 * Math.cos((REF_LAT_DEG * Math.PI) / 180);
-const EW_M_PER_WU = 1.55; // §2: uniform E-W scale across every zone
+/** BASE §2 uniform E-W scale (pre-compaction); the LIVE scale below is derived from it. */
+const BASE_EW_M_PER_WU = 1.55;
+// Part-8 (D1): compaction shrinks metres-per-wu (the map now packs more real metres into fewer
+// wu) — the exact expression, never a re-literalized decimal.
+const EW_M_PER_WU = BASE_EW_M_PER_WU / DENSITY.scale;
 // lon-offset (degrees) → wu: metres = Δlon · M_PER_DEG_LON, then wu = metres / EW_M_PER_WU.
 const WU_PER_DEG_LON = M_PER_DEG_LON / EW_M_PER_WU;
 /** §2: the Yonge spine is pinned at this map-x everywhere (exported — tunnel corridor and

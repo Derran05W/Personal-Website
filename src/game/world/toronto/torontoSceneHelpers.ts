@@ -10,22 +10,29 @@
 
 import type { VehiclePose } from '../../vehicles/IVehicleModel';
 import { TORONTO_SPAWN } from '../../config/torontoMap';
-import { mapToWorld, type MapPoint } from './projection';
+import { mapToWorld, scaleBaseY, ZONE_BOUNDARIES, type MapPoint } from './projection';
+import { scaleAboutYonge, ZONE_X_EXTENTS } from './polygon';
 import type { MapRect } from './streets';
 
 /** The §1 "thermometer" carved into its three drivable rectangles, in MAP space (= world XZ).
- * capsule (x1100–1900, y0–1170) → fold corridor (x1200–1800, y1170–1830) → downtown block
- * (x0–2400, y1830–3700, i.e. down to the shoreline; the water band below is sensor-only). All
- * corners lie on or inside PLAYABLE_POLYGON (asserted in the test). */
+ * capsule → fold corridor → downtown block (down to the shoreline; the water band below is
+ * sensor-only). Extents re-derived from polygon.ts's ZONE_X_EXTENTS / projection.ts's
+ * ZONE_BOUNDARIES (Part-8 D2 — never re-literalized). All corners lie on or inside
+ * PLAYABLE_POLYGON (asserted in the test). */
 export const GROUND_RECTS: readonly MapRect[] = [
-  { minX: 1100, minY: 0, maxX: 1900, maxY: 1170 }, // North York capsule
-  { minX: 1200, minY: 1170, maxX: 1800, maxY: 1830 }, // midtown fold corridor
-  { minX: 0, minY: 1830, maxX: 2400, maxY: 3700 }, // downtown block (to shore)
+  { minX: ZONE_X_EXTENTS.capsule[0], minY: ZONE_BOUNDARIES[0], maxX: ZONE_X_EXTENTS.capsule[1], maxY: ZONE_BOUNDARIES[1] }, // North York capsule
+  { minX: ZONE_X_EXTENTS.fold[0], minY: ZONE_BOUNDARIES[1], maxX: ZONE_X_EXTENTS.fold[1], maxY: ZONE_BOUNDARIES[2] }, // midtown fold corridor
+  { minX: ZONE_X_EXTENTS.downtown[0], minY: ZONE_BOUNDARIES[2], maxX: ZONE_X_EXTENTS.downtown[1], maxY: ZONE_BOUNDARIES[3] }, // downtown block (to shore)
 ] as const;
 
-/** The south lakefront band (§1): visual lake + a WATER-group sensor. y 3700 (shore) → 4100
- * (polygon bottom edge), full downtown width. */
-export const WATER_RECT: MapRect = { minX: 0, minY: 3700, maxX: 2400, maxY: 4100 } as const;
+/** The south lakefront band (§1): visual lake + a WATER-group sensor. Shore → polygon bottom
+ * edge, full downtown width. */
+export const WATER_RECT: MapRect = {
+  minX: ZONE_X_EXTENTS.downtown[0],
+  minY: ZONE_BOUNDARIES[3],
+  maxX: ZONE_X_EXTENTS.downtown[1],
+  maxY: ZONE_BOUNDARIES[4],
+} as const;
 
 /** A named §1 exit signpost: its display label and MAP-space anchor (just inside the polygon
  * near the edge it points off of). Placement is asserted inside PLAYABLE_POLYGON in the test. */
@@ -39,12 +46,15 @@ export interface Signpost {
 }
 
 /** The four spec §1 exits (TORONTO-MAP-SPEC-v2.md §1): capsule top, west/east downtown, east
- * lower. Positions are a hair inside the polygon so the post never straddles the void edge. */
+ * lower. Positions are a hair inside the polygon so the post never straddles the void edge.
+ * Part-8 (D2): BASE (pre-compaction) x/y literals re-derived via scaleAboutYonge/scaleBaseY —
+ * the original spec anchors (1500,30) / (30,2900) / (2370,2450) / (2370,3300), never restated
+ * as fresh literals. */
 export const SIGNPOSTS: readonly Signpost[] = [
-  { id: 'steeles', label: '↑ Steeles Ave', x: 1500, y: 30 },
-  { id: 'liberty', label: '← Liberty Village', x: 30, y: 2900 },
-  { id: 'danforth', label: '→ The Danforth', x: 2370, y: 2450 },
-  { id: 'distillery', label: '→ Distillery District', x: 2370, y: 3300 },
+  { id: 'steeles', label: '↑ Steeles Ave', x: scaleAboutYonge(1500), y: scaleBaseY(30) },
+  { id: 'liberty', label: '← Liberty Village', x: scaleAboutYonge(30), y: scaleBaseY(2900) },
+  { id: 'danforth', label: '→ The Danforth', x: scaleAboutYonge(2370), y: scaleBaseY(2450) },
+  { id: 'distillery', label: '→ Distillery District', x: scaleAboutYonge(2370), y: scaleBaseY(3300) },
 ] as const;
 
 /** Chassis settle height at spawn — kept in sync with world/spawn.ts's SPAWN_HEIGHT_M (0.85 m,

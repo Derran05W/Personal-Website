@@ -22,6 +22,8 @@
 
 import { hGame } from './heightCurve';
 import { buildNamedBuildings, type NamedBuildings } from './namedBuildings';
+import { scaleAboutYonge } from './polygon';
+import { scaleBaseY } from './projection';
 import { buildStreets, type MapRect, type Street } from './streets';
 import { type LogoBrand } from './logoAtlas';
 
@@ -301,8 +303,11 @@ export function buildPlacesLayer(named: NamedBuildings = buildNamedBuildings()):
   };
 
   // Sugar Beach pink umbrellas — a small harbourfront cluster (open ground, well N of the water).
-  const umbCx = 2050;
-  const umbCz = 3480;
+  // Part-8 (D2): BASE anchor (2050, 3480) re-derived via scaleAboutYonge/scaleBaseY — the
+  // per-unit spread offsets below (±4..9 wu) are cluster art direction, not map geometry, so they
+  // stay absolute.
+  const umbCx = scaleAboutYonge(2050);
+  const umbCz = scaleBaseY(3480);
   const umbrellas: UmbrellaProp = {
     postTopY: 3.6,
     discY: 4.0,
@@ -318,7 +323,7 @@ export function buildPlacesLayer(named: NamedBuildings = buildNamedBuildings()):
 
   // King West patio string-lights — a couple of posts + a warm bulb-line just N of King.
   const king = street('king');
-  const patioX = 326; // mid Bathurst–Spadina
+  const patioX = scaleAboutYonge(326); // mid Bathurst–Spadina (Part-8 D2: BASE literal re-derived)
   const patioZ = king.ribbon.minY - 6; // north side, off the ribbon
   const patio: PatioProp = {
     posts: [
@@ -341,7 +346,9 @@ export function buildPlacesLayer(named: NamedBuildings = buildNamedBuildings()):
   };
 
   // Queen West (Rush Lane) graffiti wall — a south-facing quad off Queen between Portland & Spadina.
-  const graffitiX = 418;
+  // Part-8 (D2): BASE literal re-derived via scaleAboutYonge (the wall's own 24 wu width is art
+  // direction, not map geometry, so it stays absolute).
+  const graffitiX = scaleAboutYonge(418);
   const graffiti: GraffitiProp = {
     cx: graffitiX,
     cy: 3.5,

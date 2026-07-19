@@ -147,7 +147,12 @@ export interface TorontoDistrictDef {
    * instead (see that field's doc comment for why). */
   readonly fillerColors: readonly string[];
   /** [min, max] filler-stock building height in REAL metres (Phase 24 named towers are exempt —
-   * §3c's height curve is applied to a seeded value from this range by the massing generator). */
+   * §3c's height curve is applied to a seeded value from this range by the massing generator).
+   * Part-8 (D4) height cut: every row below is compressed from its pre-Part-8 value by
+   * `lo' = round(lo*0.7)`, `hi' = min(110, round(hi*0.55))`, then `hi' = max(hi', lo'+4)` —
+   * relative ordering between districts is preserved (financial stays tallest, etc). Named
+   * towers (namedBuildings.ts) get their own NAMED_HEIGHT_SCALE (config/torontoMap.ts); heroes
+   * (heroes.ts) are exempt from both. */
   readonly heightRangeM: readonly [number, number];
   readonly density: DistrictDensity;
   /** Declarative rect bounds — resolved against buildStreets() + zone constants in districts.ts. */
@@ -191,7 +196,7 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     name: 'Financial District',
     groundTint: '#3a3f47',
     fillerColors: ['#262b33', '#1e222a', '#3a4048', '#8f969e', '#c9cdd2'],
-    heightRangeM: [60, 220],
+    heightRangeM: [42, 110],
     density: 'medium',
     bounds: { west: street('university'), east: street('yonge'), north: street('queen'), south: street('front') },
     // Bank-tower district: big-building only (no street-level family/corner facades), cool
@@ -209,7 +214,7 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     name: 'Entertainment District',
     groundTint: '#33283f',
     fillerColors: ['#4a4650', '#3d3944', '#5c5666', '#302c38'],
-    heightRangeM: [15, 45],
+    heightRangeM: [11, 25],
     density: 'medium',
     bounds: { west: street('spadina'), east: street('university'), north: street('queen'), south: street('king') },
     // Brick strip (D10: "brown-building + building-red (brick)"), warm near-white tints.
@@ -225,7 +230,7 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     name: 'King West',
     groundTint: '#453329',
     fillerColors: ['#8a5a42', '#7a4d38', '#96684e', '#6b4230'],
-    heightRangeM: [12, 30],
+    heightRangeM: [8, 17],
     density: 'medium',
     bounds: { west: street('bathurst'), east: street('spadina'), north: street('queen'), south: street('front') },
     // Same brick flavour as entertainment (D10 groups the two), warm near-white tints.
@@ -241,7 +246,7 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     name: 'Queen West',
     groundTint: '#454034',
     fillerColors: ['#8f8a80', '#a39d8f', '#726d63', '#bdb6a6'],
-    heightRangeM: [9, 16],
+    heightRangeM: [6, 10],
     density: 'dense',
     bounds: { west: street('bathurst'), east: street('university'), north: street('dundas'), south: street('queen') },
     // D10 sketch: "red/green family + corners heavy, brown-building, warm tints".
@@ -257,7 +262,7 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     name: 'Chinatown / Kensington Market',
     groundTint: '#3a2f24',
     fillerColors: ['#8f8a80', '#7d5048', '#5c7355', '#a39d8f', '#726d63'],
-    heightRangeM: [8, 14],
+    heightRangeM: [6, 10],
     density: 'dense',
     bounds: { west: street('bathurst'), east: street('spadina'), north: street('college'), south: street('dundas') },
     // D10 sketch groups chinatownKensington with queenWest/willowdale (red/green + corners
@@ -274,7 +279,7 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     name: 'Yonge-Dundas to Queen',
     groundTint: '#3f3a2c',
     fillerColors: ['#8f8a80', '#a39d8f', '#726d63', '#9aa3ad'],
-    heightRangeM: [20, 80],
+    heightRangeM: [14, 44],
     density: 'dense',
     // Bent from the brief's first draft (yonge->church) — narrowed to bay->church so its west
     // edge shares the bay corner with uoft/bloorYorkville instead of overlapping them (see
@@ -293,7 +298,7 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     name: 'Church-Wellesley',
     groundTint: '#33283a',
     fillerColors: ['#a68a4a', '#8f7640', '#bfa25c', '#7a6436'],
-    heightRangeM: [10, 20],
+    heightRangeM: [7, 11],
     density: 'medium',
     bounds: { west: street('church'), east: street('jarvis'), north: zone('bloor'), south: street('college') },
     // D10 sketch groups churchWellesley with genericDowntown/foldCorridor — "mixed family".
@@ -309,7 +314,7 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     name: 'U of T / Discovery District',
     groundTint: '#2e332e',
     fillerColors: ['#b7a06a', '#a08d5c', '#5c5a52', '#726f66'],
-    heightRangeM: [15, 40],
+    heightRangeM: [11, 22],
     density: 'sparse',
     // Bent from the brief's first draft (spadina->bay) — narrowed to spadina->university so it
     // doesn't overlap bloorYorkville (see module header + districts.ts).
@@ -327,7 +332,7 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     name: 'St Lawrence / Old Town',
     groundTint: '#3d3527',
     fillerColors: ['#8a5a42', '#96684e', '#a3714f', '#7a4d38'],
-    heightRangeM: [12, 25],
+    heightRangeM: [8, 14],
     density: 'medium',
     bounds: { west: street('yonge'), east: street('jarvis'), north: street('king'), south: street('front') },
     // D10 sketch groups stLawrence with entertainment/kingWest — brick, warm near-white tints.
@@ -343,7 +348,7 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     name: 'Harbourfront',
     groundTint: '#28313a',
     fillerColors: ['#2e4a5c', '#3d5f73', '#264256', '#4a6f82'],
-    heightRangeM: [40, 120],
+    heightRangeM: [28, 66],
     density: 'medium',
     bounds: { west: zone('downtownWest'), east: zone('downtownEast'), north: street('front'), south: zone('shore') },
     // D10 sketch: "big-building, pale-blue tints, backdropTowers" (third tower district).
@@ -360,7 +365,7 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     name: 'Bloor / Yorkville',
     groundTint: '#3a3527',
     fillerColors: ['#b7a06a', '#c9b686', '#a08d5c', '#d4c398'],
-    heightRangeM: [20, 90],
+    heightRangeM: [14, 50],
     density: 'medium',
     // Bent from the brief's first draft (bay->jarvis) — becomes university->church, the middle
     // strip between uoft and churchWellesley (see module header + districts.ts).
@@ -378,7 +383,7 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     name: 'North York Centre',
     groundTint: '#2a3436',
     fillerColors: ['#2e5c56', '#3d7368', '#2e4a5c', '#3d5f73'],
-    heightRangeM: [40, 150],
+    heightRangeM: [28, 83],
     density: 'medium',
     bounds: { west: zone('capsuleWest'), east: zone('capsuleEast'), north: street('parkhome'), south: zone('sheppard') },
     // D10 sketch: "big-building, teal tints, backdropTowers" (third tower district).
@@ -395,7 +400,7 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     name: 'Willowdale / Finch Strip',
     groundTint: '#3a2e28',
     fillerColors: ['#8f8a80', '#726d63', '#a3653f', '#bdb6a6'],
-    heightRangeM: [8, 15],
+    heightRangeM: [6, 10],
     density: 'dense',
     bounds: { west: zone('capsuleWest'), east: zone('capsuleEast'), north: zone('capsuleTop'), south: street('parkhome') },
     // D10 sketch: "red/green family + corners heavy, brown-building, warm tints" (grouped with
@@ -412,7 +417,7 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     name: 'Downtown (generic)',
     groundTint: '#33363c',
     fillerColors: ['#454b54', '#383d45', '#525862', '#2c313a'],
-    heightRangeM: [10, 40],
+    heightRangeM: [7, 22],
     density: 'medium',
     // The "universe" rect districts.ts subtracts every other downtown-zone district's rect
     // from — the true per-district output is the complement (may be several rects).
@@ -430,7 +435,7 @@ export const TORONTO_DISTRICTS: readonly TorontoDistrictDef[] = [
     name: 'Midtown Fold Corridor',
     groundTint: '#2e3136',
     fillerColors: ['#454b54', '#383d45', '#3a4048'],
-    heightRangeM: [8, 14],
+    heightRangeM: [6, 10],
     density: 'sparse',
     bounds: { west: zone('foldWest'), east: zone('foldEast'), north: zone('sheppard'), south: zone('bloor') },
     // D10 sketch: "mixed family", sparse interior — minimal corner variety.

@@ -364,6 +364,7 @@ function faceRoadRotationYFromCentre(p: MapPoint, centre: MapPoint): number {
 function buildPowerBoxes(
   intersections: readonly Intersection[],
   districts: readonly ResolvedDistrict[],
+  exclusions: readonly MapRect[],
   rng: Rng,
 ): readonly FurniturePlacement[] {
   const out: FurniturePlacement[] = [];
@@ -379,6 +380,10 @@ function buildPowerBoxes(
       const p = clampInsidePolygon(rawP, centre);
       const district = districtAt(p, districts);
       if (!district) continue;
+      // Part-8 (D1): corner clamps now land close enough to a compacted named-building lot that
+      // this exclusion check (already standard for the row categories below) is load-bearing —
+      // was previously a no-op saved by pre-compaction spacing alone.
+      if (tooCloseToExclusion(p, exclusions, 1)) continue;
       out.push(toWorldPlacement('power-box', p, seededSpin(rng), district.id));
     }
   });
@@ -565,7 +570,7 @@ export function buildFurniture(seed: number, tierParams: TorontoTierParams = TOR
   const densityScalar = DRESS_DENSITY_SCALAR * tierParams.dressDensityScalar;
 
   const { trafficLights: trafficLightsRaw, stopSigns: stopSignsRaw } = buildTrafficLightsAndStopSigns(intersections, districts);
-  const powerBoxesRaw = buildPowerBoxes(intersections, districts, base.fork('power-box'));
+  const powerBoxesRaw = buildPowerBoxes(intersections, districts, exclusions, base.fork('power-box'));
 
   const treesRaw = buildRow(
     {

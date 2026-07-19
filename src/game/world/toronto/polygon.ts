@@ -1,6 +1,14 @@
 // The playable-map boundary — the §1 "thermometer": a full-width downtown block, a narrow
 // fold corridor, and a North York capsule on top. Everything here is pure geometry in map
 // world-units (wu), y-down = south, matching projection.ts.
+//
+// Part-8 (D1/D2, "density/life flip"): the polygon compacts with projection.ts's DENSITY.scale.
+// x-extents compress about the Yonge spine (x=1500) via `scaleAboutYonge`; y-edges are the SAME
+// live ZONE_BOUNDARIES projection.ts derives (the fold segment exempt). BASE_X below records the
+// §1 spec's original (pre-compaction) x literals — never re-literalized past this point.
+
+import { YONGE_X, ZONE_BOUNDARIES } from './projection';
+import { DENSITY } from '../../config/torontoMap';
 
 /** A polygon vertex in map space (world-units). */
 export interface MapVertex {
@@ -8,24 +16,56 @@ export interface MapVertex {
   readonly y: number;
 }
 
+/** §1 BASE (pre-compaction) x literals: the capsule, fold corridor, and downtown block extents. */
+const BASE_X = {
+  capsuleWest: 1100,
+  capsuleEast: 1900,
+  foldWest: 1200,
+  foldEast: 1800,
+  downtownWest: 0,
+  downtownEast: 2400,
+} as const;
+
+/** Compresses a BASE x literal about the Yonge spine by DENSITY.scale — the one function every
+ * x-extent below (and every other module's re-derived x literal) goes through. */
+export function scaleAboutYonge(x: number): number {
+  return YONGE_X + (x - YONGE_X) * DENSITY.scale;
+}
+
+const CAPSULE_WEST = scaleAboutYonge(BASE_X.capsuleWest);
+const CAPSULE_EAST = scaleAboutYonge(BASE_X.capsuleEast);
+const FOLD_WEST = scaleAboutYonge(BASE_X.foldWest);
+const FOLD_EAST = scaleAboutYonge(BASE_X.foldEast);
+const DOWNTOWN_WEST = scaleAboutYonge(BASE_X.downtownWest);
+const DOWNTOWN_EAST = scaleAboutYonge(BASE_X.downtownEast);
+
+/** The three zones' LIVE (compacted) x-extents — the single source every other module (streets.ts's
+ * ZONE_X, torontoSceneHelpers.ts's GROUND_RECTS/WATER_RECT) re-derives from instead of re-literalizing. */
+export const ZONE_X_EXTENTS = {
+  capsule: [CAPSULE_WEST, CAPSULE_EAST],
+  fold: [FOLD_WEST, FOLD_EAST],
+  downtown: [DOWNTOWN_WEST, DOWNTOWN_EAST],
+} as const satisfies Record<string, readonly [number, number]>;
+
 /**
- * The playable polygon, verbatim from spec §1 — 12 vertices, clockwise, y-down.
- * capsule (y 0–1170, x 1100–1900) → fold corridor (y 1170–1830, x 1200–1800) → downtown
- * block (y 1830–4100, x 0–2400, water band below y 3700).
+ * The playable polygon, derived from the §1 shape — 12 vertices, clockwise, y-down.
+ * capsule (y ZONE_BOUNDARIES[0..1], x CAPSULE_WEST–CAPSULE_EAST) → fold corridor
+ * (y ZONE_BOUNDARIES[1..2], x FOLD_WEST–FOLD_EAST) → downtown block
+ * (y ZONE_BOUNDARIES[2..4], x DOWNTOWN_WEST–DOWNTOWN_EAST, water band below ZONE_BOUNDARIES[3]).
  */
 export const PLAYABLE_POLYGON: readonly MapVertex[] = [
-  { x: 1100, y: 0 },
-  { x: 1900, y: 0 },
-  { x: 1900, y: 1170 },
-  { x: 1800, y: 1170 },
-  { x: 1800, y: 1830 },
-  { x: 2400, y: 1830 },
-  { x: 2400, y: 4100 },
-  { x: 0, y: 4100 },
-  { x: 0, y: 1830 },
-  { x: 1200, y: 1830 },
-  { x: 1200, y: 1170 },
-  { x: 1100, y: 1170 },
+  { x: CAPSULE_WEST, y: ZONE_BOUNDARIES[0] },
+  { x: CAPSULE_EAST, y: ZONE_BOUNDARIES[0] },
+  { x: CAPSULE_EAST, y: ZONE_BOUNDARIES[1] },
+  { x: FOLD_EAST, y: ZONE_BOUNDARIES[1] },
+  { x: FOLD_EAST, y: ZONE_BOUNDARIES[2] },
+  { x: DOWNTOWN_EAST, y: ZONE_BOUNDARIES[2] },
+  { x: DOWNTOWN_EAST, y: ZONE_BOUNDARIES[4] },
+  { x: DOWNTOWN_WEST, y: ZONE_BOUNDARIES[4] },
+  { x: DOWNTOWN_WEST, y: ZONE_BOUNDARIES[2] },
+  { x: FOLD_WEST, y: ZONE_BOUNDARIES[2] },
+  { x: FOLD_WEST, y: ZONE_BOUNDARIES[1] },
+  { x: CAPSULE_WEST, y: ZONE_BOUNDARIES[1] },
 ] as const;
 
 /** Camera clamp padding (spec §1): the camera stays this far inside the polygon so the void
@@ -213,11 +253,12 @@ export function clampToPolygon(p: MapVertex, paddingWu: number): MapVertex {
   }
 
   if (best) return best;
-  // Fallback: nearest guaranteed-deep interior anchor (capsule / corridor / downtown centres).
+  // Fallback: nearest guaranteed-deep interior anchor (capsule / corridor / downtown centres),
+  // re-derived from the same ZONE_BOUNDARIES/DOWNTOWN_* constants above (never hand-picked twice).
   const anchors: readonly MapVertex[] = [
-    { x: 1500, y: 585 },
-    { x: 1500, y: 1500 },
-    { x: 1200, y: 2800 },
+    { x: YONGE_X, y: (ZONE_BOUNDARIES[0] + ZONE_BOUNDARIES[1]) / 2 }, // capsule centre
+    { x: YONGE_X, y: (ZONE_BOUNDARIES[1] + ZONE_BOUNDARIES[2]) / 2 }, // fold corridor centre
+    { x: (DOWNTOWN_WEST + DOWNTOWN_EAST) / 2, y: (ZONE_BOUNDARIES[2] + ZONE_BOUNDARIES[3]) / 2 }, // downtown centre
   ];
   let fb = anchors[0];
   let fbD2 = Infinity;

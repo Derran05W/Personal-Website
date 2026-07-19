@@ -104,7 +104,10 @@ export const CITY_PACK_SCALE_OVERRIDES: Readonly<Record<string, number>> = {
   'big-building': BUILDING_FRONTAGE_TARGET_WU / getCityPackModel('big-building').nativeDims.w,
   'brown-building': BUILDING_FRONTAGE_TARGET_WU / getCityPackModel('brown-building').nativeDims.w,
   // Provisional — no formula given by the plan; tune vs. the sedan in the D14 proof mount.
-  'traffic-light': 1.35,
+  // Phase 27 road-diet retune (live-verification FIX 2): 1.35 made the resolved mast arm read as
+  // wide as an entire 6.6-8.8 wu dieted road, with the head hovering at car height over the
+  // intersection centre. 1.0 (native scale) brings the arm back to a normal roadside proportion.
+  'traffic-light': 1.0,
   'bench': 0.9,
   // Computed from the target constants above.
   'fire-hydrant': FIRE_HYDRANT_TARGET_HEIGHT_WU / getCityPackModel('fire-hydrant').nativeDims.h,

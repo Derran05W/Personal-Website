@@ -6,6 +6,8 @@
 // the D6 frontage engine's own convention (facade line = ribbon edge + SIDEWALK.widthWu) so a
 // future SIDEWALK.widthWu retune re-flows both frontage and furniture together.
 
+import { DENSITY } from './torontoMap';
+
 /**
  * Which road classes count as "full" for the traffic-light signalization rule (D16): both
  * crossing streets full -> 4-corner signalized; exactly one full -> 2-corner diagonal; neither
@@ -43,9 +45,11 @@ export const LAMP_COLORS = {
  * origin, in RESOLVED world units (the traffic-light already resolves to ~7.2 wu wide / 6.3 wu tall
  * with its native arm on local −x — see config/cityPackScale.ts), BEFORE the mast's own yaw. The
  * mounting task rotates this offset by each mast's rotationY. Provisional — tunable live; D17's
- * static-heads fallback stands if the alignment fights back. */
+ * static-heads fallback stands if the alignment fights back.
+ * Phase 27 road-diet retune (live-verification FIX 2): re-scaled by 1.0/1.35 to match
+ * cityPackScale.ts's 'traffic-light' override dropping from 1.35 to 1.0 (was {x:-5.4, y:5.1, z:0}). */
 export const LAMP_OVERLAY = {
-  headAnchor: { x: -5.4, y: 5.1, z: 0 } as const,
+  headAnchor: { x: -4.0, y: 3.78, z: 0 } as const,
   quadSizeWu: 0.7,
 } as const;
 
@@ -104,9 +108,11 @@ export const TORONTO_TIER_IDENTITY: TorontoTierParams = {
  * measured from the ribbon edge. `kerb` = near the curb (trees/hydrants/manholes-adjacent
  * reads); `facade` = near the building wall (benches/trash/bus-stops), pulled in from the
  * frontage engine's own facade line (ribbon edge + SIDEWALK.widthWu) for clearance. */
+// Part-8 (D3): re-checked against the narrower SIDEWALK.widthWu (4 → 3 wu) — facadeOffsetWu must
+// sit inside the band (≤ 3 - some clearance), so kerb 1.2 → 1.0 / facade 3.4 → 2.4.
 export const SIDEWALK_ROW = {
-  kerbOffsetWu: 1.2,
-  facadeOffsetWu: 3.4,
+  kerbOffsetWu: 1.0,
+  facadeOffsetWu: 2.4,
 } as const;
 
 export const POWER_BOX = {
@@ -198,9 +204,12 @@ export const PARKED = {
  * resolved frontage is 13.5 wu (config/cityPackScale.ts BUILDING_FRONTAGE_TARGET_WU); the pitch
  * leaves a ~2 wu gap between adjacent facades so the wide models never touch along a block.
  */
+// Part-8 (D5) densification: pitch tightened (15.5 → 14.0 — a narrower ~0.5 wu gap between the
+// 13.5 wu frontage models), occupancy raised across the board (.85/.65/.4 → .95/.85/.65), and the
+// hard cap lifted (900 → 1400) to match the denser candidate lattice + occupancy.
 export const FRONTAGE = {
-  /** Along-street spacing between adjacent frontage slots (wu) — 13.5 wu frontage + ~2 wu gap. */
-  pitchWu: 15.5,
+  /** Along-street spacing between adjacent frontage slots (wu) — 13.5 wu frontage + a tighter gap. */
+  pitchWu: 14.0,
   /** Extra along-street clearance (wu) reserved on each side of an intersection box before the
    * first frontage slot of a block segment can sit — keeps facades off the crossing itself. */
   cornerClearanceWu: 3,
@@ -210,10 +219,10 @@ export const FRONTAGE = {
   districtRefDepthWu: 6,
   /** Seeded per-slot occupancy probability by district density (D6). Denser districts line their
    * frontages nearly solid; sparse districts leave gaps. */
-  occupancy: { dense: 0.85, medium: 0.65, sparse: 0.4 } as const,
+  occupancy: { dense: 0.95, medium: 0.85, sparse: 0.65 } as const,
   /** Hard cap on total pack-building placements (D6/D9 — the tri budget's enforceable ceiling).
    * Above this, deterministic even-stride thinning trims back to the cap. */
-  hardCap: 900,
+  hardCap: 1400,
 } as const;
 
 /**
@@ -226,8 +235,13 @@ export const FRONTAGE = {
 export const BACKDROP_TOWER = {
   /** Along-street spacing between backdrop boxes (wu) — sparse by design. */
   pitchWu: 44,
-  /** Distance (wu) the backdrop row sits behind the frontage facade line (ribbon edge + sidewalk). */
-  setbackFromFacadeWu: 18,
+  /** Distance (wu) the backdrop row sits behind the frontage facade line (ribbon edge + sidewalk).
+   * Part-8 (live-verification FIX 1): was an ABSOLUTE 18 — block interiors compacted ×DENSITY.scale
+   * but this setback didn't, so boxes landed on ribbons/adjacent blocks. Now DENSITY-derived
+   * (18 × 0.6 = 10.8). The frontage.ts placer additionally REJECTS (never relocates) any backdrop
+   * box whose footprint intersects a street ribbon, the water band, or a hero/named-building lot —
+   * this setback is a first-pass placement bias, not the safety guarantee. */
+  setbackFromFacadeWu: 18 * DENSITY.scale,
   /** Footprint side range (wu) — tower plots read wider than street filler. */
   footprintRangeWu: [10, 18] as const,
   /** Map-wide hard cap (perf — D7 "~90 total"). */

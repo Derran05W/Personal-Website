@@ -15,8 +15,8 @@
 // they are never transcribed twice.
 
 import { EDGE_PAD_WU, ROAD_CLASSES, type RoadClass } from '../../config/torontoMap';
-import { PLAYABLE_POLYGON, pointInPolygon } from './polygon';
-import { type LatLon, type MapPoint, TORONTO_PROJECTION } from './projection';
+import { PLAYABLE_POLYGON, pointInPolygon, scaleAboutYonge, ZONE_X_EXTENTS } from './polygon';
+import { type LatLon, type MapPoint, scaleBaseY, TORONTO_PROJECTION, ZONE_BOUNDARIES } from './projection';
 
 export type StreetAxis = 'ns' | 'ew';
 
@@ -66,14 +66,15 @@ type SpanEnd =
 
 type ZoneKey = 'capsule' | 'fold' | 'downtown';
 
-// Zone x-extents (spec §1 polygon): capsule x 1100–1900, fold corridor x 1200–1800, downtown
-// block x 0–2400. The shoreline is map y 3700 (projection.ts nsControls / ZONE_BOUNDARIES[3]).
+// Zone x-extents (spec §1 polygon): re-derived from polygon.ts's ZONE_X_EXTENTS (Part-8 D2 — the
+// same source PLAYABLE_POLYGON's vertices come from). The shoreline is projection.ts's
+// ZONE_BOUNDARIES[3] (the live, compacted shore y).
 const ZONE_X: Record<ZoneKey, readonly [number, number]> = {
-  capsule: [1100, 1900],
-  fold: [1200, 1800],
-  downtown: [0, 2400],
+  capsule: ZONE_X_EXTENTS.capsule,
+  fold: ZONE_X_EXTENTS.fold,
+  downtown: ZONE_X_EXTENTS.downtown,
 };
-const SHORE_Y = 3700;
+const SHORE_Y = ZONE_BOUNDARIES[3];
 
 const s = (id: string): SpanEnd => ({ t: 'street', id });
 const lit = (v: number): SpanEnd => ({ t: 'lit', v });
@@ -94,9 +95,13 @@ interface StreetDef {
 // The full §3a table + Eglinton (the fold flavour mini-node, §2 — not in the §3a class table;
 // classed 'major' here to match real Eglinton's arterial tier). Order is stable and drives
 // deterministic downstream ordering.
+//
+// Part-8 (D2): the handful of `lit(...)` rail-lands/quay stylizations (Yonge's north pad, Front's
+// east end, Queens Quay's span) are BASE (pre-compaction) map coordinates run through
+// scaleBaseY/scaleAboutYonge at the call site — re-derived, not re-literalized.
 export const STREET_DEFS: readonly StreetDef[] = [
   // --- N-S (x from proxy; span along y) ---
-  { id: 'yonge', name: 'Yonge St', cls: 'spine', axis: 'ns', positionRef: null, span: [lit(20), SHORE_PAD] },
+  { id: 'yonge', name: 'Yonge St', cls: 'spine', axis: 'ns', positionRef: null, span: [lit(scaleBaseY(20)), SHORE_PAD] },
   { id: 'university', name: 'University Ave', cls: 'artery', axis: 'ns', positionRef: 'street-university', span: [s('bloor'), s('front')] },
   { id: 'spadina', name: 'Spadina Ave', cls: 'artery', axis: 'ns', positionRef: 'street-spadina', span: [s('bloor'), SHORE] },
   { id: 'bathurst', name: 'Bathurst St', cls: 'major', axis: 'ns', positionRef: 'street-bathurst', span: [s('bloor'), SHORE] },
@@ -118,9 +123,9 @@ export const STREET_DEFS: readonly StreetDef[] = [
   { id: 'adelaide', name: 'Adelaide St', cls: 'minor', axis: 'ew', positionRef: 'street-adelaide', span: [s('university'), s('jarvis')] },
   { id: 'queen', name: 'Queen St', cls: 'major', axis: 'ew', positionRef: 'yonge-queen', span: [zone('downtown', 'lo'), zone('downtown', 'hi')] },
   { id: 'king', name: 'King St', cls: 'major', axis: 'ew', positionRef: 'yonge-king', span: [zone('downtown', 'lo'), zone('downtown', 'hi')] },
-  { id: 'front', name: 'Front St', cls: 'major', axis: 'ew', positionRef: 'yonge-front', span: [s('bathurst'), lit(1900)] },
+  { id: 'front', name: 'Front St', cls: 'major', axis: 'ew', positionRef: 'yonge-front', span: [s('bathurst'), lit(scaleAboutYonge(1900))] },
   { id: 'bremner', name: 'Bremner Blvd', cls: 'minor', axis: 'ew', positionRef: 'street-bremner', span: [s('spadina'), s('york')] },
-  { id: 'queensquay', name: 'Queens Quay', cls: 'major', axis: 'ew', positionRef: 'yonge-queensquay', span: [lit(200), lit(2200)] },
+  { id: 'queensquay', name: 'Queens Quay', cls: 'major', axis: 'ew', positionRef: 'yonge-queensquay', span: [lit(scaleAboutYonge(200)), lit(scaleAboutYonge(2200))] },
 ];
 
 // Transcribed VERBATIM from data/toronto/anchors.json — only the non-yonge_line proxies (the

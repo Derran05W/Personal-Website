@@ -128,6 +128,30 @@ each sub-phase planned by a Fable-5 planner agent, built by Opus/Sonnet subagent
 - [x] **Phase 25.7 — business personalization** — 2026-07-18: claim engine (pre-occupancy lattice; 18 venues claimed INTO the streetwall, seed-independent, thin-exempt, McDonald's→pizza-corner corner hit landed), venueDress (27 fascia bands w/ camera-visible side-band rule, 14 procedural awnings, 96 kit props, queues migrated, Alo plaque), placesLayer shrunk to P26 exceptions; rendered via existing batched paths (+4 calls/+1.25k tris worst — budget beaten 3×), venueDress toggle + per-venue teleports; 17 screenshots (McDonald's corner + H Mart = money frames); W/N-facing venues read via side bands only (camera-wall constraint); 2,236 tests (see phase-25.7-notes.md).
 - [x] **Phase 25.8 — cohesion & perf** — 2026-07-18: relight composite shipped (diagnosis: palette band + fog-as-contrast-compressor; fog pushed out, ladder brightened test-locked, subtle facade gradient bake — all leva-live, real-GPU call = user), curb-height sidewalks VISUAL-only (colliders rejected on the mandatory drive-feel gate — car launched), seeded ground noise (+0 calls) + 5 named parks + patches (seed-independent, venue-safe), no-furniture-on-ribbon invariant (Bloor masts fixed), queue visibility polish; tier wiring w/ HIGH-TIER BYTE-IDENTITY golden test (low: 50 calls/21.9k tris/50 bodies — under mobile budget; legacy low-tier bench flake proven pre-existing via clean worktree); asset-delivery line superseded-in-fact by 25.5 meshopt (381 KB); 17-shot before/after reel + contact sheet; 2,289 tests, smoke 31/31 (soft-skip now passes); CITY-PACK REAPPROACH COMPLETE — Part-8 (parity flip) proposal in notes, awaiting user (see phase-25.8-notes.md).
 
+### Part 8 — Density, Life & the Flip (`.planning/part-8-density-life-flip.md`)
+**User directive 2026-07-18** (converts the 25.8 Part-8 proposal into mandated work and
+re-scopes it): the map must become a *denser, smaller* Toronto (≈0.6 linear compaction,
+narrower roads, near-solid streetwall, building heights cut so the camera stops phasing
+in), the Toronto map becomes the **DEFAULT** shipped world at parity flip, and the city
+pack carries far more of the world: more building variants, a seeded basic-car
+algorithm (weighted model pick × colour-varied body tints) for traffic/parked, 10–14
+TTC transit vehicles on **researched real routes** (route table Haiku-verified
+2026-07-18, embedded in the part file), construction sites from pack props, and —
+USER OVERRIDE of the "playable cars stay in-house" lock — the default rusty car (and
+garage cars where a pack fit exists) swap to pack models; monster truck + pursuit units
++ heroes/towers + streetcars stay in-house. City-pack licence gate CLEARED 2026-07-18
+(user: open-source, permission confirmed); still wanted non-blocking: pack link/licence
+name/author for a proper `assets/credits.json` entry (dated used-with-permission
+fallback otherwise). **Model economy (user 2026-07-18):** user near usage limits —
+Fable orchestrates but token-efficiently; prefer Sonnet subagents, Opus only for the
+hard cores (see "Model economy" in the part file).
+- [x] **Phase 27 — Compact re-projection, road diet, height cut** — 2026-07-19: DENSITY.scale 0.6 (fold exempt, YONGE_X invariant preserved) → 1440×2724 wu map, roads 5/4.5/4/3 cars, sidewalk 3, heights compressed (districts ×~0.55 cap 110 m + NAMED_HEIGHT_SCALE 0.6, heroes exempt), frontage pitch 14/occupancy ↑/cap 1400 SATURATED (≥4× per-area density); builder fixed 3 real latent literal bugs; live gate found+fixed backdrop-box fusion walls (reject-not-relocate + self-overlap), mast arm spanning dieted roads (scale 1.0), crosswalk 2.2; drive gate PASSED (spine x=1500.0 whole way, slalom hpΔ0, water WRECKED, retry, tunnel overlay); 2,318 tests, 0 console errors; landmarks() bridge = legacy-only gotcha (see phase-27-notes.md)
+- [ ] **Phase 28 — Infill: solid streetwall, back lots, parking lots, construction sites**
+- [ ] **Phase 29 — Gameplay parity core: registry, destruction, civilian traffic + car-variety algorithm, heat/score, powergrid on Toronto**
+- [ ] **Phase 30 — Pursuit parity: graph-native police nav (de-tiling), ★1–★5, helicopters**
+- [ ] **Phase 31 — Transit on real TTC routes (buses + streetcars) + player pack cars**
+- [ ] **Phase 32 — The flip: WORLD_SOURCE=toronto default, legacy retirement, launch gates re-run** (licence cleared 2026-07-18; finalize credits entry in-phase)
+
 ---
 
 ## Locked decisions — do not relitigate
@@ -142,12 +166,12 @@ the user, not you.
 | BUSTED mechanic | **In** (speed < 1 m/s for 3 s with ≥ 3 pursuers within 8 m) |
 | Unlocks | **Lifetime-score milestones**, generous thresholds, `localStorage` |
 | Mobile v1 | **Playable-basic** (◀ ▶ + brake, auto-throttle, low tier) |
-| Map | **Toronto thermometer polygon** (2400×4100 wu, `docs/map/TORONTO-MAP-SPEC-v2.md` §1) — user re-scope 2026-07-17. Legacy 64×64 tile map ships until the new map reaches drivable parity (MAP PROJECT rule 4) |
+| Map | **Toronto thermometer polygon** (`docs/map/TORONTO-MAP-SPEC-v2.md` §1) — user re-scope 2026-07-17. **Density re-scope 2026-07-18 (user):** compacted ≈0.6 linear (~1440×2460 wu target), narrower roads, height cut — supersedes the §1 dims + 25.6 road addendum; numbers in `.planning/part-8-density-life-flip.md`. Toronto becomes the DEFAULT world at the Phase 32 flip; legacy 64×64 ships only until then (MAP PROJECT rule 4) |
 | Brand logos (map layer) | **In** — user override 2026-07-17: real Toronto brands as 32×32 pixel-art homage decals (nearest-neighbour, mipmaps off, no photo logos); police/military stay generic; every brand gets an `assets/credits.json` entry with a trademark note |
 | Pedestrians | **None** (vehicles + props only) |
 | Backend | **None** — static site, `localStorage` only |
 | Buildings | Indestructible fixed colliders in v1 |
-| Assets | CC0-first (Kenney/Quaternius/Poly Pizza) + procedural fallback; player cars & military tier procedural |
+| Assets | CC0-first (Kenney/Quaternius/Poly Pizza) + procedural fallback. **User override 2026-07-18:** player cars swap to city-pack models where a fit exists (default rusty car = pack `car-a`; monster truck, pursuit/military units, heroes/towers, streetcars stay in-house) — supersedes "playable cars stay in-house" in the CITY-PACK REAPPROACH block |
 | Physics | Rapier raycast vehicle controller behind `IVehicleModel`; arcade-box fallback if fun gate fails |
 
 **Open (user input needed):** header branding/name & game title wordmark (placeholder

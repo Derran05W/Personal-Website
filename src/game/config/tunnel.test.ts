@@ -12,8 +12,8 @@ describe('CORRIDOR_HALF_WIDTH_WU — D3 derivation', () => {
     expect(CORRIDOR_HALF_WIDTH_WU).toBeCloseTo(ROAD_CLASSES.spine / 2 + CAR_REF.widthWu / 2, 9);
   });
 
-  it('is 8.8 under the current car-derived spine (7 x 2.2 = 15.4)', () => {
-    expect(CORRIDOR_HALF_WIDTH_WU).toBeCloseTo(8.8, 9);
+  it('is 6.6 under the current car-derived spine (Part-8 road diet: 5 x 2.2 = 11.0)', () => {
+    expect(CORRIDOR_HALF_WIDTH_WU).toBeCloseTo(6.6, 9);
   });
 
   it('is strictly wider than a flat spine/2 (the whole point of the half-car pad)', () => {

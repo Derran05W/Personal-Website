@@ -38,7 +38,7 @@ import { buildNamedBuildings } from './namedBuildings';
 import { buildParks } from './parks';
 import { buildPlacesLayer } from './placesLayer';
 import { PLAYABLE_POLYGON, pointInPolygon } from './polygon';
-import type { MapPoint } from './projection';
+import { ZONE_BOUNDARIES, type MapPoint } from './projection';
 import { listIntersections, type Intersection } from './roadGraph';
 import { buildStreets, type Street } from './streets';
 import {
@@ -172,9 +172,9 @@ export interface FrontageLayout {
 const DISTRICT_ORDER: readonly DistrictId[] = TORONTO_DISTRICTS.map((d) => d.id);
 const DISTRICT_INDEX = new Map<DistrictId, number>(DISTRICT_ORDER.map((id, i) => [id, i]));
 
-/** The lake band floor in world z (= map y). Any footprint reaching it is rejected (massing's
- * WATER_Z gate). */
-const WATER_Z = 3700;
+/** The lake band floor in world z (= map y) — the live (compacted) shore boundary. Any footprint
+ * reaching it is rejected (massing's WATER_Z gate). */
+const WATER_Z = ZONE_BOUNDARIES[3];
 
 // --- placement math --------------------------------------------------------------------------
 
@@ -321,14 +321,36 @@ function pickModel(rng: Rng, def: TorontoDistrictDef, isCorner: boolean): string
 
 // --- backdrop towers (D7) --------------------------------------------------------------------
 
+/** Live-verification FIX 1 (Part-8): margin added to a street's ribbon before rejecting a
+ * backdrop candidate against it — "halfWidth + a 1 wu margin", own constant so a future retune
+ * of the generic frontage ribbon-overlap tolerance (a different, tuned 0.5 wu margin) can never
+ * silently change this backdrop safety net too. Exported so frontage.test.ts can assert the
+ * exact tolerance the placer enforces. */
+export const BACKDROP_RIBBON_MARGIN_WU = 1;
+
+/**
+ * Every street ribbon inflated by BACKDROP_RIBBON_MARGIN_WU — the backdrop pass's OWN rejection
+ * geometry (separate from frontage.ts's generic-slot `ribbons` array, which is tuned for the
+ * McDonald's-style claim overhang and must not be perturbed by this fix).
+ */
+function backdropRibbons(streets: readonly Street[]): readonly Aabb[] {
+  return streets.map((s) => ({
+    minX: s.ribbon.minX - BACKDROP_RIBBON_MARGIN_WU,
+    maxX: s.ribbon.maxX + BACKDROP_RIBBON_MARGIN_WU,
+    minZ: s.ribbon.minY - BACKDROP_RIBBON_MARGIN_WU,
+    maxZ: s.ribbon.maxY + BACKDROP_RIBBON_MARGIN_WU,
+  }));
+}
+
 function buildBackdropTowers(
   streets: readonly Street[],
   districts: readonly ResolvedDistrict[],
   exclusions: readonly Aabb[],
-  ribbons: readonly Aabb[],
   base: Rng,
 ): readonly BackdropBox[] {
   const out: BackdropBox[] = [];
+  const keptFootprints: Aabb[] = [];
+  const ribbons = backdropRibbons(streets);
   const [sizeLo, sizeHi] = BACKDROP_TOWER.footprintRangeWu;
   for (const street of streets) {
     for (const side of [1, -1] as const) {
@@ -347,11 +369,19 @@ function buildBackdropTowers(
         const realM = def.heightRangeM[0] + rng.next() * (def.heightRangeM[1] - def.heightRangeM[0]);
         const hy = hGame(realM) / 2;
         const fp: Aabb = { minX: p.x - hx, maxX: p.x + hx, minZ: p.y - hz, maxZ: p.y + hz };
+        // REJECT (never relocate) — water band, off-polygon, any street ribbon (+margin), a
+        // hero/named-building/park exclusion rect, or a PREVIOUSLY-KEPT backdrop box (live-
+        // verification follow-up: two adjacent backdrop rows — e.g. financial/harbourfront meeting
+        // at Front St — could otherwise fuse into a single oversized mass at the tighter compacted
+        // spacing). Every candidate that fails one of these gates is simply skipped; the
+        // pitch-stepped walk moves on to the next along-street position.
         if (fp.maxZ >= WATER_Z) continue;
         if (!insidePolygon(fp)) continue;
         if (ribbons.some((r) => overlaps(fp, r))) continue;
         if (exclusions.some((r) => overlaps(fp, r))) continue;
+        if (keptFootprints.some((r) => overlaps(fp, r))) continue;
         const color = def.fillerColors[Math.floor(rng.next() * def.fillerColors.length) % def.fillerColors.length];
+        keptFootprints.push(fp);
         out.push({ x: p.x, z: p.y, hx, hy, hz, color, districtId: def.id });
       }
     }
@@ -628,7 +658,7 @@ export function buildFrontage(seed: number, tierParams: TorontoTierParams = TORO
   const ranges = buildRanges(slots);
   const modelIds = [...new Set(slots.map((s) => s.modelId))].sort();
 
-  const towerBoxes = buildBackdropTowers(streets, districts, exclusions, ribbons, base.fork('backdrop-towers'));
+  const towerBoxes = buildBackdropTowers(streets, districts, exclusions, base.fork('backdrop-towers'));
 
   const counts: Record<string, number> = { total: slots.length, towerBoxes: towerBoxes.length };
   for (const id of DISTRICT_ORDER) counts[id] = 0;

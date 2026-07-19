@@ -7,6 +7,11 @@
 // hand-tune twice if either changes). Order matches config order (§6 table order, then
 // genericDowntown, foldCorridor) — this is the stable order buildDistricts() returns.
 //
+// STALE POST-PART-8 (D1 "density/life flip", 2026-07-18): the table below predates the ~0.6x
+// map compaction — every x/y number here is the PRE-compaction resolved value (kept for the
+// relative-layout story, not as a live pin; nothing in code reads this comment). The real,
+// live-derived rects are asserted by districts.test.ts, not transcribed here.
+//
 //   district              west/north -> east/south                          rect (x, y)
 //   financial             university -> yonge     | queen -> front           x[1063.8, 1500.0]  y[2937.2, 3294.0]
 //   entertainment         spadina -> university    | queen -> king           x[ 543.1, 1063.8]  y[2937.2, 3177.1]

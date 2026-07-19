@@ -527,8 +527,8 @@ function HeroesLayer() {
     [cn, rogers],
   );
 
-  const cnAt = lotCenter(HERO_LOTS[0]); // CN Tower ≈ (950, 3390)
-  const rgAt = lotCenter(HERO_LOTS[1]); // Rogers Centre ≈ (860, 3450)
+  const cnAt = lotCenter(HERO_LOTS[0]); // CN Tower (Part-8: BASE ≈ (950, 3390), compacted live)
+  const rgAt = lotCenter(HERO_LOTS[1]); // Rogers Centre (Part-8: BASE ≈ (860, 3450), compacted live)
 
   const cnRef = useRef<Mesh>(null);
   const rgRef = useRef<Mesh>(null);

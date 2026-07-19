@@ -26,20 +26,42 @@ function mulberry32(seed: number): () => number {
   };
 }
 
+// Part-8 (D1/D2, "density/life flip"): the §1 shape compacts ~0.6× linearly about the Yonge
+// spine (x=1500), fold zone exempt. These are the compacted vertices (re-derived from the same
+// scaleAboutYonge/ZONE_BOUNDARIES formulas PLAYABLE_POLYGON itself uses — see polygon.ts/
+// projection.ts); pre-Part-8 values are recorded per-vertex for provenance.
 const EXPECTED_VERTICES: ReadonlyArray<readonly [number, number]> = [
-  [1100, 0],
-  [1900, 0],
-  [1900, 1170],
-  [1800, 1170],
-  [1800, 1830],
-  [2400, 1830],
-  [2400, 4100],
-  [0, 4100],
-  [0, 1830],
-  [1200, 1830],
-  [1200, 1170],
-  [1100, 1170],
+  [1260, 0], // was [1100, 0]
+  [1740, 0], // was [1900, 0]
+  [1740, 702], // was [1900, 1170]
+  [1680, 702], // was [1800, 1170]
+  [1680, 1362], // was [1800, 1830]
+  [2040, 1362], // was [2400, 1830]
+  [2040, 2724], // was [2400, 4100]
+  [600, 2724], // was [0, 4100]
+  [600, 1362], // was [0, 1830]
+  [1320, 1362], // was [1200, 1830]
+  [1320, 702], // was [1200, 1170]
+  [1260, 702], // was [1100, 1170]
 ];
+
+describe('PLAYABLE_POLYGON — Part-8 (D1) compacted map extent', () => {
+  it('bounding box is ≈[600..2040] x [0..2724] (the ~0.6x-compacted §1 thermometer)', () => {
+    const xs = PLAYABLE_POLYGON.map((v) => v.x);
+    const ys = PLAYABLE_POLYGON.map((v) => v.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    expect(minX).toBeCloseTo(600, 6);
+    expect(maxX).toBeCloseTo(2040, 6);
+    expect(minY).toBeCloseTo(0, 6);
+    expect(maxY).toBeCloseTo(2724, 6);
+    // Overall footprint ≈ 1440 x 2724 (D1's acceptance-criteria extent, fold exemption included).
+    expect(maxX - minX).toBeCloseTo(1440, 6);
+    expect(maxY - minY).toBeCloseTo(2724, 6);
+  });
+});
 
 describe('PLAYABLE_POLYGON — spec §1 transcription guard', () => {
   it('matches the 12 spec vertices verbatim (clockwise, y-down)', () => {
@@ -60,20 +82,23 @@ describe('PLAYABLE_POLYGON — spec §1 transcription guard', () => {
 });
 
 describe('polygonArea — capsule + corridor + downtown block', () => {
-  it('equals 6,780,000 wu² exactly (positive for the given winding)', () => {
-    // 800×1170 (capsule) + 600×660 (fold corridor) + 2400×2270 (downtown block)
-    expect(polygonArea(PLAYABLE_POLYGON)).toBe(6_780_000);
-    expect(800 * 1170 + 600 * 660 + 2400 * 2270).toBe(6_780_000);
+  it('equals 2,535,840 wu² exactly (positive for the given winding)', () => {
+    // Part-8: 480×702 (capsule) + 360×660 (fold corridor, span exempt) + 1440×1362 (downtown
+    // block) — was 800×1170 + 600×660 + 2400×2270 = 6,780,000 pre-compaction.
+    expect(polygonArea(PLAYABLE_POLYGON)).toBe(2_535_840);
+    expect(480 * 702 + 360 * 660 + 1440 * 1362).toBe(2_535_840);
   });
 });
 
 describe('pointInPolygon — ray cast, boundary-inclusive', () => {
+  // Part-8: fixtures re-derived for the compacted polygon (capsule x[1260,1740]/y[0,702], fold
+  // x[1320,1680]/y[702,1362], downtown x[600,2040]/y[1362,2724]).
   it('classifies the spec fixtures', () => {
-    expect(pointInPolygon({ x: 1200, y: 2800 }, PLAYABLE_POLYGON)).toBe(true); // downtown centre
-    expect(pointInPolygon({ x: 1500, y: 1500 }, PLAYABLE_POLYGON)).toBe(true); // fold corridor
-    expect(pointInPolygon({ x: 900, y: 1500 }, PLAYABLE_POLYGON)).toBe(false); // west of corridor
-    expect(pointInPolygon({ x: 2000, y: 1000 }, PLAYABLE_POLYGON)).toBe(false); // east of capsule
-    expect(pointInPolygon({ x: 1200, y: 4200 }, PLAYABLE_POLYGON)).toBe(false); // south of water
+    expect(pointInPolygon({ x: 1320, y: 1900 }, PLAYABLE_POLYGON)).toBe(true); // downtown interior
+    expect(pointInPolygon({ x: 1500, y: 1000 }, PLAYABLE_POLYGON)).toBe(true); // fold corridor
+    expect(pointInPolygon({ x: 1000, y: 1000 }, PLAYABLE_POLYGON)).toBe(false); // west of corridor
+    expect(pointInPolygon({ x: 1800, y: 500 }, PLAYABLE_POLYGON)).toBe(false); // east of capsule
+    expect(pointInPolygon({ x: 1320, y: 2800 }, PLAYABLE_POLYGON)).toBe(false); // south of the map
   });
 
   it('integrates with the projection: every on-map Yonge anchor lands inside', () => {
@@ -110,11 +135,11 @@ describe('clampToPolygon — nearest point ≥ padding inside', () => {
 
   it('pulls outside points to at least padding inside', () => {
     const outside: ReadonlyArray<MapVertex> = [
-      { x: 900, y: 1500 },
-      { x: 2000, y: 1000 },
-      { x: 1200, y: 4200 },
-      { x: -300, y: 2500 },
-      { x: 2700, y: 3000 },
+      { x: 1000, y: 1000 },
+      { x: 1800, y: 500 },
+      { x: 1320, y: 2800 },
+      { x: -200, y: 1900 },
+      { x: 2200, y: 2800 },
     ];
     for (const p of outside) {
       const c = clampToPolygon(p, PAD);
@@ -124,15 +149,15 @@ describe('clampToPolygon — nearest point ≥ padding inside', () => {
   });
 
   it('leaves deep-inside points untouched', () => {
-    const deep = { x: 1200, y: 2800 };
+    const deep = { x: 1320, y: 1900 };
     expect(clampToPolygon(deep, PAD)).toEqual(deep);
   });
 
   it('clamps a concave-notch point into the corridor, not through a wall', () => {
-    // (1150,1500) sits in the void west of the 600-wu fold corridor (corridor is x∈[1200,1800]).
-    const c = clampToPolygon({ x: 1150, y: 1500 }, PAD);
+    // (1200,1000) sits in the void west of the 360-wu fold corridor (corridor is x∈[1320,1680]).
+    const c = clampToPolygon({ x: 1200, y: 1000 }, PAD);
     expect(pointInPolygon(c, PLAYABLE_POLYGON)).toBe(true);
-    expect(c.x).toBeGreaterThanOrEqual(1200 + PAD - 1e-6); // inside the corridor, past its wall
+    expect(c.x).toBeGreaterThanOrEqual(1320 + PAD - 1e-6); // inside the corridor, past its wall
     expect(distanceToBoundary(c, PLAYABLE_POLYGON)).toBeGreaterThanOrEqual(PAD - 1e-6);
   });
 

@@ -15,13 +15,17 @@ import {
   PARKED,
   POWER_BOX,
   TORONTO_TIER_IDENTITY,
+  TRAFFIC_LIGHT,
+  TRAFFIC_LIGHT_FULL_CLASSES,
   TRASH_CAN_ROW,
   TREE_ROW,
   type TorontoTierParams,
 } from '../../config/torontoDress';
 import { QUALITY_TIERS } from '../../config/quality';
+import { resolveCityPackScale } from '../../config/cityPackScale';
+import { ROAD_CLASSES, type RoadClass } from '../../config/torontoMap';
 import { TORONTO_DISTRICTS } from '../../config/torontoDistricts';
-import { hasCityPackModel } from '../../assets/cityPackManifest';
+import { getCityPackModel, hasCityPackModel } from '../../assets/cityPackManifest';
 import { buildFurniture, type FurniturePlacement, type ParkedVehicle } from './furniture';
 
 const SEED = 416; // the repo's canonical dev seed (phase-04/18 notes)
@@ -57,13 +61,54 @@ describe('buildFurniture — determinism', () => {
 });
 
 describe('traffic lights — signalization rule (D16)', () => {
-  it('King x Bay (major x major, both "full" classes) gets exactly 4 masts', () => {
+  it('King x Bay (major x major, both "full" classes) gets 3 of its 4 corner masts (Bay/York proxy artifact drops the 4th)', () => {
+    // Part-8 (D1) compaction closes the Bay/York centreline gap (see namedBuildings.ts's
+    // documented "Bay/York proxy artifact" and roadPaint.test.ts's matching exception) into a
+    // ~0.2 wu ribbon overlap right at this corner — one of the four corner clamps lands ON
+    // York's ribbon and is dropped by the D10 no-furniture-on-ribbon invariant. Every OTHER
+    // signalized 4-corner intersection still mounts all 4 masts (see the map-wide check below).
     const idx = intersections.findIndex(
       (c) => (c.nsId === 'bay' && c.ewId === 'king') || (c.nsId === 'king' && c.ewId === 'bay'),
     );
     expect(idx).toBeGreaterThanOrEqual(0);
     const masts = layout.trafficLights.filter((m) => m.intersectionIndex === idx);
-    expect(masts.length).toBe(4);
+    expect(masts.length).toBe(3);
+  });
+
+  // Live-verification FIX 2 (Part-8, "density/life flip"): on the 6.6-8.8 wu dieted roads the
+  // resolved ~7.2-wu-wide mast arm (at the old 1.35 scale override) spanned the entire road, with
+  // the head hovering near the car at intersection centres. cityPackScale.ts's 'traffic-light'
+  // override dropped 1.35 -> 1.0. Asserts the mast's resolved arm reach, measured from its corner
+  // position (ribbon edge + TRAFFIC_LIGHT.cornerOffsetWu), stays short of EVERY full-class
+  // pairing's nearer crossing-street centreline (min of the two corner-to-centreline distances) —
+  // for every combination TRAFFIC_LIGHT_FULL_CLASSES can produce at a signalized intersection.
+  describe('mast arm reach stays short of the crossing centreline (every full-class pairing)', () => {
+    // The pack model's own bounding box doesn't tell us exactly where the pole sits inside it, so
+    // a small allowance (well under the >2 wu the old 1.35 scale overshot by) covers that
+    // measurement uncertainty without hiding a real regression.
+    const ARM_REACH_TOLERANCE_WU = 0.2;
+    const reach = getCityPackModel('traffic-light').nativeDims.w * resolveCityPackScale('traffic-light');
+
+    const pairs: readonly (readonly [RoadClass, RoadClass])[] = TRAFFIC_LIGHT_FULL_CLASSES.flatMap((ns) =>
+      TRAFFIC_LIGHT_FULL_CLASSES.map((ew): readonly [RoadClass, RoadClass] => [ns, ew]),
+    );
+
+    it.each(pairs)('%s x %s: reach (%#) stays short of the nearer centreline', (nsCls, ewCls) => {
+      const nsHalf = ROAD_CLASSES[nsCls] / 2 + TRAFFIC_LIGHT.cornerOffsetWu;
+      const ewHalf = ROAD_CLASSES[ewCls] / 2 + TRAFFIC_LIGHT.cornerOffsetWu;
+      const nearerCentreline = Math.min(nsHalf, ewHalf);
+      expect(reach, `${nsCls}x${ewCls} reach=${reach.toFixed(2)} vs ${nearerCentreline.toFixed(2)}`).toBeLessThanOrEqual(
+        nearerCentreline + ARM_REACH_TOLERANCE_WU,
+      );
+    });
+
+    it('would have failed badly under the pre-Part-8-retune 1.35 scale (regression guard)', () => {
+      const oldReach = getCityPackModel('traffic-light').nativeDims.w * 1.35;
+      const tightest = Math.min(
+        ...pairs.map(([nsCls, ewCls]) => Math.min(ROAD_CLASSES[nsCls] / 2 + TRAFFIC_LIGHT.cornerOffsetWu, ROAD_CLASSES[ewCls] / 2 + TRAFFIC_LIGHT.cornerOffsetWu)),
+      );
+      expect(oldReach).toBeGreaterThan(tightest + ARM_REACH_TOLERANCE_WU);
+    });
   });
 
   it('a minor x major crossing (john x queen) gets exactly 2 diagonal masts, no stop sign', () => {

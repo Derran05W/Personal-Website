@@ -27,6 +27,7 @@ import {
   kitForCategory,
   type DressingKitId,
 } from '../../config/venueDressing';
+import { scaleBaseY } from './projection';
 import { buildStreets } from './streets';
 import { type LogoBrand } from './logoAtlas';
 
@@ -64,10 +65,12 @@ const mid = (a: number, b: number): number => (a + b) / 2;
 // placesLayer.ts (same rationale: the capsule N-S projection is one linear segment, so
 // street-number -> y is linear too). Anchored on the two H Mart addresses whose cross-streets
 // are named in places.json. Higher street number => further NORTH => smaller y.
+// Part-8 (D2): BASE (pre-compaction) map-y anchors — re-derived via scaleBaseY (both sit inside
+// the north_york zone, so this is a uniform ×DENSITY.scale from the shared y=0 origin).
 const STRIP_N0 = 4885;
-const STRIP_Y0 = 1130; // just inside the capsule below Sheppard
+const STRIP_Y0 = scaleBaseY(1130); // just inside the capsule below Sheppard
 const STRIP_N1 = 5545;
-const STRIP_Y1 = 200; // just below Finch
+const STRIP_Y1 = scaleBaseY(200); // just below Finch
 const STRIP_SLOPE = (STRIP_Y1 - STRIP_Y0) / (STRIP_N1 - STRIP_N0);
 function stripY(streetNumber: number): number {
   return STRIP_Y0 + (streetNumber - STRIP_N0) * STRIP_SLOPE;
@@ -87,7 +90,10 @@ export const VENUE_AUTHORS: readonly VenueAuthor[] = [
     brandColor: '#111111',
     refStreetId: 'yonge',
     side: 'E',
-    along: (c) => c('dundas') - 40,
+    // Part-8 (D1): offset scaled by DENSITY.scale (was -40) — the College-Dundas block this and
+    // the-alley share compacted from ~258 wu to ~155 wu, and the un-scaled offsets collided with
+    // each other (and crowded aura's mid-block exclusion) once the block shrank around them.
+    along: (c) => c('dundas') - 24,
     sourceName: 'Yonge Street Warehouse',
   },
   {
@@ -227,7 +233,10 @@ export const VENUE_AUTHORS: readonly VenueAuthor[] = [
     brandColor: '#2d2a26',
     refStreetId: 'yonge',
     side: 'E',
-    along: (c) => c('college') + 80,
+    // Part-8 (D1): offset scaled by DENSITY.scale (was +80) — see yonge-warehouse's comment above
+    // (same College-Dundas block compaction; this venue's un-scaled offset landed almost exactly
+    // on aura's mid-block exclusion once the block shrank).
+    along: (c) => c('college') + 48,
     sourceName: 'The Alley (bubble tea)',
   },
   // --- North York Yonge strip (street-number interpolation; northward = decreasing y) -------

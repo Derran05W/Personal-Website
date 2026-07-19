@@ -9,11 +9,13 @@
 //
 // Map convention: y is DOWN=south (CLAUDE.md / TDD). Northbound driving = y DECREASING;
 // southbound = y INCREASING. The fold band is the closed interval y ∈ [FOLD_START_Y,
-// FOLD_END_Y] = [1170, 1830] (spec §1/§2 — 1170 is the Sheppard/North-York-capsule edge,
-// 1830 is the Bloor/downtown edge). "Entering" the fold means crossing INTO that closed
-// band from outside it:
-//   - northbound (from downtown, y decreasing): crosses INTO the band at y=1830 (Bloor).
-//   - southbound (from North York, y increasing): crosses INTO the band at y=1170 (Sheppard).
+// FOLD_END_Y] (spec §1/§2 — FOLD_START_Y is the Sheppard/North-York-capsule edge, FOLD_END_Y
+// is the Bloor/downtown edge; both are projection.ts's live ZONE_BOUNDARIES, Part-8 (D1)
+// compaction-derived — e.g. 702/1362 at the current DENSITY.scale, was 1170/1830 pre-compaction;
+// the fold's own SPAN between them is exempt from scaling and always stays 660 wu). "Entering"
+// the fold means crossing INTO that closed band from outside it:
+//   - northbound (from downtown, y decreasing): crosses INTO the band at FOLD_END_Y (Bloor).
+//   - southbound (from North York, y increasing): crosses INTO the band at FOLD_START_Y (Sheppard).
 // Exiting the band (driving on through, or reversing back out) never fires anything on its
 // own — only the two entering crossings above do.
 //
@@ -37,21 +39,23 @@ function insideFoldBand(y: number): boolean {
  * fold-ENTRY crossing just happened, or null if none did.
  *
  * Boundary convention (deliberately chosen + tested, see tunnel.test.ts): the fold band is
- * treated as the CLOSED interval [1170, 1830] — a sample landing EXACTLY on a boundary
- * counts as already inside the band. Concretely:
- *   - northbound (y decreasing, entering at Bloor/1830): fires when `prevY > 1830 && y <=
- *     1830` — the previous sample was strictly south of the boundary (outside/downtown) and
- *     the new sample has reached or passed it. A previous sample already AT 1830 (prevY ===
- *     1830) does NOT re-fire on the next step inward — it was already "inside" per this
+ * treated as the CLOSED interval [FOLD_START_Y, FOLD_END_Y] (live-derived, Part-8 D1: 702/1362
+ * at the current DENSITY.scale) — a sample landing EXACTLY on a boundary counts as already
+ * inside the band. Concretely:
+ *   - northbound (y decreasing, entering at Bloor/FOLD_END_Y): fires when `prevY > FOLD_END_Y
+ *     && y <= FOLD_END_Y` — the previous sample was strictly south of the boundary
+ *     (outside/downtown) and the new sample has reached or passed it. A previous sample already
+ *     AT FOLD_END_Y does NOT re-fire on the next step inward — it was already "inside" per this
  *     convention, so there is exactly one firing sample per entry, not two.
- *   - southbound (y increasing, entering at Sheppard/1170): symmetric — fires when `prevY <
- *     1170 && y >= 1170`.
- * These two conditions are mutually exclusive (prevY can't be both >1830 and <1170), so at
- * most one direction ever fires per call, even for a same-step jump that clears both
- * boundaries at once (see the "fast crossing" test — it fires the northbound entry once and
- * never a southbound one too, because only the first condition's prevY/y pair is satisfied).
+ *   - southbound (y increasing, entering at Sheppard/FOLD_START_Y): symmetric — fires when
+ *     `prevY < FOLD_START_Y && y >= FOLD_START_Y`.
+ * These two conditions are mutually exclusive (prevY can't be both > FOLD_END_Y and <
+ * FOLD_START_Y), so at most one direction ever fires per call, even for a same-step jump that
+ * clears both boundaries at once (see the "fast crossing" test — it fires the northbound entry
+ * once and never a southbound one too, because only the first condition's prevY/y pair is
+ * satisfied).
  *
- * The corridor x-gate is boundary-inclusive too: fires only while `|x - 1500| <= halfWidth`.
+ * The corridor x-gate is boundary-inclusive too: fires only while `|x - YONGE_X| <= halfWidth`.
  */
 export function foldCrossing(
   prevY: number,
@@ -75,8 +79,8 @@ export interface FoldTrigger {
  * Stateful stepper built on `foldCrossing` above. Owns two pieces of state a pure per-sample
  * function can't: the previous sample (crossings are inherently a two-sample comparison) and
  * the re-arm latch (spec requirement: once fired, must not fire again until the player has
- * FULLY LEFT the fold band — y strictly outside [1170, 1830] — so oscillating deep inside the
- * band, e.g. looping around the Yonge & Eglinton mini-node at y≈1500, never re-fires).
+ * FULLY LEFT the fold band — y strictly outside [FOLD_START_Y, FOLD_END_Y] — so oscillating deep
+ * inside the band, e.g. looping around the Yonge & Eglinton mini-node, never re-fires).
  *
  * `halfWidth` is the Yonge-corridor x-gate half-width (map units) — the caller's number
  * (world/toronto's road-class corridor width), fixed for this trigger's lifetime.

@@ -17,12 +17,11 @@ import { ROAD_CLASSES } from './torontoMap';
 
 /**
  * The Yonge-corridor x-gate half-width (map units), fed to `createFoldTrigger` (Phase 25.6
- * D3). Derived from the car-graded road-class widths: half the spine ribbon (Yonge, now 7
- * player-car-widths wide) plus half a car. At the old 36 wu spine the gate was generous enough
- * that a flat `spine / 2` was fine; at the re-graded 15.4 wu spine a car riding the ribbon's
- * curb edge sits with its CENTRE exactly at `spine / 2` — the extra half-car keeps an
- * edge-riding car counted as "on the corridor" without picking up traffic on the parallel
- * frontage one lane over. = 15.4/2 + 2.2/2 = 8.8.
+ * D3). Derived from the car-graded road-class widths: half the spine ribbon (Yonge) plus half a
+ * car — a car riding the ribbon's curb edge sits with its CENTRE exactly at `spine / 2`, so the
+ * extra half-car keeps an edge-riding car counted as "on the corridor" without picking up traffic
+ * on the parallel frontage one lane over. Part-8 (D3) road diet: spine is now 5 player-car-widths
+ * (11.0 wu) — half-width = 11.0/2 + 2.2/2 = 6.6.
  */
 export const CORRIDOR_HALF_WIDTH_WU = ROAD_CLASSES.spine / 2 + CAR_REF.widthWu / 2;
 

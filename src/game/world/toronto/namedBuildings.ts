@@ -23,10 +23,11 @@
 // (Addendum A.2 fixed-bearing branch; map north = −Z per projection.mapToWorld).
 
 import buildingSpecsJson from '../../../../data/toronto/building-specs.json';
+import { NAMED_HEIGHT_SCALE } from '../../config/torontoMap';
 import { CROWN_DECAL, lookForMaterial, type MaterialLook } from '../../config/torontoMaterials';
 import { hGame } from './heightCurve';
-import { PLAYABLE_POLYGON, pointInPolygon } from './polygon';
-import { TORONTO_PROJECTION } from './projection';
+import { PLAYABLE_POLYGON, pointInPolygon, scaleAboutYonge } from './polygon';
+import { scaleBaseY, TORONTO_PROJECTION } from './projection';
 import { buildStreets, type MapRect, type Street } from './streets';
 import { type LogoBrand } from './logoAtlas';
 
@@ -113,11 +114,22 @@ const EXCLUSION_MARGIN_WU = 3;
  * spec §5 adjacency rule (tower + dome touching, south of Front, west of the rail corridor);
  * both sit wholly inside the downtown polygon (asserted in the test — the "clamp inside polygon"
  * requirement is a no-op here, they are already interior). Map space (= world XZ).
+ *
+ * Part-8 (D2): the BASE (pre-compaction) rects — CN Tower ≈ 30×30 centred (950, 3390), Rogers
+ * Centre ≈ 70×70 centred (860, 3450) — are re-derived through scaleAboutYonge/scaleBaseY (the
+ * hero LOTS move with the compacted map; hero HEIGHTS stay exempt — see heroes.ts).
  */
-export const HERO_LOTS: readonly MapRect[] = [
-  { minX: 935, minY: 3375, maxX: 965, maxY: 3405 }, // CN Tower ≈ 30×30 centred (950, 3390)
-  { minX: 825, minY: 3415, maxX: 895, maxY: 3485 }, // Rogers Centre ≈ 70×70 centred (860, 3450)
+const BASE_HERO_LOTS: readonly MapRect[] = [
+  { minX: 935, minY: 3375, maxX: 965, maxY: 3405 }, // CN Tower
+  { minX: 825, minY: 3415, maxX: 895, maxY: 3485 }, // Rogers Centre
 ] as const;
+
+export const HERO_LOTS: readonly MapRect[] = BASE_HERO_LOTS.map((r) => ({
+  minX: scaleAboutYonge(r.minX),
+  maxX: scaleAboutYonge(r.maxX),
+  minY: scaleBaseY(r.minY),
+  maxY: scaleBaseY(r.maxY),
+}));
 
 // --- authored placements -------------------------------------------------------------------
 // Each centre is an offset off resolved street centrelines (never a bare literal coordinate).
@@ -273,6 +285,14 @@ function inflate(r: MapRect, m: number): MapRect {
   return { minX: r.minX - m, minY: r.minY - m, maxX: r.maxX + m, maxY: r.maxY + m };
 }
 
+/** Part-8 (D4): named-building height AFTER the §3c hGame() curve — building-specs.json's
+ * expected_game_h_wu cross-check (data.test.ts / heightCurve.test.ts) stays a pure function of
+ * hGame() alone; this scale is applied here, one level up, so those tests stay untouched. Heroes
+ * (heroes.ts) call hGame() directly and are exempt. */
+function namedHeight(realM: number): number {
+  return hGame(realM) * NAMED_HEIGHT_SCALE;
+}
+
 /** Clamp a rect's corners into the polygon (no-op when already interior — see HERO_LOTS note). */
 function clampRectInside(r: MapRect): MapRect {
   // The hero lots are interior by construction; this only guards against a future edit nudging
@@ -319,14 +339,14 @@ export function buildNamedBuildings(): NamedBuildings {
       }
     }
 
-    const mainBox: NamedBox = { cx, cz, hx, hy: hGame(s.real_h_m) / 2, hz, look };
+    const mainBox: NamedBox = { cx, cz, hx, hy: namedHeight(s.real_h_m) / 2, hz, look };
     const boxes: NamedBox[] = [mainBox];
 
     // Twin secondary tower (Hullmark / Emerald): height by floor ratio off the main.
     if (a.twin) {
       if (s.floors === null) throw new Error(`namedBuildings: twin "${a.id}" needs a main floor count`);
       const secRealM = s.real_h_m * (a.twin.floors / s.floors);
-      boxes.push({ cx: cx + a.twin.dx, cz: cz + a.twin.dz, hx, hy: hGame(secRealM) / 2, hz, look });
+      boxes.push({ cx: cx + a.twin.dx, cz: cz + a.twin.dz, hx, hy: namedHeight(secRealM) / 2, hz, look });
     }
 
     // Podium (The Well): a lower, differently-materialed box.
@@ -335,7 +355,7 @@ export function buildNamedBuildings(): NamedBuildings {
         cx: cx + a.podium.dx,
         cz: cz + a.podium.dz,
         hx: a.podium.w / 2,
-        hy: hGame(a.podium.realM) / 2,
+        hy: namedHeight(a.podium.realM) / 2,
         hz: a.podium.d / 2,
         look: lookForMaterial(a.podium.material),
       });

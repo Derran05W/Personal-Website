@@ -10,8 +10,8 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CAR_REF } from '../../config/cityPackScale';
 import { EDGE_PAD_WU, ROAD_CLASSES } from '../../config/torontoMap';
-import { PLAYABLE_POLYGON, pointInPolygon } from './polygon';
-import { TORONTO_PROJECTION } from './projection';
+import { PLAYABLE_POLYGON, pointInPolygon, scaleAboutYonge } from './polygon';
+import { TORONTO_PROJECTION, ZONE_BOUNDARIES } from './projection';
 import { STREET_ANCHORS, STREET_DEFS, buildStreets } from './streets';
 
 interface RawAnchor {
@@ -137,19 +137,19 @@ describe('boundary-nudge — streets on a polygon/zone boundary shift inward by 
 
   it('Bloor nudges south, ribbon fully inside, |shift| = half-width', () => {
     nudgeCase('bloor');
-    expect(streetById.get('bloor')!.centerline).toBeGreaterThan(1830); // south
+    expect(streetById.get('bloor')!.centerline).toBeGreaterThan(ZONE_BOUNDARIES[2]); // south
   });
 
   it('Sheppard nudges north, ribbon fully inside, |shift| = half-width', () => {
     nudgeCase('sheppard');
-    expect(streetById.get('sheppard')!.centerline).toBeLessThan(1170); // north
+    expect(streetById.get('sheppard')!.centerline).toBeLessThan(ZONE_BOUNDARIES[1]); // north
   });
 
   it('raw (un-nudged) Bloor ribbon would poke out of the polygon (nudge is necessary)', () => {
     // Sanity: the north-west corner of an un-nudged Bloor ribbon is outside — proving the rule
     // is doing real work, not decoration.
     const s = streetById.get('bloor')!;
-    expect(inside(EDGE_PAD_WU, 1830 - s.halfWidth)).toBe(false);
+    expect(inside(EDGE_PAD_WU, ZONE_BOUNDARIES[2] - s.halfWidth)).toBe(false);
   });
 });
 
@@ -216,11 +216,11 @@ describe('spans resolve to referenced streets / zone edges — not magic numbers
     expect(s.span[1]).toBeLessThanOrEqual(1800 - EDGE_PAD_WU + 1e-6);
   });
 
-  it('Front spans Bathurst → x=1900 (rail-lands stylization)', () => {
+  it('Front spans Bathurst → x=1900 (rail-lands stylization, Part-8 D2: re-derived via scaleAboutYonge)', () => {
     const front = streetById.get('front')!;
     const bathurst = streetById.get('bathurst')!;
     expect(front.span[0]).toBeCloseTo(bathurst.centerline, 6);
-    expect(front.span[1]).toBeCloseTo(1900, 6);
+    expect(front.span[1]).toBeCloseTo(scaleAboutYonge(1900), 6);
   });
 
   it('Bremner spans Spadina → York', () => {
@@ -238,12 +238,12 @@ describe('spans resolve to referenced streets / zone edges — not magic numbers
 // supersedes that table: widths are now whole-car multiples of CAR_REF.widthWu
 // (config/cityPackScale.ts), graded spine(7) > artery(6) > major(5) > minor(3.5). This block
 // pins the DERIVATION, not a bare literal, per the "re-derive, never hand-pin" policy (D4d).
-describe('config sanity — car-derived widths (§3a superseded, CLAUDE.md CITY-PACK REAPPROACH rule 4)', () => {
+describe('config sanity — car-derived widths (§3a superseded, CLAUDE.md CITY-PACK REAPPROACH rule 4; Part-8 D3 road diet)', () => {
   it('spine/artery/major/minor are exact whole-car multiples of CAR_REF.widthWu', () => {
-    expect(ROAD_CLASSES.spine).toBeCloseTo(7 * CAR_REF.widthWu, 9);
-    expect(ROAD_CLASSES.artery).toBeCloseTo(6 * CAR_REF.widthWu, 9);
-    expect(ROAD_CLASSES.major).toBeCloseTo(5 * CAR_REF.widthWu, 9);
-    expect(ROAD_CLASSES.minor).toBeCloseTo(3.5 * CAR_REF.widthWu, 9);
+    expect(ROAD_CLASSES.spine).toBeCloseTo(5 * CAR_REF.widthWu, 9);
+    expect(ROAD_CLASSES.artery).toBeCloseTo(4.5 * CAR_REF.widthWu, 9);
+    expect(ROAD_CLASSES.major).toBeCloseTo(4 * CAR_REF.widthWu, 9);
+    expect(ROAD_CLASSES.minor).toBeCloseTo(3 * CAR_REF.widthWu, 9);
   });
 
   it('the class ordering still holds (spine widest, minor narrowest — §2 "spine reads first")', () => {
@@ -252,11 +252,11 @@ describe('config sanity — car-derived widths (§3a superseded, CLAUDE.md CITY-
     expect(ROAD_CLASSES.major).toBeGreaterThan(ROAD_CLASSES.minor);
   });
 
-  it('matches the plan-pinned current values (spine 15.4 / artery 13.2 / major 11.0 / minor 7.7)', () => {
-    expect(ROAD_CLASSES.spine).toBeCloseTo(15.4, 9);
-    expect(ROAD_CLASSES.artery).toBeCloseTo(13.2, 9);
-    expect(ROAD_CLASSES.major).toBeCloseTo(11.0, 9);
-    expect(ROAD_CLASSES.minor).toBeCloseTo(7.7, 9);
+  it('matches the Part-8 D3 road-diet values (spine 11.0 / artery 9.9 / major 8.8 / minor 6.6)', () => {
+    expect(ROAD_CLASSES.spine).toBeCloseTo(11.0, 9);
+    expect(ROAD_CLASSES.artery).toBeCloseTo(9.9, 9);
+    expect(ROAD_CLASSES.major).toBeCloseTo(8.8, 9);
+    expect(ROAD_CLASSES.minor).toBeCloseTo(6.6, 9);
   });
 
   it('every street carries a width matching its class', () => {

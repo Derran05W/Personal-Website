@@ -58,8 +58,8 @@ describe('D9 computed examples pinned', () => {
     expect(CITY_PACK_SCALE_OVERRIDES['brown-building']).toBeCloseTo(5.92, 1);
   });
 
-  it('traffic-light scale = 1.35 (provisional, plan-pinned)', () => {
-    expect(CITY_PACK_SCALE_OVERRIDES['traffic-light']).toBe(1.35);
+  it('traffic-light scale = 1.0 (Phase 27 road-diet retune, was 1.35 provisional)', () => {
+    expect(CITY_PACK_SCALE_OVERRIDES['traffic-light']).toBe(1.0);
   });
 
   it('bench scale = 0.9 (provisional, plan-pinned)', () => {
