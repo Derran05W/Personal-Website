@@ -433,14 +433,10 @@ declare global {
        * module's doc comment for the handoff — this flag alone changes no behavior until
        * combat/damage.ts's applyPlayerDamage() is wired to read it. */
       setInvincible: (value: boolean) => void;
-      /** Phase 22: scripted mirror of the devPanel "Toronto map (P22)" toggle (leva DOM
-       * is canvas-occluded in headless). Flip in GARAGE — it changes the world remount
-       * key, so a live run would be torn down. */
-      setTorontoMap: (value: boolean) => void;
       /** Phase 25.5: scripted mirror of the devPanel "City Pack (P25.5)" toggles — mounts the
        * proof-of-render cluster (`preview`) and flips the lit/unlit A/B arm (`unlit`). Same
-       * leva-free devToggles seam as setTorontoMap; safe to flip live (TorontoScene mounts/updates
-       * the cluster additively without a world remount). Meaningful only with torontoMap on. */
+       * leva-free devToggles seam every dev toggle uses; safe to flip live (TorontoScene mounts/
+       * updates the cluster additively without a world remount). */
       setCityPackPreview: (value: boolean) => void;
       setCityPackUnlit: (value: boolean) => void;
       /** Phase 25.6: scripted mirrors of the "City Pack re-dress (P25.6)" layer toggles — gate the
@@ -657,7 +653,6 @@ window.__smashy = {
   forceSpawnPolice: () => unitsRef.current?.forceSpawn('police' satisfies UnitKind) ?? false,
   forceSpawnUnit: (kind) => (isUnitKind(kind) ? (unitsRef.current?.forceSpawn(kind) ?? false) : false),
   setInvincible: (value) => setDevToggle('invincible', value),
-  setTorontoMap: (value) => setDevToggle('torontoMap', value),
   setCityPackPreview: (value) => setDevToggle('cityPackPreview', value),
   setCityPackUnlit: (value) => setDevToggle('cityPackUnlit', value),
   setPackBuildings: (value) => setDevToggle('packBuildings', value),

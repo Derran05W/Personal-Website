@@ -1,7 +1,7 @@
-// Phase 22 — the drivable Toronto "thermometer" dev slice (behind the `torontoMap` leva
-// toggle; game/index.tsx swaps the whole 64×64 legacy world for this when it's on, and mounts
-// nothing new when it's off). Everything the Finch→Union drive needs and nothing Phase 23 will
-// throw away:
+// Phase 22 — the drivable Toronto "thermometer" map. Originally built behind the dev-only
+// `torontoMap` leva toggle; Phase 32 (the flip, config/worldSource.ts) removed that toggle and
+// made this the unconditionally-mounted shipped world — game/index.tsx no longer has a legacy
+// branch to swap with. Everything the Finch→Union drive needs and nothing Phase 23 threw away:
 //   • GROUND — the three §1 polygon rects (capsule / fold corridor / downtown) as one merged
 //     flat mesh + three fixed GROUND-group cuboid colliders whose TOP face sits at y=0 (the
 //     wheel-ray contract, same as world/CityScape.tsx's slab);
@@ -954,7 +954,8 @@ export function TorontoScene() {
   // initializer — NOT a reactive subscription, matching world/CityScape.tsx's
   // parkedCarKeepFraction/sceneryKeepFraction precedent exactly (see that file's doc comment). A
   // mid-run quality change must not thin buildings/furniture/colliders out from under a live run;
-  // the new tier applies on the next mount (new seed, new run, or the torontoMap toggle).
+  // the new tier applies on the next mount (new seed or new run — Phase 32: this scene is now
+  // always mounted, there is no toggle remount to also key off of).
   const [tierParams] = useState(() => {
     const tier = QUALITY_TIERS[useGameStore.getState().settings.quality];
     return {
@@ -993,8 +994,9 @@ export function TorontoScene() {
   // CityDress → VenueDressLayer; its dressing-prop model ids join the preload set below.
   const dress = useMemo(() => buildVenueDress(frontage.venueClaims), [frontage]);
 
-  // Preload every used pack GLB once the slice mounts (never at module scope — a `torontoMap`-off
-  // load fetches nothing). Covers frontage buildings, furniture props, parked cars, traffic lights,
+  // Preload every used pack GLB once the scene mounts (an effect, not module scope, so a build
+  // that never mounts this component — e.g. a unit test importing the module in isolation —
+  // fetches nothing). Covers frontage buildings, furniture props, parked cars, traffic lights,
   // the venue-dressing kit props, and the Phase 28 infill layer's fixed/decor/cone model ids.
   useEffect(() => {
     const ids = new Set<string>(frontage.modelIds);

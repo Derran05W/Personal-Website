@@ -709,22 +709,6 @@ export default function DevPanel() {
     [],
   );
 
-  // --- Toronto map (P22): drivable dev slice toggle -----------------------------------------
-  // Swaps the 64×64 legacy world for world/toronto/TorontoScene.tsx (game/index.tsx reads the
-  // devToggles flag, joins it to the world remount key, and renders the slice when on). Same
-  // leva-free devToggles seam as the World folder's minimap/graphViz toggles.
-  useControls(
-    'Toronto map (P22)',
-    () => ({
-      torontoMap: {
-        value: getDevToggles().torontoMap,
-        onChange: (value: boolean) => setDevToggle('torontoMap', value),
-      },
-      note: { value: 'drivable dev slice; legacy world untouched when off', disabled: true },
-    }),
-    [],
-  );
-
   // --- City Pack (P25.5): proof-of-render cluster + lit/unlit A/B ---------------------------
   // Mounts world/toronto/cityPack/CityPackPreview.tsx near the Toronto spawn (needs the Toronto
   // map on). `cityPackUnlit` flips the D8 material A/B — unlit-literal (default) vs the GLBs' real
@@ -740,7 +724,7 @@ export default function DevPanel() {
         value: getDevToggles().cityPackUnlit,
         onChange: (value: boolean) => setDevToggle('cityPackUnlit', value),
       },
-      note: { value: 'needs Toronto map on; unlit=basic+palette, lit=real GLB materials', disabled: true },
+      note: { value: 'unlit=basic+palette, lit=real GLB materials', disabled: true },
     }),
     [],
   );
@@ -768,7 +752,7 @@ export default function DevPanel() {
         value: getDevToggles().packLightCycling,
         onChange: (value: boolean) => setDevToggle('packLightCycling', value),
       },
-      note: { value: 'needs Toronto map on; re-dressed world (frontage/furniture/parked/lamps)', disabled: true },
+      note: { value: 're-dressed world (frontage/furniture/parked/lamps)', disabled: true },
     }),
     [],
   );
@@ -783,7 +767,7 @@ export default function DevPanel() {
         value: getDevToggles().packInfill,
         onChange: (value: boolean) => setDevToggle('packInfill', value),
       },
-      note: { value: 'needs Toronto map on; corner fill/back-lot/laneway/parking/construction/lane closures', disabled: true },
+      note: { value: 'corner fill/back-lot/laneway/parking/construction/lane closures', disabled: true },
     }),
     [],
   );
@@ -813,7 +797,7 @@ export default function DevPanel() {
           });
         });
       }
-      schema.note = { value: 'needs Toronto map on; teleport frames the venue for a drive-past', disabled: true };
+      schema.note = { value: 'teleport frames the venue for a drive-past', disabled: true };
       return schema as unknown as LevaSchema;
     },
     [],

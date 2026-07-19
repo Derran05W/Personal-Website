@@ -1,11 +1,16 @@
 // Phase 25.5 (D14) — the city-pack proof-of-render cluster. Behind the `cityPackPreview` dev
-// toggle (default off; meaningful only with `torontoMap` on), this mounts a small cluster of pack
-// models near the Toronto spawn so the loader (assets/cityPack.ts), the instancer
-// (CityPackInstances.tsx), the scale config (config/cityPackScale.ts), and the collider math all get
-// exercised through their REAL paths and judged under the REAL BlueHourRig — while the full world
-// re-dress stays in 25.6. The `unlit` prop is the A/B material arm (D8), threaded from the
-// `cityPackUnlit` toggle: true = MeshBasicMaterial + baked palette map (toneMapped=false), false =
-// the GLB's real lit material.
+// toggle (default off), this mounts a small cluster of pack models near the Toronto spawn so the
+// loader (assets/cityPack.ts), the instancer (CityPackInstances.tsx), the scale config
+// (config/cityPackScale.ts), and the collider math all get exercised through their REAL paths and
+// judged under the REAL BlueHourRig — while the full world re-dress stays in 25.6. The `unlit`
+// prop is the A/B material arm (D8), threaded from the `cityPackUnlit` toggle: true =
+// MeshBasicMaterial + baked palette map (toneMapped=false), false = the GLB's real lit material.
+//
+// NOTE (Phase 32 flip): this cluster's fixed world coordinates (below) were authored relative to
+// the Phase 22 Finch-area spawn; TORONTO_SPAWN moved to downtown (config/torontoMap.ts) and this
+// cluster did NOT move with it — it now renders in the North York capsule, disconnected from the
+// spawn, and may sit near/inside the deterministic seed-416 frontage there. Dev-only, default off,
+// out of Part-8 scope; flagged as debt rather than silently left wrong.
 //
 // LAYOUT (dev-only — NO determinism contract; hand-nudged, comment-documented): the cluster sits in
 // the Yonge spine corridor (x≈1482–1518, the drivable 36 wu road) just south of TORONTO_SPAWN

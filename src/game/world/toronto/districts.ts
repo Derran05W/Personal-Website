@@ -68,8 +68,8 @@ const DISTRICT_ORDER: readonly DistrictId[] = TORONTO_DISTRICTS.map((d) => d.id)
 const DISTRICT_INDEX = new Map<DistrictId, number>(DISTRICT_ORDER.map((id, i) => [id, i]));
 
 /** Number of Toronto districts (15: the 13 §6 rows + genericDowntown + foldCorridor) — the
- * powergrid districtCount override (game/index.tsx passes this to initPowerGrid when
- * torontoMap is on) and every registry districtId in Toronto colliders is bounded by this. */
+ * powergrid districtCount override (game/index.tsx passes this to initPowerGrid unconditionally
+ * since the Phase 32 flip) and every registry districtId in Toronto colliders is bounded by this. */
 export const TORONTO_DISTRICT_COUNT = TORONTO_DISTRICTS.length;
 
 /** The canonical numeric index for a Toronto DistrictId (0..TORONTO_DISTRICT_COUNT-1). Throws

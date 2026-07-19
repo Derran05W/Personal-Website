@@ -72,7 +72,7 @@ export const DRESS_DENSITY_SCALAR = 1.0;
  * plain data param, so neither builder ever reads the store or config/quality.ts directly and
  * both stay pure functions of `(seed, tierParams)`. A mid-run quality change can never thin a
  * live run's buildings/furniture/colliders out from under it — the new tier only applies on the
- * next mount (new seed, new run, or the torontoMap toggle), exactly like the legacy-world tiers.
+ * next mount (new seed or new run), exactly like the legacy-world tiers did.
  */
 export interface TorontoTierParams {
   /** Multiplies DRESS_DENSITY_SCALAR in furniture.ts's row-spacing math (trees/hydrants/

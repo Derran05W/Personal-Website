@@ -8,7 +8,9 @@ import {
   rectWorldBox,
 } from './torontoSceneHelpers';
 import { PLAYABLE_POLYGON, pointInPolygon } from './polygon';
-import type { MapRect } from './streets';
+import { buildStreets, type MapRect } from './streets';
+import { ZONE_BOUNDARIES } from './projection';
+import { LANE_OFFSET_WU } from '../../config/torontoMap';
 
 /** Map-point for a world position (inverse of mapToWorld's identity swap): world x -> map x,
  * world z -> map y. */
@@ -37,13 +39,24 @@ describe('torontoSceneHelpers — everything stays inside the §1 polygon', () =
     }
   });
 
-  it('the spawn pose lands inside the polygon, in the capsule, on the Yonge spine', () => {
+  it('the spawn pose lands inside the polygon, in the downtown zone, on the Yonge spine southbound lane', () => {
     const p = worldToMapPoint(TORONTO_SPAWN_POSE.position);
     expect(pointInPolygon(p, PLAYABLE_POLYGON)).toBe(true);
-    // Yonge spine (x=1500) just south of Finch (y in the capsule band 0..1170).
-    expect(p.x).toBe(1500);
-    expect(p.y).toBeGreaterThan(0);
-    expect(p.y).toBeLessThan(1170);
+    // Phase 32 (D3): the southbound lane, offset off the spine centreline — never dead-centre,
+    // so the player starts in the exact lane southbound AI traffic drives.
+    expect(p.x).toBeCloseTo(1500 - LANE_OFFSET_WU.spine, 5);
+    // Downtown zone (Bloor -> shore), specifically mid-block between Dundas and Queen — a drift
+    // guard against config/torontoMap.ts's TORONTO_SPAWN.y going stale if the anchors/DENSITY
+    // scale are ever re-tuned (that literal's own doc comment records the same provenance).
+    expect(p.y).toBeGreaterThan(ZONE_BOUNDARIES[2]);
+    expect(p.y).toBeLessThan(ZONE_BOUNDARIES[3]);
+    const { streets } = buildStreets();
+    const dundas = streets.find((s) => s.id === 'dundas');
+    const queen = streets.find((s) => s.id === 'queen');
+    expect(dundas).toBeDefined();
+    expect(queen).toBeDefined();
+    expect(p.y).toBeGreaterThan(dundas!.centerline);
+    expect(p.y).toBeLessThan(queen!.centerline);
     // Settle-safe height, upright (identity) facing.
     expect(TORONTO_SPAWN_POSE.position.y).toBeGreaterThan(0);
     expect(TORONTO_SPAWN_POSE.rotation).toEqual({ x: 0, y: 0, z: 0, w: 1 });

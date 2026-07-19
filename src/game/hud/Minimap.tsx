@@ -8,13 +8,8 @@
 // game/index.tsx only needs one mount line (see the doc comment there).
 
 import { useEffect, useRef, type CSSProperties } from 'react';
-import { WORLD } from '../config';
-import { tileCenter } from '../world/types';
-import { worldRef } from '../world/worldRef';
 import { playerVehicle } from '../vehicles/playerRef';
 import { useDevToggle } from '../core/devToggles';
-import { isDistrictDark, getLightPoolPositions } from '../core/debugBridge';
-import { TILE_COLORS, districtPixelRect, worldToMapPx } from './minimapMath';
 import { streetEndpointsWorld, torontoPolygonPx, torontoWorldToMapPx, TORONTO_MINIMAP_STREETS } from './torontoMinimapMath';
 
 const MAP_PX = 192;
@@ -22,15 +17,6 @@ const REDRAW_INTERVAL_MS = 100; // ~10 Hz — a debug tool, not part of the rend
 const PLAYER_DOT_RADIUS_PX = 3;
 const EDGE_STROKE = 'rgba(255, 255, 255, 0.35)';
 const PLAYER_DOT_COLOR = '#ff3b3b';
-// Phase 13 Task 4: dark-district overlay + light-pool viz dots. DISTRICT_COUNT mirrors
-// world/instancing.ts's derivation (WORLD.districts squared) without importing that
-// (three.js-heavy) module into this tiny DOM-canvas component.
-const DISTRICT_COUNT = WORLD.districts * WORLD.districts;
-// Deliberately more opaque/darker than any TILE_COLORS entry so a dark district reads as
-// visibly "dead" at a glance, not just a slightly muddier version of its lit tiles.
-const DISTRICT_DARK_FILL = 'rgba(4, 6, 10, 0.72)';
-const LIGHT_POOL_DOT_COLOR = '#ffd166';
-const LIGHT_POOL_DOT_RADIUS_PX = 2;
 // Phase 29 (D6): Toronto street-ribbon stroke — dimmer than the polygon outline (EDGE_STROKE)
 // so the boundary reads as the primary shape and the grid as secondary detail.
 const TORONTO_STREET_STROKE = 'rgba(255, 255, 255, 0.2)';
@@ -56,12 +42,6 @@ const canvasStyle: CSSProperties = { width: '100%', height: '100%', display: 'bl
 
 export default function Minimap() {
   const visible = useDevToggle('minimap');
-  const lightPoolVizOn = useDevToggle('lightPoolViz');
-  // Phase 29 (D6): Toronto-aware minimap source — polygon extent + road ribbons + player blip,
-  // replacing the legacy tile-grid read while the torontoMap toggle is on. District tints/
-  // dark-district overlay/light-pool viz stay legacy-only this phase (see drawToronto's doc
-  // comment) — an honest scope cut, not an oversight.
-  const torontoOn = useDevToggle('torontoMap');
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -69,81 +49,14 @@ export default function Minimap() {
     const ctx = canvasRef.current?.getContext('2d');
     if (!ctx) return;
 
-    const drawLegacy = () => {
-      const world = worldRef.current;
-      if (!world) return; // nothing generated yet — leave the frame empty.
+    // Phase 29 (D6), unconditional since the Phase 32 flip: polygon outline + road ribbons +
+    // player blip. No district-tint/dark-district/light-pool overlay — that legacy-only reading
+    // (tile grid + 16-district grid) was retired with the legacy world (Phase 32 de-import); a
+    // Toronto-districtId-aware version of those overlays remains a documented future debt, not
+    // wired here (phase-29-notes.md).
+    const draw = () => {
+      ctx.clearRect(0, 0, MAP_PX, MAP_PX);
 
-      // Tiles: one pixel-block per tile, colored by type.
-      const blockPx = MAP_PX / WORLD.tiles;
-      for (const tile of world.tiles) {
-        const { x: wx, z: wz } = tileCenter(tile.col, tile.row);
-        const { x, y } = worldToMapPx(wx, wz, MAP_PX);
-        ctx.fillStyle = TILE_COLORS[tile.type];
-        ctx.fillRect(x - blockPx / 2, y - blockPx / 2, blockPx, blockPx);
-      }
-
-      // Phase 13 Task 4: dark-district overlay — one flat alpha square per dark district
-      // over its 16x16-tile region (minimapMath.districtPixelRect), drawn on top of that
-      // district's tiles so it reads as visibly dead at a glance. Read at this same 10 Hz
-      // tick from core/debugBridge.ts's isDistrictDark — see that module's doc comment for
-      // what it stands in for pre-integration (Tasks 1-2's real powergrid/grid.ts).
-      for (let d = 0; d < DISTRICT_COUNT; d++) {
-        if (!isDistrictDark(d)) continue;
-        const { x, y, size } = districtPixelRect(d, MAP_PX);
-        ctx.fillStyle = DISTRICT_DARK_FILL;
-        ctx.fillRect(x, y, size, size);
-      }
-
-      // Traffic graph edges, thin lines. Looked up by id (not array index) — TrafficNode
-      // ids aren't type-guaranteed to equal their array position.
-      const nodeById = new Map(world.graph.nodes.map((node) => [node.id, node]));
-      ctx.strokeStyle = EDGE_STROKE;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (const edge of world.graph.edges) {
-        const from = nodeById.get(edge.from);
-        const to = nodeById.get(edge.to);
-        if (!from || !to) continue;
-        const a = worldToMapPx(from.x, from.z, MAP_PX);
-        const b = worldToMapPx(to.x, to.z, MAP_PX);
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-      }
-      ctx.stroke();
-
-      // Player dot.
-      const pose = playerVehicle.current?.readState().pose;
-      if (pose) {
-        const { x, y } = worldToMapPx(pose.position.x, pose.position.z, MAP_PX);
-        ctx.fillStyle = PLAYER_DOT_COLOR;
-        ctx.beginPath();
-        ctx.arc(x, y, PLAYER_DOT_RADIUS_PX, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Phase 13 Task 4: light-pool viz, opt-in (core/devToggles.ts's `lightPoolViz`,
-      // default off) — small dots at the pooled dynamic lights' world positions, chosen
-      // over an in-scene marker set as the cheaper/clearer option (see that toggle's doc
-      // comment). Reads core/debugBridge.ts's getLightPoolPositions, a stub returning []
-      // until powergrid/lightPool.ts (Task 3, concurrent this wave) lands and exposes real
-      // pool positions.
-      if (lightPoolVizOn) {
-        ctx.fillStyle = LIGHT_POOL_DOT_COLOR;
-        for (const p of getLightPoolPositions()) {
-          const { x, y } = worldToMapPx(p.x, p.z, MAP_PX);
-          ctx.beginPath();
-          ctx.arc(x, y, LIGHT_POOL_DOT_RADIUS_PX, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-    };
-
-    // Phase 29 (D6): the Toronto source — polygon outline + road ribbons + player blip. No
-    // world/tile grid exists to read (Toronto has no WorldData), and no district-tint/dark-
-    // district/light-pool overlay this phase (honest scope cut, flagged in phase-29-notes.md —
-    // the dark-district read would need its own Toronto-districtId-aware wiring; district COUNT
-    // already differs, 15 vs the legacy 16 DISTRICT_COUNT this file's dark-overlay loop uses).
-    const drawToronto = () => {
       const polyPx = torontoPolygonPx(MAP_PX);
       ctx.strokeStyle = EDGE_STROKE;
       ctx.lineWidth = 1.5;
@@ -174,16 +87,10 @@ export default function Minimap() {
       }
     };
 
-    const draw = () => {
-      ctx.clearRect(0, 0, MAP_PX, MAP_PX);
-      if (torontoOn) drawToronto();
-      else drawLegacy();
-    };
-
     draw();
     const id = setInterval(draw, REDRAW_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [visible, lightPoolVizOn, torontoOn]);
+  }, [visible]);
 
   if (!visible) return null;
 

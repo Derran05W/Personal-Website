@@ -126,23 +126,28 @@ describe('CREDITS.assets — honesty statement', () => {
   });
 });
 
-describe('CREDITS.assetPacks — Phase 25.5 city-pack licence placeholder (D13)', () => {
+describe('CREDITS.assetPacks — Phase 32 city-pack licence confirmation (Part-8 licence gate)', () => {
   it('has at least one entry (never silently empty — a pack in the pipeline always shows up here)', () => {
     expect(CREDITS.assetPacks.length).toBeGreaterThan(0);
   });
 
-  it('the city asset pack entry exists with a pending-user-confirmation status', () => {
+  it('the city asset pack entry exists with a confirmed status (Phase 32 — pending badge dropped)', () => {
     const pack = CREDITS.assetPacks.find((p) => p.name.includes('City asset pack'));
     expect(pack).toBeDefined();
-    expect(pack?.licenseStatus).toBe('pending-user-confirmation');
+    expect(pack?.licenseStatus).toBe('confirmed');
   });
 
-  it('the pending entry explains the metadata gap and that a resolution is pending — surfaces the gap, never fails the battery on it', () => {
-    const pack = CREDITS.assetPacks.find((p) => p.licenseStatus === 'pending-user-confirmation');
+  it('no pack entry is still pending-user-confirmation', () => {
+    expect(CREDITS.assetPacks.some((p) => p.licenseStatus === 'pending-user-confirmation')).toBe(false);
+  });
+
+  it('the confirmed entry states it is open-source, used with permission, and dated', () => {
+    const pack = CREDITS.assetPacks.find((p) => p.name.includes('City asset pack'));
     expect(pack).toBeDefined();
     const note = pack!.note.toLowerCase();
-    expect(note).toContain('licence pending');
-    expect(note).toMatch(/metadata/);
+    expect(note).toContain('open-source');
+    expect(note).toContain('used with permission');
+    expect(note).toContain('2026-07-18');
   });
 
   it('every assetPacks entry has a non-empty name and note', () => {

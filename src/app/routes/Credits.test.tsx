@@ -41,7 +41,7 @@ describe('Credits route', () => {
     expect(screen.getByTestId('credits-fonts-statement')).toHaveTextContent('Fredoka');
   });
 
-  it('shows the Phase 25.5 asset-pack entry with a visible "licence pending" status', () => {
+  it('shows the city asset-pack entry with its note, and no "licence pending" badge (Phase 32 — confirmed)', () => {
     renderCredits();
     const items = screen.getAllByTestId('credits-pack-item');
     expect(items.length).toBe(CREDITS.assetPacks.length);
@@ -49,11 +49,9 @@ describe('Credits route', () => {
       expect(screen.getByText(pack.name)).toBeInTheDocument();
       expect(screen.getByText(pack.note)).toBeInTheDocument();
     }
-    const statuses = screen.getAllByTestId('credits-pack-status');
-    expect(statuses.length).toBeGreaterThan(0);
-    for (const status of statuses) {
-      expect(status).toHaveTextContent('licence pending');
-    }
+    // Credits.tsx only renders the status badge when licenseStatus === 'pending-user-confirmation'
+    // — every pack is 'confirmed' as of Phase 32, so the badge must be entirely absent now.
+    expect(screen.queryAllByTestId('credits-pack-status').length).toBe(0);
   });
 
   it('lists every brand-trademark entry with its full note', () => {

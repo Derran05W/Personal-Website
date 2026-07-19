@@ -45,16 +45,19 @@ export interface BrandTrademarkEntry {
   note: string;
 }
 
-/** Licence status for a third-party asset pack (Phase 25.5, D13). 'pending-user-confirmation'
- * is the only status any pack currently carries — kept as a union (not a bare string) so a
- * future 'confirmed' pack has a typed home to land in without a shape change. */
+/** Licence status for a third-party asset pack (Phase 25.5, D13). Phase 32 (Part-8 licence
+ * gate, cleared 2026-07-18) moved the city pack from 'pending-user-confirmation' to
+ * 'confirmed' — kept as a union (not a bare string) rather than collapsing to a boolean so any
+ * future pack that lands still-unconfirmed has the same typed, visibly-flagged home to land in
+ * without a shape change. */
 export type AssetPackLicenseStatus = 'pending-user-confirmation' | 'confirmed';
 
-/** A third-party asset pack credited (or pending credit) on /credits. Phase 25.5 introduces
- * the first one — see phase-25.5-plan.md D13: the pack's licence could not be determined from
- * the files themselves (all embedded copyright/licence metadata was stripped by a prior
- * re-export), so it ships with an explicit, visible "pending" status rather than a guessed or
- * omitted credit. */
+/** A third-party asset pack credited on /credits. Phase 25.5 introduced the first one — see
+ * phase-25.5-plan.md D13: the pack's licence could not be determined from the files themselves
+ * (all embedded copyright/licence metadata was stripped by a prior re-export), so it shipped
+ * with an explicit, visible "pending" status rather than a guessed or omitted credit. Phase 32
+ * confirmed the licence (open-source, used with permission); the metadata gap itself (no
+ * download link/licence name/author on file) is unchanged and still explained in `note`. */
 export interface AssetPackCredit {
   readonly name: string;
   readonly licenseStatus: AssetPackLicenseStatus;
@@ -163,8 +166,10 @@ export const CREDITS: CreditsContent = {
       'Kenney.nl/Quaternius/Poly Pizza (see the project README), but those hosts were',
       'unreachable from the build environment for the entire project, so the fallback (100%',
       'procedural geometry) became the shipped path for every asset rather than a partial',
-      'one. Starting Phase 25.5, a third-party GLB collection entered the asset pipeline for',
-      'a dev-only proof-of-render slice (off by default for every player) — see "Asset',
+      'one. Starting Phase 25.5, a third-party GLB collection entered the asset pipeline as a',
+      'dev-only proof-of-render slice and, as of Phase 32, is the shipped source for every',
+      'referenced world building, street-furniture item, and non-player vehicle in the Toronto',
+      'map — player cars and every police/military pursuit unit stay procedural. See "Asset',
       'packs" below for its licence status.',
     ].join(' '),
     audio: [
@@ -187,22 +192,30 @@ export const CREDITS: CreditsContent = {
   assetPacks: [
     {
       name: 'City asset pack (52-model GLB collection)',
-      licenseStatus: 'pending-user-confirmation',
+      // Phase 32 (Part-8 licence gate — cleared 2026-07-18): the site owner confirmed the pack
+      // is open-source and used with permission. Every file in the pack had already been
+      // re-exported through a third-party glTF optimization tool before it reached this
+      // project, which stripped embedded copyright/licence metadata, so the exact download
+      // link, licence name, and original author(s) are not yet on file — this is the dated
+      // "used with permission" fallback wording (part-8-density-life-flip.md, "User decisions
+      // #1"), not a guessed attribution.
+      licenseStatus: 'confirmed',
       note: [
         'A 52-model city/vehicle/prop GLB collection (buildings, street furniture, and',
-        'vehicles) entered the asset pipeline in Phase 25.5 for a dev-only proof-of-render',
-        'slice — off by default, and not part of any build a player sees without deliberately',
-        'flipping a developer-only toggle. Every file in the pack had already been',
+        'vehicles) — the shipped source for every referenced world building, street-furniture',
+        'item, and non-player vehicle on the Toronto map. Open-source, used with permission —',
+        'confirmed by the site owner on 2026-07-18. Every file in the pack had already been',
         're-exported through a third-party glTF optimization tool before it reached this',
-        'project, which strips embedded copyright/licence metadata — nothing in any of the',
-        'source files identifies a licence or original author(s). Filename patterns',
-        '(randomized ID suffixes, a texture literally named "Zombie_Atlas.png") suggest a',
-        'mixed multi-author collection rather than a single-licence pack, which may mean',
-        'per-model attribution is needed rather than one blanket credit. Licence pending —',
-        "the project owner is confirming the pack's source and terms before any of it ships",
-        'in a public build; treat every model from this pack as provisional until that is',
-        'resolved.',
+        'project, which stripped embedded copyright/licence metadata, so the exact download',
+        'link, licence name, and original author(s) are not yet on file; this entry will be',
+        'updated with those specifics once supplied. Player cars, wanted-level pursuit units',
+        '(police/armored/SWAT/gun trucks/tanks), and the CN Tower/Rogers Centre/bank-tower',
+        "landmarks stay procedural, built directly in code (CLAUDE.md's locked asset policy).",
       ].join(' '),
+      // Placeholder slot: once the site owner supplies the pack's real download link, licence
+      // name, and author(s), extend AssetPackCredit (above `name`/`licenseStatus`/`note`) with
+      // typed `link`/`licenseName`/`author` fields and surface them on /credits — don't re-word
+      // this note's prose ad hoc when that lands.
     },
   ],
   disclaimer:

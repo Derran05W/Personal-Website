@@ -6,30 +6,28 @@
 // in a production chunk. Node markers are intentionally omitted to keep this a single draw
 // call; edges alone are enough to sanity-check the traffic graph visually.
 //
-// Takes `world` as a prop rather than reading world/worldRef.ts directly: this component
-// lives inside the r3f scene tree, where the city root (world/CityScape.tsx) already has
-// the current WorldData as a real, reactive value — a prop keeps this component pure and
-// easy to test/reason about, and avoids a second, ref-based source of truth inside the
-// scene (worldRef.ts stays reserved for DOM-layer tooling like hud/Minimap.tsx that has no
-// other way to reach into the scene).
+// Takes a `graph` prop rather than reading a world ref directly: this component lives inside
+// the r3f scene tree, and a prop keeps it pure and easy to test/reason about. Phase 32 (the
+// flip): narrowed from a full legacy `WorldData` prop to just the `TrafficGraph` shape it ever
+// read — game/index.tsx now builds the Toronto road graph (world/toronto/roadGraph.ts) directly
+// for this, since there is no more legacy `world` object to pull one off of.
 
 import { useEffect, useMemo } from 'react';
 import { BufferGeometry, Float32BufferAttribute } from 'three';
-import type { WorldData } from './types';
+import type { TrafficGraph } from './types';
 
 const GRAPH_VIZ_HEIGHT_M = 0.5;
 const GRAPH_VIZ_COLOR = '#ff5fd1';
 
 interface GraphVizProps {
-  world: WorldData;
+  graph: TrafficGraph;
 }
 
-export default function GraphViz({ world }: GraphVizProps) {
-  // Rebuilds only when the `world` object identity changes — the city root remounts its
-  // whole subtree on regenerate (`key={seed}`, Task 3), so a fresh `world` reference always
-  // means a fresh graph; no need to track a narrower dependency than the object itself.
+export default function GraphViz({ graph }: GraphVizProps) {
+  // Rebuilds only when the `graph` object identity changes — game/index.tsx memoizes it once
+  // (the Toronto road graph is seed-independent), so this effectively never rebuilds.
   const geometry = useMemo(() => {
-    const { nodes, edges } = world.graph;
+    const { nodes, edges } = graph;
     // Looked up by id (not array index) — TrafficNode ids aren't type-guaranteed to equal
     // their array position.
     const nodeById = new Map(nodes.map((node) => [node.id, node]));
@@ -48,7 +46,7 @@ export default function GraphViz({ world }: GraphVizProps) {
     const geom = new BufferGeometry();
     geom.setAttribute('position', new Float32BufferAttribute(positions, 3));
     return geom;
-  }, [world]);
+  }, [graph]);
 
   // BufferGeometry built imperatively (not via JSX) isn't guaranteed to be disposed by
   // R3F's own prop-teardown path — dispose explicitly on unmount and whenever `geometry`

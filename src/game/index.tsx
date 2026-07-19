@@ -18,23 +18,14 @@ import { Canvas } from '@react-three/fiber';
 import { Physics } from '@react-three/rapier';
 import { useProgress } from '@react-three/drei';
 import { QUALITY_TIERS } from './config';
+import { WORLD_SOURCE } from './config/worldSource';
 import { getGameState, useGameStore } from './state/store';
 import { useInputSystem } from './input';
 import { AiSystem, CameraFxSystem, EventDrainSystem } from './core/frameOrder';
-import { generate } from './world/generate';
-import { getSpawnPose } from './world/spawn';
-import { CityScape } from './world/CityScape';
-import { LightPool } from './powergrid/LightPoolMount';
 import { PropDynamics } from './world/PropDynamicsMount';
 import { DamageSystem } from './combat/damage';
 import { onImpact } from './combat/contacts';
-import { Traffic } from './ai/TrafficMount';
-import { TrafficMesh } from './ai/TrafficMesh';
-import { StreetcarTraffic } from './ai/StreetcarMount';
-import { StreetcarMesh } from './ai/StreetcarMesh';
-import { CnTower, Stadium, Flatiron } from './world/landmarks';
-import { RunLoopSystem } from './combat/runLoop';
-import { SpawnDirector, TorontoPursuitDirector } from './ai/SpawnDirectorMount';
+import { TorontoPursuitDirector } from './ai/SpawnDirectorMount';
 import { HeliMount } from './ai/HeliMount';
 import { HeliMesh } from './ai/HeliMesh';
 import { Searchlight } from './fx/Searchlight';
@@ -69,14 +60,18 @@ import { PlayerVehicle } from './vehicles/PlayerVehicle';
 import { PlayerCarMesh } from './vehicles/PlayerCarMesh';
 import { applyDetectedQuality } from './core/quality';
 import { GarageOverlay } from './GarageOverlay';
-// Phase 22: drivable Toronto "thermometer" dev slice. Swapped in for the whole legacy world
-// subtree behind the `torontoMap` leva toggle (dev-only; never set in prod). Ships in the game
-// chunk like the dev viz overlays — small, pure geometry.
+// Phase 32 (the flip, config/worldSource.ts): the Toronto "thermometer" map IS the shipped
+// world — mounted unconditionally below, no toggle involved.
 import { TorontoScene } from './world/toronto/TorontoScene';
 import { TorontoTraffic } from './world/toronto/TorontoTraffic';
 import { TorontoTransit } from './world/toronto/TorontoTransit';
 import { TORONTO_SPAWN_POSE } from './world/toronto/torontoSceneHelpers';
 import { TORONTO_DISTRICT_COUNT } from './world/toronto/districts';
+// Pure/seed-independent (world/toronto/roadGraph.ts's own doc comment) — cheap enough to build
+// again here for the dev-only GraphViz overlay below; TorontoTraffic.tsx builds its own copy for
+// the real civilian controller, so this is a second, independent memoization, not a shared ref.
+import { buildTorontoRoadGraph } from './world/toronto/roadGraph';
+import { buildStreets } from './world/toronto/streets';
 // Dependency-free (no leva/three-heavy deps), same as core/renderOwner.ts — safe to import
 // unconditionally here even though this file ships in every build; only the DEV-gated
 // components below (Minimap, GraphViz) that CONSUME these are what actually get stripped
@@ -106,6 +101,18 @@ const SquadViz = import.meta.env.DEV ? lazy(() => import('./ai/SquadViz')) : nul
 // — dynamic import included — is dead-code-eliminated and never reaches a prod chunk.
 if (import.meta.env.DEV) {
   void import('./core/debugBridge');
+}
+
+// Phase 32 (the flip): the render tree below has no legacy branch to fall back to — every
+// legacy-world import (CityScape, the legacy Traffic/StreetcarTraffic controllers, the
+// generator) was removed from this file so tree-shaking drops that code from the built game
+// chunk (bundle-verified in phase-32-notes.md). Fail loudly at import time rather than
+// silently booting a broken game if WORLD_SOURCE is ever set to anything else.
+if (WORLD_SOURCE !== 'toronto') {
+  throw new Error(
+    `WORLD_SOURCE=${WORLD_SOURCE}: only 'toronto' is wired into game/index.tsx's render tree ` +
+      '(Phase 32 flip) — see config/worldSource.ts.',
+  );
 }
 
 const overlayStyle: CSSProperties = {
@@ -158,35 +165,28 @@ export default function Game() {
   const graphVizOn = useDevToggle('graphViz');
   const aimVizOn = useDevToggle('aimViz');
   const squadVizOn = useDevToggle('squadViz');
-  // Phase 22: swap the legacy world for the Toronto dev slice. Dev-only (never set in prod),
-  // so this is a no-op false there. Joined to worldKey below so flipping it forces a full
-  // physical-world remount (colliders differ), and drives the spawn override + the subtree swap.
-  const torontoOn = useDevToggle('torontoMap');
+  // Phase 32: the dev-only graph visualizer now draws the ACTUAL shipped road graph (Toronto's),
+  // not a `world` prop from a generator that no longer runs. Pure/seed-independent, so an empty
+  // deps array is correct (same memoization TorontoTraffic.tsx uses for its own copy).
+  const torontoGraph = useMemo(() => buildTorontoRoadGraph(buildStreets().streets), []);
 
-  // The generated city (TDD §5.4): pure data, ~1–2 ms, memoized per seed. Changing the
-  // store seed (leva "World" folder / future garage UI) regenerates here, and the
-  // key={seed} on CityScape + PlayerVehicle below remounts the whole physical world —
-  // colliders torn down and rebuilt by @react-three/rapier, player dropped at the new
-  // map's spawn tile. No incremental mutation, no leak surface.
+  // Retry/regenerate nonce (TDD §5.4): the store's seed + runId together key every physical-world
+  // mount below (city colliders, traffic pools, pursuit units, the player vehicle). Changing the
+  // store seed (future garage UI) or runReset bumping runId (same-seed retry) remounts the whole
+  // physical world — @react-three/rapier tears down and rebuilds colliders, nothing incrementally
+  // mutates, no leak surface.
   const seed = useGameStore((s) => s.seed);
-  // Retry nonce: runReset bumps runId so a same-seed retry still fully remounts the
-  // physical world (fresh props/pools/units — the part-file "full clean reset").
   const runId = useGameStore((s) => s.runId);
   // Phase 17: keys the player mount (below) so picking a different car in the garage
   // remounts the vehicle with that car's collider/controller params. Safe to subscribe
   // here — it only ever changes outside PLAYING (garage/dev bridge), never per frame.
   const selectedCarId = useGameStore((s) => s.selectedCarId);
-  // Phase 22: the toggle joins the remount key so ON↔OFF fully rebuilds the physical world
-  // (legacy colliders vs Toronto colliders). OFF keeps the exact same keyed subtree as before,
-  // just with a `-legacy` suffix.
-  const worldKey = `${seed}-${runId}-${torontoOn ? 'toronto' : 'legacy'}`;
-  const world = useMemo(() => generate(seed), [seed]);
-  const legacySpawn = useMemo(() => getSpawnPose(world), [world]);
-  // Player spawn: Yonge just south of Finch (map TORONTO_SPAWN → world) when the slice is on;
-  // the legacy road-nearest-centre pose otherwise. Read once at PlayerVehicle mount (keyed on
-  // worldKey, so the toggle remounts the vehicle at the right spawn). TorontoScene itself
-  // publishes this pose to spawnPoseRef so devPanel teleports stay coherent.
-  const spawn = torontoOn ? TORONTO_SPAWN_POSE : legacySpawn;
+  const worldKey = `${seed}-${runId}`;
+  // Player spawn: Yonge between Dundas and Queen, southbound lane (config/torontoMap.ts's
+  // TORONTO_SPAWN — see its doc comment for the Phase 32 D3 relocation). Read once at
+  // PlayerVehicle mount (keyed on worldKey). TorontoScene itself publishes this pose to
+  // spawnPoseRef so devPanel teleports stay coherent.
+  const spawn = TORONTO_SPAWN_POSE;
 
   // drei asset-load progress (TDD §4.3). No real assets stream this phase, so `active`
   // is false from the start and LOADING resolves to GARAGE in the next tick — the seam
@@ -207,12 +207,8 @@ export default function Game() {
 
   // Power grid (Phase 13): transformerDestroyed -> blackout + DARK CITY. Re-inits per
   // world/run so district state always matches the freshly-lit remounted city. Phase 29: the
-  // Toronto map has 15 districts (world/toronto/districts.ts), not the legacy 4x4 grid's 16 —
-  // pass the override only when torontoOn, so the legacy call site's behavior is unchanged.
-  useEffect(
-    () => initPowerGrid(torontoOn ? TORONTO_DISTRICT_COUNT : undefined),
-    [worldKey, torontoOn],
-  );
+  // Toronto map has 15 districts (world/toronto/districts.ts), not the legacy 4x4 grid's 16.
+  useEffect(() => initPowerGrid(TORONTO_DISTRICT_COUNT), [worldKey]);
 
   // Audio event mapping (Phase 15): every gameplay event -> synthesized sound via the
   // manager seam; game-lifetime subscription.
@@ -292,144 +288,45 @@ export default function Game() {
                 Needs only R3F's gl — mounted with the frame-order systems. */}
             <ContextLossSystem />
 
-            {/* Phase 22: ON → the Toronto dev slice replaces the ENTIRE 64×64 legacy world
-                subtree (every world-consumer: city, lights, damage/props, traffic, landmarks,
-                streetcars, pursuit/combat/heli/powergrid). OFF → the legacy subtree below,
-                byte-identical (additive conditional only — nothing here reordered or reprop'd).
-                Frame-order systems (above) + PlayerVehicle (below) stay mounted in both
-                branches; TorontoScene carries its own RunLoopSystem for the water-death path.
-                Phase 29 (parity core): the Toronto branch now ALSO mounts the world-agnostic
-                gameplay spine — destruction (DamageSystem/PropDynamics), heat/score, player
-                damage-state FX, particles, skidmarks, and the power-grid flicker ticker — the
-                same systems the legacy branch mounts below, minus the pursuit/combat-escalation
-                stack (SpawnDirector/SquadMount/pursuit unit meshes/projectiles/tank telegraph/
-                helicopters — ★ stays 0 this phase, per the phase-29 plan). Civilian traffic is now ALSO
-                mounted (TorontoTraffic: the existing `Traffic` controller on the Toronto road graph
-                + pack-model batched mesh, tier-scaled roster). LightPool (the trailing dynamic-light pool) is NOT mounted
-                for Toronto this phase — its streetlightEmitters() seam is legacy-WorldData-
-                shaped; deferred rather than half-adapted (see phase-29-notes.md). */}
-            {torontoOn ? (
-              <>
-                <TorontoScene key={`toronto-${worldKey}`} />
-                <TorontoTraffic key={`toronto-traffic-${worldKey}`} />
-                {/* Phase 31 (Part-8 D1-D5): TTC-homage transit — buses + streetcars on real
-                    route numbers/streets, wreckable, tier-scaled roster. Same key convention as
-                    every other seed-scoped Toronto mount. */}
-                <TorontoTransit key={`toronto-transit-${worldKey}`} />
-                <DamageSystem key={`damage-${worldKey}`} />
-                <PropDynamics key={`props-${worldKey}`} source={onImpact} />
-                <HeatScoreSystem />
-                <DamageStatesMount key={`dmgstates-${worldKey}`} />
-                <ParticlesMount key={`particles-${worldKey}`} />
-                <SkidMarks />
-                <PowerGridSystem key={`grid-${worldKey}`} />
-                {/* Phase 30 (D3): the full pursuit + combat escalation stack on the Toronto map.
-                    The pursuit unit meshes register their factories + drive their per-step tick
-                    lists; TorontoPursuitDirector owns spawn/despawn/caps AND publishes the Toronto
-                    NavProvider (roadNav road-follow + squad flank-clamp read it). Same components
-                    the legacy branch mounts below — projectiles/tracers/explosions/tank telegraph
-                    (Phase 16 lesson: PROVE TankMesh/Explosions/Telegraph mount, don't assume) and
-                    the ambient heli trio (grid-independent searchlight → the money shot reads over
-                    the P29 ground-tint blackouts). RunLoopSystem (WRECKED/BUSTED/water) is already
-                    mounted inside TorontoScene — NOT re-mounted here. LightPool (dark-district
-                    ground pool) is the T2 powergrid adapter — mounted by the orchestrator once it
-                    lands; the searchlight money shot needs only the heli trio + ground tint. */}
-                <PoliceMesh key={`toronto-police-${worldKey}`} />
-                <ArmoredMesh key={`toronto-armored-${worldKey}`} />
-                <SwatMesh key={`toronto-swat-${worldKey}`} />
-                <GunTruckMesh key={`toronto-guntruck-${worldKey}`} />
-                <TankMesh key={`toronto-tank-${worldKey}`} />
-                <ProjectilesMount key={`toronto-projectiles-${worldKey}`} />
-                <Tracers key={`toronto-tracers-${worldKey}`} />
-                <Explosions key={`toronto-explosions-${worldKey}`} />
-                <TankTelegraph />
-                <TorontoPursuitDirector key={`toronto-director-${worldKey}`} seed={seed} />
-                <SquadMount key={`toronto-squad-${worldKey}`} />
-                <HeliMount />
-                <HeliMesh />
-                <Searchlight />
-              </>
-            ) : (
-              <>
-                <CityScape key={`city-${worldKey}`} world={world} />
-                {/* Pooled dynamic lights (Phase 13 Task 3): a handful of real PointLights trail
-                the player and light the nearest LIT streetlights; blacked-out districts never
-                receive one. Keyed on the world so a regenerate drops the pool with its city. */}
-                <LightPool key={`lightpool-${worldKey}`} world={world} />
-                {/* Destruction spine (Phase 6): impacts flow contacts→damage/propDynamics.
-                Keyed on seed like the city — a regenerate must reset the pool + hp state
-                with the world it belongs to. */}
-                <DamageSystem key={`damage-${worldKey}`} />
-                <PropDynamics key={`props-${worldKey}`} source={onImpact} />
-                {/* Civilian traffic (Phase 7): kinematic graph-followers + hit conversion.
-                Same seed-keyed remount contract as the city/pool systems. */}
-                <Traffic
-                  key={`traffic-${worldKey}`}
-                  graph={world.graph}
-                  seed={seed}
-                  source={onImpact}
-                />
-                <TrafficMesh key={`traffic-mesh-${worldKey}`} />
-                {/* Toronto layer (Phase 19): landmark buildings (defensive — render nothing if
-                world.landmarks is absent) + streetcars looping the two longest arterials. */}
-                <CnTower world={world} />
-                <Stadium world={world} />
-                <Flatiron world={world} />
-                <StreetcarTraffic
-                  key={`streetcar-${worldKey}`}
-                  world={world}
-                  seed={seed}
-                  source={onImpact}
-                />
-                <StreetcarMesh key={`streetcar-mesh-${worldKey}`} />
-                {/* Pursuit (Phase 9): PoliceMesh registers the unit factory + drives the
-                per-step tick list; the director owns spawn/despawn/caps. Run-loop owns
-                WRECKED/BUSTED/water → GAMEOVER. All keyed on the retry nonce. */}
-                <PoliceMesh key={`police-${worldKey}`} />
-                <ArmoredMesh key={`armored-${worldKey}`} />
-                <SwatMesh key={`swat-${worldKey}`} />
-                <GunTruckMesh key={`guntruck-${worldKey}`} />
-                {/* NOTE (Phase 16 integration): TankMesh + Explosions + TankTelegraph shipped in
-                Phase 12 and were verified live that session, but the index.tsx wiring never
-                made the commit — the same integration-gap class Phase 14 hit with the heli
-                trio above. Without TankMesh no 'tank' factory registers (★5 spawns only 9 of
-                10 units); without Explosions no blast flash/light/scorch/shake renders even
-                though damage + impulses apply. Wired here for good. */}
-                <TankMesh key={`tank-${worldKey}`} />
-                {/* Tank-shell system (Phase 12): pure-point shell pool + explosion resolver.
-                Keyed like the other systems so a regenerate/retry drops in-flight shells. */}
-                <ProjectilesMount key={`projectiles-${worldKey}`} />
-                <Tracers key={`tracers-${worldKey}`} />
-                <Explosions key={`explosions-${worldKey}`} />
-                <TankTelegraph />
-                {/* Phase 16: the ONE instanced particle system (2 draw calls) draining the
-                particle feed, and the damage-visual poller (tints + smoke/fire emitters).
-                Keyed so a retry/regenerate starts with an empty pool and fresh tint state. */}
-                <ParticlesMount key={`particles-${worldKey}`} />
-                <DamageStatesMount key={`dmgstates-${worldKey}`} />
-                <SpawnDirector key={`director-${worldKey}`} world={world} seed={seed} />
-                {/* SWAT-squad flank coordinator (Phase 10): publishes flank-slot claims SWAT units
-                read to box in the player. Gameplay infra (ships), keyed like the director. Phase 30:
-                map-agnostic (clamps via the NavProvider the director publishes) — no world prop. */}
-                <SquadMount key={`squad-${worldKey}`} />
-                <RunLoopSystem key={`runloop-${worldKey}`} />
-                {/* Heat/score accrual runs in fixed-step land (Phase 8) — pausing Physics
-                pauses accrual for free. */}
-                <HeatScoreSystem />
-                {/* Ambient helicopters (Phase 14): HeliMount drives the flight controller and
-                populates heliRef (the HeliSlot seam) from a priority-0 useFrame, keyed off
-                wanted tier; HeliMesh renders the fuselage/rotor instances + shadow blob and
-                Searchlight the lead heli's spotlight/cone. Phase 15 Task 3's rotor audio tracks
-                the same heliRef slots. NOTE: this whole trio was missing from the tree (Phase 14
-                integration gap — the components shipped + were unit-tested but never mounted);
-                wired here so helicopters actually fly, render, and sound at runtime. */}
-                <HeliMount />
-                <HeliMesh />
-                <Searchlight />
-                <PowerGridSystem key={`grid-${worldKey}`} />
-                <SkidMarks />
-              </>
-            )}
+            {/* Phase 32 (the flip): the Toronto map is the shipped world, mounted
+                unconditionally — no toggle, no legacy alternative branch. TorontoScene owns
+                the ground/water/roads/signposts/tunnel/camera-clamp and carries its own
+                RunLoopSystem for the water-death path. Everything below is the world-agnostic
+                gameplay spine (destruction, heat/score, damage-state FX, particles, skidmarks,
+                power-grid flicker) plus the full pursuit + combat-escalation stack: the pursuit
+                unit meshes register their factories + drive their per-step tick lists;
+                TorontoPursuitDirector owns spawn/despawn/caps AND publishes the Toronto
+                NavProvider (road-follow + squad flank-clamp read it); TankMesh/Explosions/
+                TankTelegraph are mounted explicitly (Phase 16's integration-gap lesson: PROVE
+                they mount, don't assume) and the ambient heli trio (grid-independent
+                searchlight — the money shot reads over dark-district ground tints). */}
+            <TorontoScene key={`toronto-${worldKey}`} />
+            <TorontoTraffic key={`toronto-traffic-${worldKey}`} />
+            {/* Phase 31 (Part-8 D1-D5): TTC-homage transit — buses + streetcars on real
+                route numbers/streets, wreckable, tier-scaled roster. Same key convention as
+                every other seed-scoped Toronto mount. */}
+            <TorontoTransit key={`toronto-transit-${worldKey}`} />
+            <DamageSystem key={`damage-${worldKey}`} />
+            <PropDynamics key={`props-${worldKey}`} source={onImpact} />
+            <HeatScoreSystem />
+            <DamageStatesMount key={`dmgstates-${worldKey}`} />
+            <ParticlesMount key={`particles-${worldKey}`} />
+            <SkidMarks />
+            <PowerGridSystem key={`grid-${worldKey}`} />
+            <PoliceMesh key={`toronto-police-${worldKey}`} />
+            <ArmoredMesh key={`toronto-armored-${worldKey}`} />
+            <SwatMesh key={`toronto-swat-${worldKey}`} />
+            <GunTruckMesh key={`toronto-guntruck-${worldKey}`} />
+            <TankMesh key={`toronto-tank-${worldKey}`} />
+            <ProjectilesMount key={`toronto-projectiles-${worldKey}`} />
+            <Tracers key={`toronto-tracers-${worldKey}`} />
+            <Explosions key={`toronto-explosions-${worldKey}`} />
+            <TankTelegraph />
+            <TorontoPursuitDirector key={`toronto-director-${worldKey}`} seed={seed} />
+            <SquadMount key={`toronto-squad-${worldKey}`} />
+            <HeliMount />
+            <HeliMesh />
+            <Searchlight />
             {/* key: spawn position is read once at body create (PlayerVehicle contract),
                 and (Phase 17) the car's collider/controller params are resolved once at
                 mount from getSelectedCarDef() — so the key carries BOTH the world/run
@@ -457,7 +354,7 @@ export default function Game() {
             ) : null}
             {GraphViz && graphVizOn ? (
               <Suspense fallback={null}>
-                <GraphViz world={world} />
+                <GraphViz graph={torontoGraph} />
               </Suspense>
             ) : null}
 

@@ -43,41 +43,32 @@ export interface DevToggles {
    * doc comment for the data source, a stub returning [] until powergrid/lightPool.ts
    * (Task 3, concurrent this wave) lands). Default off. */
   lightPoolViz: boolean;
-  /** Phase 22 dev tool: swap the 64×64 legacy world for the drivable Toronto "thermometer"
-   * dev slice (world/toronto/TorontoScene.tsx). game/index.tsx reads this, joins it to the
-   * world remount key, and renders TorontoScene instead of the legacy world subtree when set.
-   * Default off — the legacy world is byte-identical when off (additive conditional only). A
-   * dev-only seam; the real WORLD_SOURCE switch replaces it at the Phase 23 parity flip. */
-  torontoMap: boolean;
   /** Phase 25.5 dev tool: mount the city-pack proof-of-render cluster
    * (world/toronto/cityPack/CityPackPreview.tsx) near the Toronto spawn. TorontoScene reads this
    * and conditionally mounts the cluster. Default off — TorontoScene is byte-identical when off
-   * (additive conditional only). Meaningful only with `torontoMap` on. */
+   * (additive conditional only). */
   cityPackPreview: boolean;
   /** Phase 25.5 (D8) A/B material arm for the city-pack: true → unlit-literal (MeshBasicMaterial
    * + baked palette map, toneMapped=false); false → the GLBs' real lit materials under
    * BlueHourRig. Default ON (the P23/25.5 unlit verdict). Drives BOTH the 25.5 preview AND (25.6)
    * the whole re-dressed city (frontage/furniture/parked). */
   cityPackUnlit: boolean;
-  /** Phase 25.6 layer toggles (default ON within the Toronto branch) for perf triage + A/B
-   * screenshots. Each gates one re-dress layer live without a world remount: frontage pack
-   * buildings + backdrop towers, street furniture rows, parked vehicles, and the traffic-light
-   * lamp cycling overlay. Meaningful only with `torontoMap` on. */
+  /** Phase 25.6 layer toggles (default ON) for perf triage + A/B screenshots. Each gates one
+   * re-dress layer live without a world remount: frontage pack buildings + backdrop towers,
+   * street furniture rows, parked vehicles, and the traffic-light lamp cycling overlay. */
   packBuildings: boolean;
   packFurniture: boolean;
   packParked: boolean;
   packLightCycling: boolean;
-  /** Phase 25.7 layer toggle (default ON within the Toronto branch): the business-personalization
-   * dressing (fascia bands + awnings + kit props + queues + Alo plaque) on the claimed venue
-   * facades (world/toronto/cityPack/VenueDressLayer.tsx). Toggle off ≈ the 25.6 city minus the
-   * venue boxes (the venue facades themselves are just claimed frontage slots and stay). Meaningful
-   * only with `torontoMap` on. */
+  /** Phase 25.7 layer toggle (default ON): the business-personalization dressing (fascia bands +
+   * awnings + kit props + queues + Alo plaque) on the claimed venue facades
+   * (world/toronto/cityPack/VenueDressLayer.tsx). Toggle off ≈ the 25.6 city minus the venue
+   * boxes (the venue facades themselves are just claimed frontage slots and stay). */
   venueDress: boolean;
-  /** Phase 28 layer toggle (default ON within the Toronto branch): the whole "Infill" pass —
-   * corner fill (frontage.ts), back-lot second row, laneway clutter, parking lots, construction
-   * sites, and lane closures (world/toronto/infill.ts). Toggle off ≈ the Phase 25.6-27 city minus
-   * every Phase 28 addition (frontage/furniture/venue layers untouched). Meaningful only with
-   * `torontoMap` on. */
+  /** Phase 28 layer toggle (default ON): the whole "Infill" pass — corner fill (frontage.ts),
+   * back-lot second row, laneway clutter, parking lots, construction sites, and lane closures
+   * (world/toronto/infill.ts). Toggle off ≈ the Phase 25.6-27 city minus every Phase 28 addition
+   * (frontage/furniture/venue layers untouched). */
   packInfill: boolean;
 }
 
@@ -88,7 +79,6 @@ const toggles: DevToggles = {
   invincible: false,
   aimViz: false,
   lightPoolViz: false,
-  torontoMap: false,
   cityPackPreview: false,
   cityPackUnlit: true,
   packBuildings: true,

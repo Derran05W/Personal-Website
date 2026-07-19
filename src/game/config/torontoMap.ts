@@ -195,18 +195,36 @@ export const WAYPOINT_SPACING_WU = 40;
 export const EDGE_PAD_WU = 14;
 
 /**
- * Player spawn — a map-space point on Yonge just south of Finch (§2), facing south. South is
- * map +y, which maps to world +Z (see projection.mapToWorld); in the codebase's
- * `atan2(dx, dz)` yaw convention (world +Z is forward) south is yaw 0. Task 4's scene converts
- * this map point through mapToWorld and orients the car to `heading`.
+ * Player spawn — a map-space point on Yonge, facing south. South is map +y, which maps to world
+ * +Z (see projection.mapToWorld); in the codebase's `atan2(dx, dz)` yaw convention (world +Z is
+ * forward) south is yaw 0. Task 4's scene converts this map point through mapToWorld and orients
+ * the car to `heading`.
  *
- * Part-8 (D2): `y` is the BASE (pre-compaction) 220 wu re-derived by the DENSITY scale directly
- * (220 sits inside the north_york zone, which scales uniformly from the shared y=0 origin — the
- * same rule projection.ts's scaleBaseY encodes, inlined here to avoid a config→world import).
+ * Phase 32 (D3, cold-boot default): relocated from just-south-of-Finch (North York, the Phase 22
+ * dev-slice pick) to downtown Yonge between Dundas and Queen — the densest, most legible block of
+ * the shipped map, and on the SOUTHBOUND lane rather than dead-centre so the player starts aligned
+ * with real traffic flow instead of straddling both lanes' shared centreline.
+ *
+ * `x`: spine centreline (1500) minus the southbound lane's own offset (LANE_OFFSET_WU.spine —
+ * roadGraph.ts's right-hand-traffic rule: southbound offsets toward −x/west). Never hand-typed as
+ * a second literal — re-derived from the same constant civilian/pursuit traffic lanes use, so the
+ * player spawns in the exact lane AI southbound cars drive.
+ *
+ * `y`: the midpoint between Dundas St and Queen St's centrelines. Both are real-anchor-derived
+ * (yonge-dundas / yonge-queen, data/toronto/anchors.json via streets.ts's positionRef lookup) —
+ * not expressible as a closed-form BASE-y formula the way the old Finch spot was (that zone scales
+ * uniformly from a shared origin; downtown's is an affine segment anchored at Bloor, and Dundas/
+ * Queen sit at fixed anchor latitudes within it) — so this is a PINNED literal, verified against
+ * streets.ts's buildStreets() output (dundas.centerline ≈ 1893.47, queen.centerline ≈ 2026.34,
+ * midpoint ≈ 1959.9) and drift-guarded by torontoSceneHelpers.test.ts. No cross street falls
+ * between Dundas and Queen on this map, so the spawn sits mid-block, clear of every intersection.
+ * The nearest named building (Eaton Centre galleria) sits entirely west of the Yonge ribbon
+ * (x in [1465,1479] vs the ribbon's [1494.5,1505.5]) at any z in this range, so it never intrudes
+ * regardless of the exact y chosen here.
  */
 export const TORONTO_SPAWN = {
-  x: 1500,
-  y: 220 * DENSITY.scale,
+  x: 1500 - LANE_OFFSET_WU.spine,
+  y: 1959.9,
   /** Unit heading in MAP space: +y = south. */
   heading: { x: 0, y: 1 },
 } as const;

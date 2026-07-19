@@ -3,8 +3,8 @@
 // Toronto mounts one StreetcarController per MODE (different tuning/chassis — see
 // ai/streetcarTraffic.ts's StreetcarControllerOptions), each publishing its own slot array. Using
 // the legacy `streetcarRef` singleton for either would collide with the other mode's controller
-// (and, in principle, with the legacy branch's own streetcar mount — though the two branches
-// never mount simultaneously in practice, see game/index.tsx's `torontoOn` toggle).
+// (and, pre-Phase-32, with the legacy branch's own streetcar mount — that branch no longer exists
+// in the runtime graph as of the Phase 32 flip, config/worldSource.ts).
 import type { StreetcarApi } from './streetcarTypes';
 
 /** Set by world/toronto/TorontoTransit.tsx's bus mount; null before the first PLAYING mount OR

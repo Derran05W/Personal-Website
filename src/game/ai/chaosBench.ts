@@ -72,6 +72,9 @@ import { trafficRef } from './trafficTypes';
 import { unitsRef, type UnitKind } from './pursuitTypes';
 import type { TrafficGraph, TrafficNode } from '../world/types';
 import { AI_STEERING, HEAT, QUALITY_TIERS, SPAWN } from '../config';
+import { WORLD_SOURCE } from '../config/worldSource';
+import { buildTorontoRoadGraph } from '../world/toronto/roadGraph';
+import { buildStreets } from '../world/toronto/streets';
 import { getPerf } from 'r3f-perf';
 import { Quaternion, Vector3 } from 'three';
 
@@ -274,35 +277,52 @@ async function ensurePlaying(): Promise<void> {
 }
 
 /**
- * Polls until both worldRef and playerVehicle are populated, up to ENSURE_PLAYING_TIMEOUT_MS.
- * NEEDED even after ensurePlaying() resolves: reaching machine==='PLAYING' only proves the
- * zustand store transitioned — CityScape/PlayerVehicle (world/CityScape.tsx,
- * vehicles/PlayerVehicle.tsx) are mounted unconditionally (not gated on `machine` at all, so
- * ordinary play always has many frames of GARAGE to mount in), but they still populate their
- * refs asynchronously relative to the OUTER React commit: react-three-fiber's <Canvas> creates
- * the DOM <canvas> element (and the game-canvas-container becomes "visible") before its
- * internal fiber root has actually mounted the JSX children into the WebGL scene, and a
- * caller (a scripted driver, this file's own consumers) that force-transitions through
+ * Polls until playerVehicle is populated, up to ENSURE_PLAYING_TIMEOUT_MS. NEEDED even after
+ * ensurePlaying() resolves: reaching machine==='PLAYING' only proves the zustand store
+ * transitioned — vehicles/PlayerVehicle.tsx is mounted unconditionally (not gated on `machine`
+ * at all, so ordinary play always has many frames of GARAGE to mount in), but it still
+ * populates its ref asynchronously relative to the OUTER React commit: react-three-fiber's
+ * <Canvas> creates the DOM <canvas> element (and the game-canvas-container becomes "visible")
+ * before its internal fiber root has actually mounted the JSX children into the WebGL scene,
+ * and a caller (a scripted driver, this file's own consumers) that force-transitions through
  * BOOT->LOADING->GARAGE->PLAYING within milliseconds of page load — exactly what
- * ensurePlaying() above does — can win that race and reach PLAYING before either ref is set.
- * Also guards the (should-never-happen, per world/trafficGraph.ts's own invariant) empty-graph
- * case the same way.
+ * ensurePlaying() above does — can win that race and reach PLAYING before the ref is set.
  */
-async function waitForWorldReady(): Promise<{
-  world: NonNullable<typeof worldRef.current>;
-  player: NonNullable<typeof playerVehicle.current>;
-}> {
+async function waitForPlayerReady(): Promise<NonNullable<typeof playerVehicle.current>> {
+  const start = performance.now();
+  while (performance.now() - start < ENSURE_PLAYING_TIMEOUT_MS) {
+    const player = playerVehicle.current;
+    if (player) return player;
+    await sleep(ENSURE_PLAYING_POLL_MS);
+  }
+  throw new Error(`chaosBench: player never became ready within ${ENSURE_PLAYING_TIMEOUT_MS}ms`);
+}
+
+/**
+ * Resolves the {graph, seed} pair the drive loop needs, keyed off WORLD_SOURCE (config/
+ * worldSource.ts) rather than a live world-mount ref. Phase 32 (the flip) removed the legacy
+ * CityScape mount that used to populate world/worldRef.ts — game/index.tsx no longer imports it
+ * at all — so this bench can no longer wait on that ref filling in for the shipped world. The
+ * Toronto road graph is a pure, seed-independent function of the street table
+ * (world/toronto/roadGraph.ts's own doc comment; TorontoTraffic.tsx builds an identical one for
+ * the real civilian controller), so it resolves synchronously — no polling needed for this half
+ * of readiness, only the seed (read straight off the store).
+ *
+ * The 'legacy' branch is kept, not deleted (MAP PROJECT rule 4 / this phase's D2 "de-import
+ * first, delete later" policy) — it polls worldRef exactly as the old waitForWorldReady did —
+ * but it is unreachable in practice: WORLD_SOURCE is permanently 'toronto' since Phase 32.
+ */
+async function resolveWorldGraph(): Promise<{ graph: TrafficGraph; seed: number }> {
+  if (WORLD_SOURCE === 'toronto') {
+    return { graph: buildTorontoRoadGraph(buildStreets().streets), seed: getGameState().seed };
+  }
   const start = performance.now();
   while (performance.now() - start < ENSURE_PLAYING_TIMEOUT_MS) {
     const world = worldRef.current;
-    const player = playerVehicle.current;
-    if (world && world.graph.nodes.length > 0 && player) return { world, player };
+    if (world && world.graph.nodes.length > 0) return { graph: world.graph, seed: world.seed };
     await sleep(ENSURE_PLAYING_POLL_MS);
   }
-  throw new Error(
-    `chaosBench: world/player never became ready within ${ENSURE_PLAYING_TIMEOUT_MS}ms ` +
-      `(world: ${worldRef.current ? 'ready' : 'null'}, player: ${playerVehicle.current ? 'ready' : 'null'})`,
-  );
+  throw new Error(`chaosBench: legacy world never became ready within ${ENSURE_PLAYING_TIMEOUT_MS}ms`);
 }
 
 /** Force-spawns every registered unit kind on a short poll until the ★5 cap is reached (or
@@ -349,19 +369,19 @@ export function startChaosBench(): Promise<BenchReport> {
 
 async function runChaosBenchOnce(): Promise<BenchReport> {
   await ensurePlaying();
-  const { world, player } = await waitForWorldReady();
+  const [player, { graph, seed }] = await Promise.all([waitForPlayerReady(), resolveWorldGraph()]);
 
   const prevInvincible = getDevToggles().invincible;
   setDevToggle('invincible', true);
   grantHeatToTier5();
   await fillRoster();
 
-  const rng = createRng(world.seed).fork('chaosBench');
+  const rng = createRng(seed).fork('chaosBench');
   const pickEdge = (ids: readonly number[]): number => rng.pick(ids);
 
   const startPos = player.readState().rawPose.position;
-  let currentNodeId = nearestNodeId(world.graph.nodes, startPos.x, startPos.z);
-  let targetNodeId = pickNextWaypoint(world.graph, currentNodeId, pickEdge);
+  let currentNodeId = nearestNodeId(graph.nodes, startPos.x, startPos.z);
+  let targetNodeId = pickNextWaypoint(graph, currentNodeId, pickEdge);
   let stuck: StuckState = initialStuckState;
 
   let fpsSum = 0;
@@ -398,13 +418,13 @@ async function runChaosBenchOnce(): Promise<BenchReport> {
     const yaw = yawFromQuaternion(readState.rawPose.rotation);
     const speed = Math.hypot(readState.velocity.x, readState.velocity.z);
 
-    const target = world.graph.nodes[targetNodeId];
+    const target = graph.nodes[targetNodeId];
     const dist = Math.hypot(target.x - pos.x, target.z - pos.z);
     if (dist < ARRIVE_DIST_M) {
       currentNodeId = targetNodeId;
-      targetNodeId = pickNextWaypoint(world.graph, currentNodeId, pickEdge);
+      targetNodeId = pickNextWaypoint(graph, currentNodeId, pickEdge);
     }
-    const node = world.graph.nodes[targetNodeId];
+    const node = graph.nodes[targetNodeId];
 
     const result = pursueSteer(
       { x: pos.x, z: pos.z, yaw },
