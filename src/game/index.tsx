@@ -74,6 +74,7 @@ import { GarageOverlay } from './GarageOverlay';
 // chunk like the dev viz overlays — small, pure geometry.
 import { TorontoScene } from './world/toronto/TorontoScene';
 import { TorontoTraffic } from './world/toronto/TorontoTraffic';
+import { TorontoTransit } from './world/toronto/TorontoTransit';
 import { TORONTO_SPAWN_POSE } from './world/toronto/torontoSceneHelpers';
 import { TORONTO_DISTRICT_COUNT } from './world/toronto/districts';
 // Dependency-free (no leva/three-heavy deps), same as core/renderOwner.ts — safe to import
@@ -311,6 +312,10 @@ export default function Game() {
               <>
                 <TorontoScene key={`toronto-${worldKey}`} />
                 <TorontoTraffic key={`toronto-traffic-${worldKey}`} />
+                {/* Phase 31 (Part-8 D1-D5): TTC-homage transit — buses + streetcars on real
+                    route numbers/streets, wreckable, tier-scaled roster. Same key convention as
+                    every other seed-scoped Toronto mount. */}
+                <TorontoTransit key={`toronto-transit-${worldKey}`} />
                 <DamageSystem key={`damage-${worldKey}`} />
                 <PropDynamics key={`props-${worldKey}`} source={onImpact} />
                 <HeatScoreSystem />

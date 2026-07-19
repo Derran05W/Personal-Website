@@ -216,6 +216,24 @@
     "contentHash": "cd984e3dbae338971a820234020b8d4f1787d4eddddcafa1750d75b4b818a653"
   },
   {
+    "id": "bus-player",
+    "url": "/assets/city-pack/bus-player.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 50.06064224243164,
+      "h": 48.807058724121816,
+      "d": 157.4611358642578
+    },
+    "tris": 2226,
+    "prims": 1,
+    "bytes": {
+      "raw": 46072,
+      "optimized": 15900
+    },
+    "hasTexture": true,
+    "contentHash": "f3848aada367b3b04e02115ea2fd69a253d310021981df93556208b9eea38811"
+  },
+  {
     "id": "bus-stop",
     "url": "/assets/city-pack/bus-stop.glb",
     "category": "prop",
@@ -286,6 +304,24 @@
     },
     "hasTexture": true,
     "contentHash": "41258b55a442f99d6058c494967b49783b14055767203fdd4da9ab53caee01ee"
+  },
+  {
+    "id": "car-a-player",
+    "url": "/assets/city-pack/car-a-player.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 1.807360053062439,
+      "h": 1.1765789622440934,
+      "d": 4.220716953277588
+    },
+    "tris": 2954,
+    "prims": 4,
+    "bytes": {
+      "raw": 164752,
+      "optimized": 19628
+    },
+    "hasTexture": true,
+    "contentHash": "d98f7e74f86947fe5c3a73c344063c5dac8f13bdeabf74ade85c106d5732eebb"
   },
   {
     "id": "car-b",
@@ -648,6 +684,24 @@
     "contentHash": "3f512e443eef25013471d316a931da500f1c03adf47592c640da9966f9ba459a"
   },
   {
+    "id": "pickup-truck-player",
+    "url": "/assets/city-pack/pickup-truck-player.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 2.312174066901207,
+      "h": 1.8484454044614815,
+      "d": 5.18038130663521
+    },
+    "tris": 6432,
+    "prims": 5,
+    "bytes": {
+      "raw": 273012,
+      "optimized": 36524
+    },
+    "hasTexture": true,
+    "contentHash": "386732a8ff1cb2f0edbac9f9feed37f4d9627c2436b451fb6430ef51d75fef4f"
+  },
+  {
     "id": "pizza-corner",
     "url": "/assets/city-pack/pizza-corner.glb",
     "category": "building",
@@ -828,6 +882,24 @@
     "contentHash": "d0296e5bc230d8be54bbe2d20fa1e8ffb110afff321432df9038758a494be115"
   },
   {
+    "id": "sports-car-a-player",
+    "url": "/assets/city-pack/sports-car-a-player.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 1.871591031551361,
+      "h": 1.2030550129711628,
+      "d": 3.9265329837799072
+    },
+    "tris": 3148,
+    "prims": 4,
+    "bytes": {
+      "raw": 175100,
+      "optimized": 20200
+    },
+    "hasTexture": true,
+    "contentHash": "e15500546974e8d16d80eba34a847f20d42386a4fa8a3f5d7b6c5ffb0e2da57b"
+  },
+  {
     "id": "sports-car-b",
     "url": "/assets/city-pack/sports-car-b.glb",
     "category": "vehicle",
@@ -862,6 +934,24 @@
     },
     "hasTexture": true,
     "contentHash": "3e99a7b2e4a38b31956c4e7a655adc4539f5063200daf8770b33c8c2379ec6b6"
+  },
+  {
+    "id": "sports-car-b-player",
+    "url": "/assets/city-pack/sports-car-b-player.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 2.6706187054514885,
+      "h": 1.8647261429548294,
+      "d": 5.6551002094025
+    },
+    "tris": 5802,
+    "prims": 5,
+    "bytes": {
+      "raw": 252528,
+      "optimized": 33348
+    },
+    "hasTexture": true,
+    "contentHash": "0df63e6b3fb60f042ce2c09055016923d0a7dffe180921d036af1f27b670e822"
   },
   {
     "id": "stop-sign",

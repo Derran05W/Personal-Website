@@ -44,7 +44,7 @@ import { getCarDef } from '../vehicles/definitions';
 import { PaletteCell } from '../world/archetypes';
 import { addBox, createBuilder, toBufferGeometry } from '../world/geometry/kit';
 import { getCityMaterial } from '../world/palette';
-import { streetcarRef } from './streetcarTypes';
+import { streetcarRef, type StreetcarApi } from './streetcarTypes';
 
 // Base (high-tier) roster size — every lower tier's resolved roster (trafficActiveTarget scales
 // it DOWN, never up) fits inside this capacity, mirroring ai/TrafficMesh.tsx's own
@@ -159,9 +159,22 @@ function buildStreetcarBody(): BufferGeometry {
   return toBufferGeometry(b);
 }
 
-export function StreetcarMesh() {
+export interface StreetcarMeshProps {
+  /** Phase 31 (Part-8 D2, T1): which controller's slots to read. Defaults to the legacy
+   * `streetcarRef` singleton (byte-identical pre-Phase-31 behaviour) — Toronto's own streetcar
+   * mount passes `torontoStreetcarRef` instead (ai/torontoTransitRefs.ts), a SEPARATE ref so the
+   * two controllers' slot arrays never collide. */
+  readonly apiRef?: { current: StreetcarApi | null };
+  /** Instance-pool size. Defaults to CAPACITY (TRAFFIC_STREETCAR.activeTarget) — Toronto passes
+   * its own tier-scaled roster count (config/torontoTransit.ts). */
+  readonly capacity?: number;
+  /** Max hp for the damage-tint fraction (hpLostFraction denominator). Defaults to
+   * TRAFFIC_STREETCAR.hp — pass the mode's own tuning's `hp` if it ever differs. */
+  readonly maxHp?: number;
+}
+
+export function StreetcarMesh({ apiRef = streetcarRef, capacity = CAPACITY, maxHp = TRAFFIC_STREETCAR.hp }: StreetcarMeshProps = {}) {
   const meshRef = useRef<InstancedMesh>(null);
-  const capacity = CAPACITY;
 
   const geometry = useMemo(() => {
     const g = buildStreetcarBody();
@@ -169,8 +182,7 @@ export function StreetcarMesh() {
     emissive.setUsage(DynamicDrawUsage); // never rewritten — streetcars are never a blackout participant
     g.setAttribute('aEmissiveOn', emissive);
     return g;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [capacity]);
 
   const material = useMemo(() => getCityMaterial(), []);
 
@@ -200,7 +212,7 @@ export function StreetcarMesh() {
   useFrame(() => {
     const mesh = meshRef.current;
     if (mesh === null) return;
-    const slots = streetcarRef.current?.slots;
+    const slots = apiRef.current?.slots;
 
     for (let i = 0; i < capacity; i++) {
       const slot = slots?.[i];
@@ -227,7 +239,7 @@ export function StreetcarMesh() {
       // real streetcars aren't randomly colored) tinted toward damage on top, exactly
       // TrafficMesh/PoliceMesh's shared pattern.
       _color.copy(WHITE);
-      tintDamageColor(_color, hpLostFraction(slot.hp, TRAFFIC_STREETCAR.hp), slot.state === 'wrecked');
+      tintDamageColor(_color, hpLostFraction(slot.hp, maxHp), slot.state === 'wrecked');
       mesh.setColorAt(i, _color);
     }
 

@@ -180,14 +180,17 @@ describe('CREDITS.brandTrademarks — Phase 24 bank + Phase 26 retail/nostalgia 
     'Buk Chang Dong Soon Tofu',
   ];
 
-  const EXPECTED_BRANDS = [...EXPECTED_BANK_BRANDS, ...EXPECTED_RETAIL_BRANDS];
+  // Phase 31 (Part-8 D1/D3): the TTC transit-route homage entry, appended after the Phase 26 set.
+  const EXPECTED_TRANSIT_BRANDS = ['TTC (Toronto Transit Commission)'];
 
-  it('covers exactly the five Phase-24 bank brands followed by the fifteen Phase-26 retail/nostalgia brands', () => {
+  const EXPECTED_BRANDS = [...EXPECTED_BANK_BRANDS, ...EXPECTED_RETAIL_BRANDS, ...EXPECTED_TRANSIT_BRANDS];
+
+  it('covers exactly the five Phase-24 bank brands, the fifteen Phase-26 retail/nostalgia brands, and the Phase-31 TTC entry', () => {
     expect(CREDITS.brandTrademarks.map((entry) => entry.name)).toEqual(EXPECTED_BRANDS);
   });
 
-  it('has exactly 20 entries', () => {
-    expect(CREDITS.brandTrademarks.length).toBe(20);
+  it('has exactly 21 entries', () => {
+    expect(CREDITS.brandTrademarks.length).toBe(21);
   });
 
   it('has unique brand names', () => {

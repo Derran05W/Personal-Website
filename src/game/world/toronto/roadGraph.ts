@@ -3,16 +3,42 @@
 // shape-compatible with the legacy 64×64 world; ai/traffic consumption is deferred to the
 // Phase 23 parity flip.
 //
-// Graph = intersection nodes wherever two centrelines cross inside both spans + waypoint nodes
-// every ~WAYPOINT_SPACING_WU between adjacent stops (crossings and street ends), with directed
-// edges both ways and an outEdges turn-choice index. Coordinates are WORLD-space via mapToWorld
-// (map x→x, map y→z). tileIndex is -1 everywhere — a DOCUMENTED debt: there is no tile grid on
-// this map, so nothing may read tileIndex until the Phase 23 parity flip wires one.
+// Graph = shared, UNOFFSET hub nodes wherever two centrelines cross (or a street simply ends)
+// + TWO direction-offset waypoint chains per street between adjacent hubs — one per travel
+// direction, laterally offset toward its right-hand side (LANE_OFFSET_WU, config/torontoMap.ts)
+// — with DIRECTED edges only (never both ways over the same nodes) and an outEdges turn-choice
+// index. Coordinates are WORLD-space via mapToWorld (map x→x, map y→z). tileIndex is -1
+// everywhere — a DOCUMENTED debt: there is no tile grid on this map, so nothing may read
+// tileIndex until the Phase 23 parity flip wires one.
+//
+// PHASE 31 LANE-OFFSET FIX (Part-8, live-diagnosed head-on jam): before this, the graph emitted
+// ONE waypoint chain per street with edges laid both ways over the SAME nodes, so opposing
+// civilian traffic met head-on in the same lane (a 14-car jam wall proven live on Yonge, x=1500
+// z 247-285). Fix model: hubs (intersections AND a street's own dead-end stops) stay exactly as
+// before — ONE shared, unoffset node per crossing, so turns/BFS connectivity are untouched — but
+// the waypoints BETWEEN two adjacent hubs now come in two direction-specific, laterally offset
+// chains, each carrying edges in ONLY that direction. A hub therefore gets an incoming edge from
+// each chain arriving at it and an outgoing edge to each chain departing it (its own street's
+// continuation in both directions, plus — at a real intersection — the crossing street's two
+// chains), which is exactly the turn choice set the old single-chain graph offered, just now
+// direction-safe. At a genuine dead end (no crossing street) the hub still gets an outgoing edge
+// for free, from the return/reverse chain's own start — a natural U-turn, and the reason no node
+// is ever left with zero out-edges (torontoTraffic.test.ts's no-sink-nodes invariant).
+// Right-hand traffic convention (matches ai/traffic.ts's rightOf(dir) exactly): southbound (map
+// +y) offsets toward x-offset (west); northbound toward x+offset (east); eastbound (map +x)
+// toward y+offset (south); westbound toward y-offset (north).
+//
+// Every inter-hub gap is subdivided into AT LEAST 2 steps per direction (never 1, i.e. never a
+// bare hub-to-hub edge) specifically so that even the shortest gaps in the map (the rail-lands
+// cluster's ~7.5 wu King/Front/Bremner/Queens-Quay corner) still get a real, laterally-offset
+// waypoint between the two directions — a direct hub-to-hub link would have no lane separation
+// at all and reintroduce the exact same head-on bug on that one block. See roadGraph.test.ts's
+// waypoint-spacing test for the resulting (documented, expected) short edges this produces.
 //
 // Determinism: node ids come from sorting every unique node position by (x, then z); the graph
 // is a pure function of the street table (no Math.random / Date).
 
-import { ROAD_COLORS, WAYPOINT_SPACING_WU, type RoadClass } from '../../config/torontoMap';
+import { LANE_OFFSET_WU, ROAD_COLORS, WAYPOINT_SPACING_WU, type RoadClass } from '../../config/torontoMap';
 import { mapToWorld, type MapPoint } from './projection';
 import type { Street } from './streets';
 import type { TrafficEdge, TrafficGraph, TrafficNode } from '../types';
@@ -91,9 +117,17 @@ export function listIntersections(streets: readonly Street[]): readonly Intersec
 const keyOf = (x: number, y: number): string => `${Math.round(x * KEY_Q)}:${Math.round(y * KEY_Q)}`;
 
 /**
+ * Minimum steps to subdivide one inter-hub gap into, PER DIRECTION (never 1 — see file header:
+ * a bare hub-to-hub edge has no lane separation, so every gap gets at least one interior,
+ * laterally-offset waypoint even when it's shorter than a full WAYPOINT_SPACING_WU step).
+ */
+const MIN_SEGS = 2;
+
+/**
  * Build the TrafficGraph. A private node registry keyed by quantized position lets a crossing
- * shared by two streets collapse to one node (upgraded to 'intersection'); waypoints between
- * stops stay distinct.
+ * shared by two streets collapse to one shared, UNOFFSET hub node (upgraded to 'intersection'
+ * the moment any street sees it as a real crossing); the waypoints BETWEEN hubs are direction-
+ * offset and directed-only (see file header — this is the Phase 31 lane-offset fix).
  */
 export function buildTorontoRoadGraph(streets: readonly Street[]): TrafficGraph {
   const ns = streets.filter((s) => s.axis === 'ns');
@@ -101,7 +135,9 @@ export function buildTorontoRoadGraph(streets: readonly Street[]): TrafficGraph 
   const crossings = findCrossings(ns, ew);
 
   const nodeMap = new Map<string, { x: number; y: number; kind: TrafficNode['kind'] }>();
-  const adjacency = new Map<string, Set<string>>();
+  // Directed adjacency: outAdj.get(fromKey) is the set of toKeys reachable by ONE edge. Unlike
+  // the pre-Phase-31 `link()`, this never adds the reverse automatically.
+  const outAdj = new Map<string, Set<string>>();
 
   const upsert = (x: number, y: number, kind: TrafficNode['kind']): string => {
     const k = keyOf(x, y);
@@ -113,10 +149,9 @@ export function buildTorontoRoadGraph(streets: readonly Street[]): TrafficGraph 
     nodeMap.set(k, { x, y, kind });
     return k;
   };
-  const link = (a: string, b: string): void => {
-    if (a === b) return;
-    (adjacency.get(a) ?? adjacency.set(a, new Set()).get(a)!).add(b);
-    (adjacency.get(b) ?? adjacency.set(b, new Set()).get(b)!).add(a);
+  const addDirected = (from: string, to: string): void => {
+    if (from === to) return;
+    (outAdj.get(from) ?? outAdj.set(from, new Set()).get(from)!).add(to);
   };
 
   for (const street of streets) {
@@ -134,26 +169,58 @@ export function buildTorontoRoadGraph(streets: readonly Street[]): TrafficGraph 
     );
 
     const toXY = (v: number): MapPoint => (street.axis === 'ns' ? { x: street.centerline, y: v } : { x: v, y: street.centerline });
-
-    for (let i = 0; i < stops.length; i++) {
-      const v = stops[i];
+    // Shared, unoffset hub for stop value v — an intersection if some cross street lands here,
+    // else this street's own dead-end. Idempotent (upsert), so calling it twice for the same v
+    // (once as a segment's "next", once as the following segment's "prev") is harmless.
+    const hubKey = (v: number): string => {
       const p = toXY(v);
-      const key = upsert(p.x, p.y, isCross(v) ? 'intersection' : 'waypoint');
-      if (i === 0) continue;
-      // subdivide the segment from the previous stop into ~WAYPOINT_SPACING_WU steps
+      return upsert(p.x, p.y, isCross(v) ? 'intersection' : 'waypoint');
+    };
+
+    // Right-hand-traffic lane offset (matches ai/traffic.ts's rightOf(dir) — see file header):
+    // increasing v is south for an 'ns' street (offset toward -x, west) or east for an 'ew'
+    // street (offset toward +y, south); decreasing v is the mirror.
+    const forwardSign = street.axis === 'ns' ? -1 : 1;
+    const reverseSign = -forwardSign;
+    const laneOffset = LANE_OFFSET_WU[street.cls];
+    const offsetXY = (v: number, sign: number): MapPoint =>
+      street.axis === 'ns'
+        ? { x: street.centerline + sign * laneOffset, y: v }
+        : { x: v, y: street.centerline + sign * laneOffset };
+
+    for (let i = 1; i < stops.length; i++) {
       const prevV = stops[i - 1];
-      const prevP = toXY(prevV);
-      let prevKey = upsert(prevP.x, prevP.y, isCross(prevV) ? 'intersection' : 'waypoint');
-      const d = Math.abs(v - prevV);
-      const segs = Math.max(1, Math.round(d / WAYPOINT_SPACING_WU));
+      const v = stops[i];
+      const hubPrev = hubKey(prevV);
+      const hubNext = hubKey(v);
+      const d = v - prevV; // stops is sorted ascending, so always > 0
+      const segs = Math.max(MIN_SEGS, Math.round(d / WAYPOINT_SPACING_WU));
+
+      // Forward chain: hubPrev -> ... -> hubNext, offset to forwardSign's side, directed only
+      // in the direction of increasing v.
+      let cursor = hubPrev;
       for (let j = 1; j < segs; j++) {
         const vv = prevV + ((v - prevV) * j) / segs;
-        const wp = toXY(vv);
+        const wp = offsetXY(vv, forwardSign);
         const wKey = upsert(wp.x, wp.y, 'waypoint');
-        link(prevKey, wKey);
-        prevKey = wKey;
+        addDirected(cursor, wKey);
+        cursor = wKey;
       }
-      link(prevKey, key);
+      addDirected(cursor, hubNext);
+
+      // Reverse chain: hubNext -> ... -> hubPrev, offset to reverseSign's (opposite) side,
+      // directed only in the direction of decreasing v. Distinct nodes from the forward chain
+      // (opposite lateral offset at the same along-axis position), so no edge here can ever be
+      // the reverse of a forward-chain edge.
+      cursor = hubNext;
+      for (let j = segs - 1; j >= 1; j--) {
+        const vv = prevV + ((v - prevV) * j) / segs;
+        const wp = offsetXY(vv, reverseSign);
+        const wKey = upsert(wp.x, wp.y, 'waypoint');
+        addDirected(cursor, wKey);
+        cursor = wKey;
+      }
+      addDirected(cursor, hubPrev);
     }
   }
 
@@ -174,7 +241,7 @@ export function buildTorontoRoadGraph(streets: readonly Street[]): TrafficGraph 
   const edges: TrafficEdge[] = [];
   const outEdges: number[][] = nodes.map(() => []);
   for (let i = 0; i < keys.length; i++) {
-    const neighbours = [...(adjacency.get(keys[i]) ?? [])].map((k) => idOf.get(k)!).sort((a, b) => a - b);
+    const neighbours = [...(outAdj.get(keys[i]) ?? [])].map((k) => idOf.get(k)!).sort((a, b) => a - b);
     for (const to of neighbours) {
       outEdges[i].push(edges.length);
       edges.push({ from: i, to });

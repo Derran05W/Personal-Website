@@ -81,6 +81,17 @@ export const FIRE_EXIT_TARGET_WIDTH_WU = 2.4;
 export const ROCK_BAND_POSTER_TARGET_HEIGHT_WU = 2.2;
 export const BOX_TARGET_HEIGHT_WU = 0.6;
 
+/** Phase 31 (Part-8 D1/D2, T1) — the 'bus' vehicle's native dims are a pack authoring oddball
+ * (w≈50.06, h≈48.8, d≈157.46 "authoring units" — the category-default vehicle formula would map
+ * its longest axis (d) onto CAR_REF.lengthWu (4.5), scaling a TTC-service bus down to sedan
+ * length, visibly wrong). Explicit override targeting ~10 wu length (≈2.2 car lengths — a
+ * recognizable full-size city bus alongside the sedan, without dwarfing the car-derived road
+ * classes it drives — see config/torontoMap.ts ROAD_CLASSES.major = 8.8 wu, the narrowest street
+ * every bus route uses). Consumed by config/torontoTransit.ts's busChassisHalfExtents() for the
+ * Toronto world-traffic bus's collider/body AND by world/toronto/cityPack/TorontoBusMesh.tsx's
+ * visual via the normal resolveCityPackScale('bus') path. */
+export const BUS_TARGET_LENGTH_WU = 10;
+
 function familyReferenceWidthWu(): number {
   return getCityPackModel('building-red').nativeDims.w;
 }
@@ -119,6 +130,10 @@ export const CITY_PACK_SCALE_OVERRIDES: Readonly<Record<string, number>> = {
   'fire-exit': FIRE_EXIT_TARGET_WIDTH_WU / getCityPackModel('fire-exit').nativeDims.w,
   'rock-band-poster': ROCK_BAND_POSTER_TARGET_HEIGHT_WU / getCityPackModel('rock-band-poster').nativeDims.h,
   box: BOX_TARGET_HEIGHT_WU / getCityPackModel('box').nativeDims.h,
+  // Phase 31 (Part-8 D1/D2, T1) — see the target-constant comment above. 'd' (not 'w') is the
+  // model's longest/forward axis (157.46 vs 50.06), matching the vehicle category formula's own
+  // "whichever horizontal axis is longer" convention below.
+  bus: BUS_TARGET_LENGTH_WU / getCityPackModel('bus').nativeDims.d,
 };
 
 /** Category-default scale for any id without an explicit override above. Every formula is
@@ -196,4 +211,5 @@ export const CITY_PACK_SCALE = {
   FIRE_EXIT_TARGET_WIDTH_WU,
   ROCK_BAND_POSTER_TARGET_HEIGHT_WU,
   BOX_TARGET_HEIGHT_WU,
+  BUS_TARGET_LENGTH_WU,
 } as const;

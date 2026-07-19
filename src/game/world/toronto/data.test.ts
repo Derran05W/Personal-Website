@@ -14,7 +14,13 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { validateAnchors, validateBuildingSpecs, validateModelSources, validatePlaces } from './data';
+import {
+  validateAnchors,
+  validateBuildingSpecs,
+  validateModelSources,
+  validatePlaces,
+  validateTransitRoutes,
+} from './data';
 
 function readJson(relPath: string): unknown {
   const abs = resolve(process.cwd(), relPath);
@@ -40,6 +46,11 @@ describe('the real data/toronto/*.json files pass their validators', () => {
   it('model-sources.json validates', () => {
     const parsed = readJson('data/toronto/model-sources.json');
     expect(() => validateModelSources(parsed)).not.toThrow();
+  });
+
+  it('transit-routes.json validates', () => {
+    const parsed = readJson('data/toronto/transit-routes.json');
+    expect(() => validateTransitRoutes(parsed)).not.toThrow();
   });
 });
 
@@ -164,5 +175,43 @@ describe('validateModelSources — negative cases', () => {
   it('rejects an empty decision', () => {
     const bad = { _meta: {}, sources: [validSource({ decision: '' })] };
     expect(() => validateModelSources(bad)).toThrow(/decision/);
+  });
+});
+
+describe('validateTransitRoutes — negative cases', () => {
+  const baseMeta = { purpose: 'test fixture' };
+
+  function validRoute(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      id: '97',
+      name: 'Yonge',
+      mode: 'bus',
+      segments: [{ street: 'yonge', from: 'queensquay', to: 'finch' }],
+      note: 'n',
+      ...overrides,
+    };
+  }
+
+  it('rejects an unknown mode', () => {
+    const bad = { _meta: baseMeta, routes: [validRoute({ mode: 'subway' })] };
+    expect(() => validateTransitRoutes(bad)).toThrow(/mode/);
+  });
+
+  it('rejects an empty segments array', () => {
+    const bad = { _meta: baseMeta, routes: [validRoute({ segments: [] })] };
+    expect(() => validateTransitRoutes(bad)).toThrow(/segments/);
+  });
+
+  it('rejects a segment missing a street id', () => {
+    const bad = {
+      _meta: baseMeta,
+      routes: [validRoute({ segments: [{ street: '', from: 'start', to: 'end' }] })],
+    };
+    expect(() => validateTransitRoutes(bad)).toThrow(/street/);
+  });
+
+  it('rejects a duplicate route id', () => {
+    const bad = { _meta: baseMeta, routes: [validRoute(), validRoute()] };
+    expect(() => validateTransitRoutes(bad)).toThrow(/duplicate/);
   });
 });

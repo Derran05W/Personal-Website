@@ -51,6 +51,7 @@ import { PLAYABLE_POLYGON, pointInPolygon } from './polygon';
 import { mapToWorld, type MapPoint } from './projection';
 import { listIntersections, type Intersection } from './roadGraph';
 import { buildStreets, type MapRect, type Street } from './streets';
+import { busRouteStreetCoverage, isOnBusRoute } from './transitRoutes';
 
 // --- output shapes -----------------------------------------------------------------------
 
@@ -394,7 +395,11 @@ interface RowSpec {
   readonly capMapWide: number;
   readonly rowOffsetWu: number; // from SIDEWALK_ROW (kerb or facade)
   readonly cornerClearanceWu: number;
-  readonly eligible: (street: Street, district: TorontoDistrictDef) => boolean;
+  /** `along` (Phase 31, Part-8 D5): the candidate's along-street coordinate — only the
+   * route-derived bus-stop spec reads it (busRouteStreetCoverage); every other row's eligible
+   * function ignores the extra argument (TS/JS both allow a narrower-arity callback to satisfy a
+   * wider function type). */
+  readonly eligible: (street: Street, district: TorontoDistrictDef, along: number) => boolean;
   readonly rotation: 'spin' | 'faceRoad';
 }
 
@@ -428,7 +433,7 @@ function buildRow(
         if (allRibbons.some((r) => p.x > r.minX && p.x < r.maxX && p.y > r.minY && p.y < r.maxY)) continue;
         const district = districtAt(p, districts);
         if (!district) continue;
-        if (!spec.eligible(street, district)) continue;
+        if (!spec.eligible(street, district, along)) continue;
         if (tooCloseToExclusion(p, exclusions, 1)) continue;
         const rotationY = spec.rotation === 'spin' ? seededSpin(streetRng) : faceRoadRotationY(street, side);
         out.push(toWorldPlacement(spec.modelId, p, rotationY, district.id));
@@ -654,6 +659,11 @@ export function buildFurniture(seed: number, tierParams: TorontoTierParams = TOR
   );
 
   const busStopEligible = new Set<string>(BUS_STOP_ROW.eligibleClasses);
+  // Phase 31 (Part-8 D5): bus stops are now ROUTE-derived — eligible only where an actual bus
+  // route rides this street AND at this along-street position (data/toronto/transit-routes.json
+  // via world/toronto/transitRoutes.ts's resolver). A street of an eligible CLASS with no route
+  // on it (e.g. University, Bathurst south of Bloor) no longer grows stops.
+  const busCoverage = busRouteStreetCoverage();
   const busStopsRaw = buildRow(
     {
       modelId: 'bus-stop',
@@ -661,7 +671,7 @@ export function buildFurniture(seed: number, tierParams: TorontoTierParams = TOR
       capMapWide: BUS_STOP_ROW.capMapWide,
       rowOffsetWu: SIDEWALK_ROW.facadeOffsetWu,
       cornerClearanceWu: 6,
-      eligible: (street) => busStopEligible.has(street.cls),
+      eligible: (street, _district, along) => busStopEligible.has(street.cls) && isOnBusRoute(street.id, along, busCoverage),
       rotation: 'faceRoad',
     },
     streets,

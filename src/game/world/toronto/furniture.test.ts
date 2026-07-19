@@ -14,6 +14,7 @@ import {
   MANHOLE_ROW,
   PARKED,
   POWER_BOX,
+  SIDEWALK_ROW,
   TORONTO_TIER_IDENTITY,
   TRAFFIC_LIGHT,
   TRAFFIC_LIGHT_FULL_CLASSES,
@@ -21,6 +22,7 @@ import {
   TREE_ROW,
   type TorontoTierParams,
 } from '../../config/torontoDress';
+import { busRouteStreetCoverage, isOnBusRoute } from './transitRoutes';
 import { QUALITY_TIERS } from '../../config/quality';
 import { resolveCityPackScale } from '../../config/cityPackScale';
 import { ROAD_CLASSES, type RoadClass } from '../../config/torontoMap';
@@ -266,6 +268,48 @@ describe('caps — every category respects its config/torontoDress.ts capMapWide
   it('manholes <= cap', () => expect(layout.manholes.items.length).toBeLessThanOrEqual(MANHOLE_ROW.capMapWide));
   it('powerBoxes <= cap', () => expect(layout.powerBoxes.items.length).toBeLessThanOrEqual(POWER_BOX.capMapWide));
   it('parked <= cap (200, D9 perf budget)', () => expect(layout.parked.items.length).toBeLessThanOrEqual(PARKED.cap));
+});
+
+describe('bus stops are route-derived (Phase 31, Part-8 D5)', () => {
+  const coverage = busRouteStreetCoverage();
+  const eligibleClasses = new Set(BUS_STOP_ROW.eligibleClasses);
+
+  /** Which street (if any) a placed item sits alongside, at the busStop row's own facade offset
+   * — re-derives the placement geometry (buildRow's own pointAlong convention) rather than
+   * threading a streetId through FurniturePlacement (which stays a lean, model-agnostic shape). */
+  function streetForBusStop(item: FurniturePlacement): { street: (typeof streets)[number]; along: number } | null {
+    const p = mapPointOf(item.position);
+    for (const street of streets) {
+      const [lo, hi] = street.span;
+      const along = street.axis === 'ns' ? p.y : p.x;
+      if (along < lo - 1 || along > hi + 1) continue;
+      const perpTarget = street.width / 2 + SIDEWALK_ROW.facadeOffsetWu;
+      const across = street.axis === 'ns' ? p.x - street.centerline : p.y - street.centerline;
+      if (Math.abs(Math.abs(across) - perpTarget) < 0.5) return { street, along };
+    }
+    return null;
+  }
+
+  it('every bus stop resolves to a real street of an eligible class that a bus route actually covers there', () => {
+    expect(layout.busStops.items.length).toBeGreaterThan(0);
+    for (const stop of layout.busStops.items) {
+      const found = streetForBusStop(stop);
+      expect(found, JSON.stringify(stop.position)).not.toBeNull();
+      const { street, along } = found!;
+      expect(eligibleClasses.has(street.cls), street.id).toBe(true);
+      expect(isOnBusRoute(street.id, along, coverage), `${street.id} @ ${along}`).toBe(true);
+    }
+  });
+
+  it('never places a bus stop on an eligible-class street with NO bus route (e.g. University, Bathurst — both arteries/majors, no route)', () => {
+    const busFreeEligible = ['university', 'bathurst', 'church', 'jarvis'];
+    const coveredIds = new Set(coverage.map((c) => c.streetId));
+    for (const id of busFreeEligible) expect(coveredIds.has(id), id).toBe(false);
+    for (const stop of layout.busStops.items) {
+      const found = streetForBusStop(stop);
+      expect(found && busFreeEligible.includes(found.street.id)).toBe(false);
+    }
+  });
 });
 
 describe('parked vehicles — model set + exclusions (D18)', () => {

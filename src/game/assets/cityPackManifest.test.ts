@@ -22,6 +22,7 @@ import {
 // functions the generator script uses and proves they produce exactly the shipped manifest.
 import { idForFile, kebabCase, categoryFor, RENAME_MAP } from '../../../scripts/lib/cityPackNaming.mjs';
 import { CIVILIAN_VEHICLE_IDS, neutralBodyId, NEUTRAL_SUFFIX } from '../../../scripts/lib/cityPackNeutralBody.mjs';
+import { PLAYER_CAR_IDS, playerVariantId, PLAYER_SUFFIX } from '../../../scripts/lib/cityPackPlayerCar.mjs';
 
 const VALID_CATEGORIES: readonly CityPackCategory[] = [
   'building',
@@ -103,8 +104,8 @@ const EXCLUDED_BASENAMES: readonly string[] = [
 ];
 
 describe('CITY_PACK_MANIFEST — schema', () => {
-  it('has exactly 59 entries (52 source models + 7 civilian-vehicle -neutral variants, D5)', () => {
-    expect(CITY_PACK_MANIFEST.length).toBe(59);
+  it('has exactly 64 entries (52 source models + 7 civilian-vehicle -neutral variants, D5 + 5 player/garage-swap -player variants, Phase 31 D6)', () => {
+    expect(CITY_PACK_MANIFEST.length).toBe(64);
   });
 
   it('every id is lower-kebab-case and unique', () => {
@@ -170,8 +171,9 @@ describe('rename-map / kebab-case logic mirrors the shipped manifest', () => {
     const derivedIds = SOURCE_BASENAMES.map((basename) => idForFile(basename)).sort();
     // Phase 29 T2 (D5): `-neutral` entries are DERIVED civilian-vehicle body variants, not sourced
     // from a basename — exclude them before matching the manifest against the source-derived ids.
+    // Phase 31 T2 (D6): `-player` entries are DERIVED garage-swap variants, same treatment.
     const manifestIds = CITY_PACK_MANIFEST.map((e) => e.id)
-      .filter((id) => !id.endsWith(NEUTRAL_SUFFIX))
+      .filter((id) => !id.endsWith(NEUTRAL_SUFFIX) && !id.endsWith(PLAYER_SUFFIX))
       .sort();
     expect(derivedIds).toEqual(manifestIds);
   });
@@ -210,6 +212,23 @@ describe('CITY_PACK_MANIFEST — neutral-body variants (D5)', () => {
       const neutral = getCityPackModel(neutralBodyId(id));
       expect(neutral.category, neutral.id).toBe('vehicle');
       expect(categoryFor(neutral.id), neutral.id).toBe('vehicle');
+    }
+  });
+});
+
+describe('CITY_PACK_MANIFEST — player/garage-swap variants (Phase 31 D6)', () => {
+  it('every player-car id has a <id>-player variant categorized as a vehicle', () => {
+    for (const id of PLAYER_CAR_IDS) {
+      expect(hasCityPackModel(id), id).toBe(true);
+      const player = getCityPackModel(playerVariantId(id));
+      expect(player.category, player.id).toBe('vehicle');
+      expect(categoryFor(player.id), player.id).toBe('vehicle');
+    }
+  });
+
+  it('a <id>-player variant shares its base model native dims exactly (same source geometry)', () => {
+    for (const id of PLAYER_CAR_IDS) {
+      expect(getCityPackModel(playerVariantId(id)).nativeDims).toEqual(getCityPackModel(id).nativeDims);
     }
   });
 });

@@ -56,6 +56,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RENAME_MAP, kebabCase, idForFile, categoryFor, EXCLUDE_BASENAMES } from './lib/cityPackNaming.mjs';
 import { CIVILIAN_VEHICLE_IDS, neutralBodyId, applyNeutralBody } from './lib/cityPackNeutralBody.mjs';
+import { PLAYER_CAR_IDS, playerVariantId, applyPlayerVariant } from './lib/cityPackPlayerCar.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const SOURCE_DIR = path.join(root, 'City Pack.undefined-glb');
@@ -208,8 +209,19 @@ function makeIO() {
 
 /** Runs the full D3(+D15) pipeline on one GLB. Returns the measured before/after report row;
  * throws on a hard pipeline failure (caller catches per-file so one bad model doesn't kill the
- * run). `budgets` is the parsed city-pack-budgets.json ({ caps, optOut }). */
-async function optimizeOne(id, inputPath, outputPath, budgets, preTransform = null) {
+ * run). `budgets` is the parsed city-pack-budgets.json ({ caps, optOut }).
+ *
+ * Phase 31 T2 (D6): `options.keepMeshes` passes straight through to the join() stage —
+ * `join({ keepMeshes: true })` restricts joining to primitives that already share a parent Mesh,
+ * so distinctly-named Meshes/Nodes (a player-car variant's body + wheel nodes,
+ * scripts/lib/cityPackPlayerCar.mjs) survive as separate draw-ready meshes instead of being
+ * merged into the usual single instancing-ready primitive. `options.skipSimplify` skips the D15
+ * budget-driven simplify() stage entirely — the player-car variants render exactly ONE on-screen
+ * instance at a time (never batched/instanced), so the tri-budget pressure simplify() exists for
+ * doesn't apply, and skipping it removes any risk of the simplifier touching the wheel-pivot
+ * geometry this task depends on being exact. */
+async function optimizeOne(id, inputPath, outputPath, budgets, preTransform = null, options = {}) {
+  const { keepMeshes = false, skipSimplify = false } = options;
   const io = makeIO();
   const document = await io.read(inputPath);
 
@@ -245,7 +257,7 @@ async function optimizeOne(id, inputPath, outputPath, budgets, preTransform = nu
   // return and are completely untouched.
   harmonizeAlphaForPalette(document);
 
-  await document.transform(palette({ min: 2 }), join());
+  await document.transform(palette({ min: 2 }), join({ keepMeshes }));
 
   // D15 (measured deviation — see stripNormalsForUnlitPipeline's own doc comment): drop
   // NORMAL/TANGENT before weld() so weld can merge purely on position, giving simplify() an
@@ -255,10 +267,11 @@ async function optimizeOne(id, inputPath, outputPath, budgets, preTransform = nu
 
   // D15: simplify BEFORE quantize/meshopt (simplifying already-quantized/reordered geometry
   // fights meshopt's GPU-cache reorder). Only for ids with a budgets.json cap, not opted out,
-  // and only if the post-join/weld tri count is actually over that cap.
+  // and only if the post-join/weld tri count is actually over that cap. Phase 31 T2: skipped
+  // entirely for player-car variants (see this function's header).
   let simplifyReport = null;
   const cap = budgets.caps[id];
-  if (cap !== undefined && !budgets.optOut.has(id)) {
+  if (!skipSimplify && cap !== undefined && !budgets.optOut.has(id)) {
     const before = countTris(document);
     if (before > cap) {
       simplifyReport = await simplifyToBudget(document, cap);
@@ -355,6 +368,26 @@ async function main() {
         const neutralMeasured = await optimizeOne(neutralId, normalizedPath, neutralOut, budgets, applyNeutralBody);
         totalOptimized += neutralMeasured.optimizedBytes;
         rows.push({ id: neutralId, category: categoryFor(neutralId), rawBytes, ...neutralMeasured });
+      }
+
+      // Phase 31 T2 (D6): the 5 player/garage-swap models ALSO emit a `<id>-player` variant —
+      // wheel nodes preserved un-joined with a sane recentred pivot (scripts/lib/
+      // cityPackPlayerCar.mjs) PLUS the same neutral-body recolour as the `-neutral` civilian
+      // variants above, so vehicles/meshes/PackCarMesh.tsx can tint the body per car. Reuses the
+      // base rawBytes (identical source model) for the manifest, same convention as -neutral.
+      if (PLAYER_CAR_IDS.includes(id)) {
+        const playerId = playerVariantId(id);
+        const playerOut = path.join(OPTIMIZED_DIR, `${playerId}.glb`);
+        const playerMeasured = await optimizeOne(
+          playerId,
+          normalizedPath,
+          playerOut,
+          budgets,
+          (document) => applyPlayerVariant(document, id),
+          { keepMeshes: true, skipSimplify: true },
+        );
+        totalOptimized += playerMeasured.optimizedBytes;
+        rows.push({ id: playerId, category: categoryFor(playerId), rawBytes, ...playerMeasured });
       }
     } catch (err) {
       failures.push({ id, basename, error: err instanceof Error ? err.message : String(err) });

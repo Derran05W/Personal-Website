@@ -35,15 +35,23 @@ import { useMemo } from 'react';
 import { useGLTF } from '@react-three/drei';
 import {
   Box3,
+  BufferGeometry,
   Color,
+  Float32BufferAttribute,
+  Group,
+  Matrix3,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
-  type BufferGeometry,
+  Quaternion,
+  Vector3,
   type Material,
   type Object3D,
 } from 'three';
 import { getCityPackModel } from './cityPackManifest';
+// Deliberately the ZERO-DEPENDENCY names module, never cityPackPlayerCar.mjs itself (which pulls
+// in @gltf-transform/functions + a lazy `sharp` import, Node-only — see that file's own header).
+import { PLAYER_NODE_NAMES } from '../../../scripts/lib/cityPackPlayerCarNames.mjs';
 
 /** The single-primitive render data extracted from one optimized city-pack GLB. */
 export interface CityPackModel {
@@ -137,4 +145,189 @@ export function toUnlit(source: Material): MeshBasicMaterial {
   });
   unlit.toneMapped = false;
   return unlit;
+}
+
+/**
+ * Phase 31 T2 (D6) — folds `matrix` into a fresh Float32 position/normal/uv/index geometry,
+ * de-quantizing the raw KHR_mesh_quantization attributes `useCityPackModel`/`useCityPackPartModel`
+ * hand back. A general-purpose sibling of world/toronto/cityPack/cityPackBaked.ts's bakeGeometry
+ * (same technique — that module is Toronto-specific, applying a vertex-gradient bake `vehicles/`
+ * has no business depending on, so this is its own small copy rather than a cross-layer import).
+ * Includes the same winding-flip fix for a mirrored (negative-determinant) `matrix`: folding a
+ * mirror flips every triangle's handedness, which would otherwise back-face-cull the whole mesh.
+ */
+export function dequantizeGeometry(source: BufferGeometry, matrix: Matrix4): BufferGeometry {
+  const pos = source.getAttribute('position');
+  const count = pos.count;
+  const outPos = new Float32Array(count * 3);
+  const v = new Vector3();
+  for (let i = 0; i < count; i++) {
+    v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(matrix);
+    outPos[i * 3] = v.x;
+    outPos[i * 3 + 1] = v.y;
+    outPos[i * 3 + 2] = v.z;
+  }
+  const g = new BufferGeometry();
+  g.setAttribute('position', new Float32BufferAttribute(outPos, 3));
+
+  const normal = source.getAttribute('normal');
+  if (normal) {
+    const nm = new Matrix3().getNormalMatrix(matrix);
+    const outN = new Float32Array(count * 3);
+    const n = new Vector3();
+    for (let i = 0; i < count; i++) {
+      n.set(normal.getX(i), normal.getY(i), normal.getZ(i)).applyMatrix3(nm).normalize();
+      outN[i * 3] = n.x;
+      outN[i * 3 + 1] = n.y;
+      outN[i * 3 + 2] = n.z;
+    }
+    g.setAttribute('normal', new Float32BufferAttribute(outN, 3));
+  }
+
+  const uv = source.getAttribute('uv');
+  if (uv) {
+    const outUv = new Float32Array(count * 2);
+    for (let i = 0; i < count; i++) {
+      outUv[i * 2] = uv.getX(i);
+      outUv[i * 2 + 1] = uv.getY(i);
+    }
+    g.setAttribute('uv', new Float32BufferAttribute(outUv, 2));
+  }
+
+  const flip = matrix.determinant() < 0;
+  const idxArray: number[] = [];
+  const src = source.getIndex();
+  if (src) {
+    const arr = src.array;
+    for (let i = 0; i < arr.length; i++) idxArray.push(arr[i]);
+  } else {
+    for (let i = 0; i < count; i++) idxArray.push(i);
+  }
+  if (flip) {
+    for (let i = 0; i + 2 < idxArray.length; i += 3) {
+      const tmp = idxArray[i + 1];
+      idxArray[i + 1] = idxArray[i + 2];
+      idxArray[i + 2] = tmp;
+    }
+  }
+  g.setIndex(idxArray);
+
+  // The city-pack pipeline strips NORMAL/TANGENT from every model (scripts/city-pack.mjs's
+  // stripNormalsForUnlitPipeline — the whole pack renders unlit elsewhere in the game, so normals
+  // are pointless dead weight there). The player car renders LIT (flatShading, same convention as
+  // every other player-car mesh) and has no baked normal to fold, so compute one fresh from the
+  // final triangle data whenever the source had none — cheap (one pass, done once per mount) and
+  // avoids depending on any WebGL missing-vertex-attribute fallback behaviour.
+  if (!normal) g.computeVertexNormals();
+  g.computeBoundingBox();
+  g.computeBoundingSphere();
+  return g;
+}
+
+/** One named part (body or a wheel) of a `-player` variant GLB — raw quantized geometry +
+ * material + the mesh node's world matrix (baseMatrix), same shape as CityPackModel/
+ * extractSingleModel above. */
+export interface PlayerCarPackPart {
+  readonly geometry: BufferGeometry;
+  readonly material: Material;
+  readonly baseMatrix: Matrix4;
+}
+
+/** The full extracted `-player` variant: a body (every model has one) and up to 3 wheel parts.
+ * The wheel fields are null for a model with no separable wheel geometry (documented fallback —
+ * currently only 'bus'; scripts/lib/cityPackPlayerCar.mjs's file header). */
+export interface PlayerCarPackModel {
+  readonly body: PlayerCarPackPart;
+  readonly wheelFrontLeft: PlayerCarPackPart | null;
+  readonly wheelFrontRight: PlayerCarPackPart | null;
+  readonly wheelRear: PlayerCarPackPart | null;
+}
+
+function extractNamedPart(mesh: Mesh): PlayerCarPackPart {
+  const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+  return { geometry: mesh.geometry, material, baseMatrix: mesh.matrixWorld.clone() };
+}
+
+/**
+ * Resolves a canonical part name to its Mesh. A glTF node whose mesh has exactly one primitive
+ * loads as a single three.js Mesh named after the node — the common case. A node whose mesh has
+ * MORE than one primitive (pickup-truck-player/sports-car-b-player's 2-material body — the D3
+ * pipeline's `palette({min: 2})` floor keeps at least 2 distinct materials, so join({keepMeshes:
+ * true}) can't fully merge those two into one) loads as a three.js Group named after the node,
+ * with per-primitive Mesh CHILDREN named "<node>_1"/"<node>_2" — MEASURED empirically (a
+ * "player-car GLB scene had no body mesh" runtime crash on exactly these two ids, headless-proof
+ * during this task). Takes the Group's first Mesh child in that case — the same "first material
+ * wins" simplification extractSingleModel above already applies to any multi-material single-mesh
+ * pack model (`Array.isArray(found.material) ? found.material[0] : found.material`), so a player
+ * car's body behaves identically to every other pack vehicle already shipped with this trait
+ * (pickup-truck/sports-car-b's BASE ids have the same 2-material body and the same simplification).
+ */
+function resolveNamedMesh(scene: Object3D, name: string): Mesh | null {
+  let found: Object3D | null = null;
+  scene.traverse((obj) => {
+    if (found === null && obj.name === name && (obj instanceof Mesh || obj instanceof Group)) found = obj;
+  });
+  if (found === null) return null;
+  const obj: Object3D = found;
+  if (obj instanceof Mesh) return obj;
+  for (const child of obj.children) {
+    if (child instanceof Mesh) return child;
+  }
+  return null;
+}
+
+/**
+ * Extracts a `-player` variant GLB's named parts (scripts/lib/cityPackPlayerCar.mjs's pipeline
+ * output: nodes named 'body' / 'wheel-front-left' / 'wheel-front-right' / 'wheel-rear'). Unlike
+ * extractSingleModel (which grabs the first Mesh it finds — correct for the single-prim, join()'d
+ * outputs every other pack model produces), a player-car variant is DELIBERATELY multi-mesh, so
+ * this looks each part up by its exact canonical name instead (see resolveNamedMesh for the
+ * Group-wrapping wrinkle a multi-material body introduces).
+ */
+function extractPlayerCarModel(scene: Object3D): PlayerCarPackModel {
+  scene.updateMatrixWorld(true);
+
+  const bodyMesh = resolveNamedMesh(scene, PLAYER_NODE_NAMES.body);
+  if (!bodyMesh) {
+    throw new Error(`cityPack: player-car GLB scene had no "${PLAYER_NODE_NAMES.body}" mesh`);
+  }
+
+  const wheelFrontLeftMesh = resolveNamedMesh(scene, PLAYER_NODE_NAMES.wheelFrontLeft);
+  const wheelFrontRightMesh = resolveNamedMesh(scene, PLAYER_NODE_NAMES.wheelFrontRight);
+  const wheelRearMesh = resolveNamedMesh(scene, PLAYER_NODE_NAMES.wheelRear);
+
+  return {
+    body: extractNamedPart(bodyMesh),
+    wheelFrontLeft: wheelFrontLeftMesh ? extractNamedPart(wheelFrontLeftMesh) : null,
+    wheelFrontRight: wheelFrontRightMesh ? extractNamedPart(wheelFrontRightMesh) : null,
+    wheelRear: wheelRearMesh ? extractNamedPart(wheelRearMesh) : null,
+  };
+}
+
+/**
+ * Loads one `-player` variant city-pack model by manifest id (e.g. 'car-a-player') and returns
+ * its named parts. Suspends (drei useGLTF) exactly like useCityPackModel — mount consumers under
+ * a <Suspense> boundary. Same `useDraco=false` meshopt-only wiring.
+ */
+export function usePlayerCarPackModel(id: string): PlayerCarPackModel {
+  const entry = getCityPackModel(id);
+  const gltf = useGLTF(entry.url, false);
+  return useMemo(() => extractPlayerCarModel(gltf.scene), [gltf.scene]);
+}
+
+/**
+ * Folds a part's baseMatrix into world-space float geometry, EXCLUDING the translation component
+ * (rotation + scale only — a zero-translation Matrix4). Used for wheel parts: the pipeline
+ * (cityPackPlayerCar.mjs) already recentred each wheel node so its hub sits at the local origin;
+ * baking translation back in here would undo that and break the runtime's ability to layer a
+ * per-frame spin rotation.x on top. Body parts use `dequantizeGeometry(part.geometry,
+ * part.baseMatrix)` directly instead (the full matrix — a body has no pivot to preserve).
+ */
+export function dequantizeWheelGeometry(part: PlayerCarPackPart): BufferGeometry {
+  const position = new Vector3();
+  const quaternion = new Quaternion();
+  const scale = new Vector3();
+  part.baseMatrix.decompose(position, quaternion, scale);
+  const rotateScaleOnly = new Matrix4().compose(new Vector3(0, 0, 0), quaternion, scale);
+  return dequantizeGeometry(part.geometry, rotateScaleOnly);
 }

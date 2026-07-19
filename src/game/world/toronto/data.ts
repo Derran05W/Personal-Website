@@ -373,3 +373,74 @@ export function validateModelSources(u: unknown): ModelSourcesFile {
   );
   return { _meta, sources };
 }
+
+// === transit-routes.json ==================================================================
+// The Phase 31 (Part-8 D1) TTC-homage transit roster. Each route is an ordered list of street
+// SEGMENTS — a street id (must match a world/toronto/streets.ts STREET_DEFS id; not
+// cross-checked here, only in world/toronto/transitRoutes.ts, which is code, not data) plus
+// two endpoint TOKENS: the literal strings "start"/"end" (the street's own resolved span
+// endpoint) or another street's id (their crossing gives the along-coordinate). This validator
+// checks STRUCTURE + the enum/non-empty constraints only — it does not know about the real
+// street table, so a typo'd street/endpoint id passes here and fails loudly at resolve time
+// (transitRoutes.ts throws a specific "unknown street" error instead).
+
+export const TRANSIT_MODES = ['bus', 'streetcar'] as const;
+export type TransitMode = (typeof TRANSIT_MODES)[number];
+
+export interface TransitRouteSegment {
+  readonly street: string;
+  readonly from: string;
+  readonly to: string;
+}
+
+export interface TransitRoute {
+  readonly id: string;
+  readonly name: string;
+  readonly mode: TransitMode;
+  readonly segments: readonly TransitRouteSegment[];
+  readonly note: string;
+}
+
+export interface TransitRoutesFile {
+  readonly _meta: Record<string, unknown>;
+  readonly routes: readonly TransitRoute[];
+}
+
+function validateTransitRouteSegment(value: unknown, path: string): TransitRouteSegment {
+  const o = assertRecord(value, path);
+  const street = assertNonEmptyString(o.street, `${path}.street`);
+  const from = assertNonEmptyString(o.from, `${path}.from`);
+  const to = assertNonEmptyString(o.to, `${path}.to`);
+  return { street, from, to };
+}
+
+function validateTransitRoute(value: unknown, path: string): TransitRoute {
+  const o = assertRecord(value, path);
+  const id = assertNonEmptyString(o.id, `${path}.id`);
+  const name = assertNonEmptyString(o.name, `${path}.name`);
+  const mode = assertOneOf(o.mode, TRANSIT_MODES, `${path}.mode`);
+  const segments = assertArray(o.segments, `${path}.segments`).map((item, i) =>
+    validateTransitRouteSegment(item, `${path}.segments[${i}]`),
+  );
+  if (segments.length === 0) {
+    throw new Error(`${path}.segments: expected at least one segment`);
+  }
+  const note = assertString(o.note, `${path}.note`);
+  return { id, name, mode, segments, note };
+}
+
+export function validateTransitRoutes(u: unknown): TransitRoutesFile {
+  const root = assertRecord(u, '$');
+  const _meta = assertRecord(root._meta, '$._meta');
+  const seenIds = new Set<string>();
+  const routes = assertArray(root.routes, '$.routes').map((item, i) => {
+    const path = `$.routes[${i}]`;
+    const route = validateTransitRoute(item, path);
+    if (seenIds.has(route.id)) {
+      throw new Error(`${path}.id: duplicate id "${route.id}"`);
+    }
+    seenIds.add(route.id);
+    return route;
+  });
+  return { _meta, routes };
+}

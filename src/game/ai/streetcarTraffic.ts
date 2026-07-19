@@ -62,7 +62,7 @@
 
 import { getCarDef } from '../vehicles/definitions';
 import { playerVehicle } from '../vehicles/playerRef';
-import { TRAFFIC_STREETCAR, trafficActiveTarget, type QualityTier } from '../config';
+import { TRAFFIC_STREETCAR, trafficActiveTarget, type QualityTier, type StreetcarTuning } from '../config';
 import type { RapierContext, RapierRigidBody } from '@react-three/rapier';
 import { gameEvents } from '../state/events';
 import { getGameState } from '../state/store';
@@ -134,6 +134,29 @@ export function avenueRoundTripLength(path: AvenuePath): number {
   return avenueOneWayLength(path) * 2;
 }
 
+/**
+ * Phase 31 (Part-8, wrong-way lane fix) — cursor traversal mode: 'bounce' is the P19 default
+ * (an OPEN avenue, driven there-and-back, reflecting at each tip — see AvenuePath's own doc
+ * comment for why); 'loop' is a CLOSED path (world/toronto/transitRoutes.ts builds a bus route
+ * this way: outbound leg on the direction-correct lane, return leg on the OPPOSITE lane, joined
+ * at both tips so the path's own last point coincides with its first) walked forward forever,
+ * wrapping straight back to index 0 instead of ever reflecting. Every function below defaults to
+ * 'bounce' so every pre-Phase-31 call site (every existing test, ai/StreetcarMount.tsx's legacy
+ * streetcars, this file's own Toronto streetcar mount) is unaffected — only the Toronto BUS
+ * mount opts into 'loop' (ai/streetcarTraffic.ts's StreetcarControllerOptions.pathMode).
+ */
+export type AvenueCursorMode = 'bounce' | 'loop';
+
+/** Full cycle length under a cursor mode: the there-and-back round trip (2x one-way) for
+ * 'bounce', or the path's own one-way length for 'loop' (a loop path is already closed back to
+ * its own start — see AvenueCursorMode's doc comment — so walking it once already completes the
+ * cycle; doubling it would drive the loop twice per "round trip"). Used wherever a caller needs
+ * "how far can a streetcar/bus travel before it's back where it started" (roster seeding,
+ * recycle placement). */
+export function avenueCycleLength(path: AvenuePath, mode: AvenueCursorMode = 'bounce'): number {
+  return mode === 'loop' ? avenueOneWayLength(path) : avenueRoundTripLength(path);
+}
+
 /** A streetcar's position along its avenue: which segment it's on, that segment's length, how
  * far along it (ALWAYS measured as distance from `path[segIndex]`, regardless of `dir` — see
  * avenueCursorPoint), and which way it's currently travelling. `dir: 1` means advancing toward
@@ -155,17 +178,13 @@ export interface AvenueCursor {
  * starting point (and direction); advanceAvenueCursor below is the bounded PER-FRAME stepper.
  * Degenerate paths (<2 points, or a ~zero-length line) return a zero-length cursor.
  */
-export function avenueCursorAtDistance(path: AvenuePath, distanceM: number): AvenueCursor {
+/** Walk `path` forward `posFromStart` metres from index 0 (no reflection/wraparound — the
+ * caller has already folded `posFromStart` into whatever range is valid for its mode), landing
+ * on the segment/progress that distance reaches, facing `dir`. Shared tail of both
+ * avenueCursorAtDistance branches below (bounce's forward/return legs and loop's single forward
+ * walk are all "some distance from index 0, facing some direction" once folded). */
+function cursorAtPosFromStart(path: AvenuePath, posFromStart: number, dir: 1 | -1): AvenueCursor {
   const n = path.length;
-  if (n < 2) return { segIndex: 0, segLenM: EPS, progressM: 0, dir: 1 };
-  const oneWay = avenueOneWayLength(path);
-  if (oneWay <= EPS) return { segIndex: 0, segLenM: EPS, progressM: 0, dir: 1 };
-  const roundTrip = oneWay * 2;
-  const wrapped = ((distanceM % roundTrip) + roundTrip) % roundTrip; // fold into [0, roundTrip)
-  const dir: 1 | -1 = wrapped <= oneWay ? 1 : -1;
-  // Distance from the START of the path (index 0), regardless of dir: the forward leg reads
-  // straight off `wrapped`; the return leg mirrors it back down from oneWay.
-  const posFromStart = dir === 1 ? wrapped : roundTrip - wrapped;
   let remaining = posFromStart;
   for (let i = 0; i < n - 1; i++) {
     const segLen = Math.max(EPS, avenueSegLength(path, i));
@@ -179,6 +198,29 @@ export function avenueCursorAtDistance(path: AvenuePath, distanceM: number): Ave
   return { segIndex: 0, segLenM: Math.max(EPS, avenueSegLength(path, 0)), progressM: 0, dir };
 }
 
+export function avenueCursorAtDistance(path: AvenuePath, distanceM: number, mode: AvenueCursorMode = 'bounce'): AvenueCursor {
+  const n = path.length;
+  if (n < 2) return { segIndex: 0, segLenM: EPS, progressM: 0, dir: 1 };
+  const oneWay = avenueOneWayLength(path);
+  if (oneWay <= EPS) return { segIndex: 0, segLenM: EPS, progressM: 0, dir: 1 };
+
+  if (mode === 'loop') {
+    // Closed path (see AvenueCursorMode's doc comment: the path's own last point already
+    // coincides with its first), walked forward forever — fold into [0, oneWay) and always face
+    // forward; there is no "return leg" to reflect onto.
+    const wrapped = ((distanceM % oneWay) + oneWay) % oneWay;
+    return cursorAtPosFromStart(path, wrapped, 1);
+  }
+
+  const roundTrip = oneWay * 2;
+  const wrapped = ((distanceM % roundTrip) + roundTrip) % roundTrip; // fold into [0, roundTrip)
+  const dir: 1 | -1 = wrapped <= oneWay ? 1 : -1;
+  // Distance from the START of the path (index 0), regardless of dir: the forward leg reads
+  // straight off `wrapped`; the return leg mirrors it back down from oneWay.
+  const posFromStart = dir === 1 ? wrapped : roundTrip - wrapped;
+  return cursorAtPosFromStart(path, posFromStart, dir);
+}
+
 /**
  * Advance a cursor `distance` metres (always >= 0 — callers pass speed*dt) in its CURRENT
  * direction, reflecting (flipping `dir` and continuing into the same segment from the other
@@ -186,7 +228,12 @@ export function avenueCursorAtDistance(path: AvenuePath, distanceM: number): Ave
  * comment for why a there-and-back bounce, not a closed loop, is the correct shape here.
  * No-ops on a degenerate path (<2 points).
  */
-export function advanceAvenueCursor(path: AvenuePath, c: AvenueCursor, distance: number): void {
+export function advanceAvenueCursor(
+  path: AvenuePath,
+  c: AvenueCursor,
+  distance: number,
+  mode: AvenueCursorMode = 'bounce',
+): void {
   if (path.length < 2) return;
   let remaining = distance;
   let iters = 0;
@@ -200,10 +247,20 @@ export function advanceAvenueCursor(path: AvenuePath, c: AvenueCursor, distance:
       } else {
         remaining -= roomLeft;
         if (c.segIndex >= path.length - 2) {
-          // Reached the far tip of the path — reflect. Stay on this (last) segment, now
-          // counting DOWN from its far end.
-          c.dir = -1;
-          c.progressM = c.segLenM;
+          if (mode === 'loop') {
+            // Closed path — the far tip of this (last) segment already coincides with path[0]
+            // (see AvenueCursorMode's doc comment / world/toronto/transitRoutes.ts's bus loop
+            // construction), so continue straight into the first segment instead of reflecting.
+            c.segIndex = 0;
+            c.segLenM = Math.max(EPS, avenueSegLength(path, 0));
+            c.progressM = 0;
+            // dir stays 1 — a loop never reverses.
+          } else {
+            // Reached the far tip of the path — reflect. Stay on this (last) segment, now
+            // counting DOWN from its far end.
+            c.dir = -1;
+            c.progressM = c.segLenM;
+          }
         } else {
           c.segIndex += 1;
           c.segLenM = Math.max(EPS, avenueSegLength(path, c.segIndex));
@@ -377,7 +434,7 @@ function freshInternal(): InternalStreetcar {
   };
 }
 
-function freshSlot(id: number): StreetcarSlot {
+function freshSlot(id: number, hp: number): StreetcarSlot {
   return {
     id,
     state: null,
@@ -390,23 +447,71 @@ function freshSlot(id: number): StreetcarSlot {
     qz: 0,
     qw: 1,
     dynamic: false,
-    hp: TRAFFIC_STREETCAR.hp,
+    hp,
   };
+}
+
+/** Phase 31 (Part-8 D2) — optional per-call overrides. Additive only: every field is optional
+ * and every legacy call site (ai/StreetcarMount.tsx, this file's own tests) that omits `options`
+ * entirely gets EXACTLY the pre-Phase-31 behaviour (TRAFFIC_STREETCAR tuning, redRocket chassis,
+ * tier-scaled roster via trafficActiveTarget) — see the constructor's own doc comment. This is
+ * the "extend config/params, don't fork the controller" seam the phase brief calls for: Toronto
+ * buses and Toronto streetcars are both driven by THIS SAME class, differing only in the values
+ * passed here (config/torontoTransit.ts's TTC_BUS_TUNING/TTC_STREETCAR_TUNING + a bus chassis
+ * override), never a duplicated copy of this file. */
+export interface StreetcarControllerOptions {
+  /** Tuning values in place of TRAFFIC_STREETCAR (same shape — config/streetcar.ts's
+   * StreetcarTuning type). */
+  readonly config?: StreetcarTuning;
+  /** Collider/body half-extents in place of PLAYER_CARS.redRocket's chassis (e.g. a bus's own
+   * resolved dims — config/torontoTransit.ts's busChassisHalfExtents()). */
+  readonly chassis?: { readonly halfWidth: number; readonly halfHeight: number; readonly halfLength: number };
+  /** When true, the roster size is `avenues.length` EXACTLY (no trafficActiveTarget tier
+   * re-scaling) — the caller has already built `avenues` as a seeded, weighted, pre-assigned
+   * per-slot polyline list (world/toronto/transitRoster.ts), so `id % avenues.length` degenerates
+   * to `id` and every slot gets precisely the route it was assigned, not a round-robin cycle.
+   * Default false preserves the legacy (P19) tier-scaled-independent-of-avenues-count sizing. */
+  readonly exactRosterSize?: boolean;
+  /** Registry `EntityEntry.isStreetcar` marker value (world/registry.ts — informational only,
+   * not wired into damage math). Defaults true (every pre-Phase-31 caller of this class IS a
+   * streetcar); Toronto's bus mount passes `false` so a bus registers honestly. */
+  readonly isStreetcarEntry?: boolean;
+  /** Cursor traversal mode (AvenueCursorMode) applied uniformly to every avenue this controller
+   * owns. Defaults 'bounce' — the P19 there-and-back reflection every legacy caller (including
+   * Toronto's OWN streetcar mount, deliberately unchanged) already gets. Toronto's bus mount
+   * passes 'loop': world/toronto/transitRoutes.ts resolves each bus route as an explicit closed
+   * loop (outbound lane one way, return lane the other, joined at the tips), so a bus should
+   * wrap forward through it forever rather than ever reflecting into the oncoming lane (the
+   * live-diagnosed Phase 31 wrong-way bug this option fixes). */
+  readonly pathMode?: AvenueCursorMode;
+  /** Per-avenue starting phase as a fraction of the avenue's cycle length, parallel to
+   * `avenues`. Under `exactRosterSize`, `id % avenues.length` degenerates to `id`, so
+   * seedRoster's own per-avenue rank/count spread always resolves to rank 0 of count 1 —
+   * every slot starts at distance 0, and slots ASSIGNED THE SAME ROUTE (duplicate polylines,
+   * invisible to this controller) spawn co-located and drive in lockstep (live-found Phase 31:
+   * the three route-97 buses superimposed). The assigner (world/toronto/transitRoster.ts)
+   * knows which slots share a route and passes their spread here. Omitted → the legacy
+   * rank/count formula, byte-identical for every pre-Phase-31 caller. */
+  readonly startFracs?: readonly number[];
 }
 
 export class StreetcarController {
   private readonly world: RapierWorld;
   private readonly rapier: RapierNamespace;
   private readonly avenues: readonly AvenuePath[];
+  private readonly cfg: StreetcarTuning;
+  private readonly isStreetcarEntry: boolean;
+  private readonly pathMode: AvenueCursorMode;
+  private readonly startFracs: readonly number[] | undefined;
 
   private readonly slots: StreetcarSlot[];
   private readonly internal: InternalStreetcar[];
   private readonly handleToSlot = new Map<number, number>();
   private readonly rng: Rng;
 
-  // Body dims read LIVE off PLAYER_CARS.redRocket's own resolved chassis (same source
-  // vehicles/meshes/RedRocketMesh.tsx paints over) rather than duplicated as config numbers —
-  // one source of truth for "reuses RedRocketMesh's proportions" (this task's brief).
+  // Body dims read LIVE off PLAYER_CARS.redRocket's own resolved chassis by default (same source
+  // vehicles/meshes/RedRocketMesh.tsx paints over) — one source of truth for "reuses
+  // RedRocketMesh's proportions" (this task's brief) — or `options.chassis` when provided.
   private readonly halfExtents: readonly [number, number, number];
   private readonly colliderCenterY: number;
   private readonly frontProbeM: number;
@@ -422,21 +527,32 @@ export class StreetcarController {
 
   readonly api: StreetcarApi;
 
-  constructor(world: RapierWorld, rapier: RapierNamespace, avenues: readonly AvenuePath[], seed: number) {
+  constructor(
+    world: RapierWorld,
+    rapier: RapierNamespace,
+    avenues: readonly AvenuePath[],
+    seed: number,
+    options?: StreetcarControllerOptions,
+  ) {
     this.world = world;
     this.rapier = rapier;
     this.avenues = avenues;
+    this.cfg = options?.config ?? TRAFFIC_STREETCAR;
+    this.isStreetcarEntry = options?.isStreetcarEntry ?? true;
+    this.pathMode = options?.pathMode ?? 'bounce';
+    this.startFracs = options?.startFracs;
     this.rng = createRng(seed).fork('streetcar');
 
     const quality: QualityTier = getGameState().settings.quality;
     // Defensive-coding requirement (this task's brief): no valid avenues → a zero-size roster,
     // permanently. Every loop below (stepBefore/stepAfter) is then naturally a no-op over an
     // empty `slots` array — no extra guards needed anywhere else in this class.
-    const size = avenues.length > 0 ? trafficActiveTarget(TRAFFIC_STREETCAR.activeTarget, quality) : 0;
-    this.slots = Array.from({ length: size }, (_, i) => freshSlot(i));
+    const size =
+      avenues.length === 0 ? 0 : options?.exactRosterSize ? avenues.length : trafficActiveTarget(this.cfg.activeTarget, quality);
+    this.slots = Array.from({ length: size }, (_, i) => freshSlot(i, this.cfg.hp));
     this.internal = Array.from({ length: size }, () => freshInternal());
 
-    const chassis = getCarDef('redRocket').controller.chassis;
+    const chassis = options?.chassis ?? getCarDef('redRocket').controller.chassis;
     this.halfExtents = [chassis.halfWidth, chassis.halfHeight, chassis.halfLength];
     this.colliderCenterY = chassis.halfHeight;
     this.frontProbeM = chassis.halfLength; // ray starts at the front bumper, same convention as traffic.ts
@@ -479,9 +595,12 @@ export class StreetcarController {
       const avenueIdx = id % avenues.length;
       const rank = rankSoFar[avenueIdx]++;
       const count = perAvenueCount[avenueIdx];
-      const roundTrip = avenueRoundTripLength(avenues[avenueIdx]);
-      const startDistance = count > 0 ? (roundTrip / count) * rank : 0;
-      this.spawn(id, avenueIdx, startDistance);
+      const cycleLen = avenueCycleLength(avenues[avenueIdx], this.pathMode);
+      // startFracs (options) wins when provided — the caller's per-slot phase for duplicate
+      // routes the per-avenue rank/count spread can't see (see StreetcarControllerOptions).
+      // The fallback IS the legacy formula ((cycleLen / count) * rank), expressed as a fraction.
+      const frac = this.startFracs?.[avenueIdx] ?? (count > 0 ? rank / count : 0);
+      this.spawn(id, avenueIdx, cycleLen * frac);
     }
   }
 
@@ -493,7 +612,7 @@ export class StreetcarController {
   stepBefore(): void {
     if (!this.seeded) this.seedRoster(); // deferred body creation — see the constructor note
     const dt = PHYSICS_STEP_SEC;
-    const maxYawDelta = TRAFFIC_STREETCAR.turnRateRadPerSec * dt;
+    const maxYawDelta = this.cfg.turnRateRadPerSec * dt;
     for (let id = 0; id < this.slots.length; id++) {
       const slot = this.slots[id];
       if (slot.state !== 'driving') continue;
@@ -505,10 +624,10 @@ export class StreetcarController {
       const dirX = Math.sin(slot.yaw);
       const dirZ = Math.cos(slot.yaw);
       const blocked = this.castBlock(iv, slot.x, slot.z, dirX, dirZ);
-      const speed = resolveStreetcarHold(blocked, TRAFFIC_STREETCAR.speedMps);
+      const speed = resolveStreetcarHold(blocked, this.cfg.speedMps);
       iv.lastMoveSpeed = speed;
 
-      advanceAvenueCursor(path, iv.cursor, speed * dt);
+      advanceAvenueCursor(path, iv.cursor, speed * dt, this.pathMode);
       avenueCursorPoint(path, iv.cursor, this.scratchPoint);
       const heading = avenueCursorHeading(path, iv.cursor);
       const targetYaw = yawTo(heading.dx, heading.dz);
@@ -563,7 +682,7 @@ export class StreetcarController {
           upDot,
           hp,
           PHYSICS_STEP_SEC,
-          TRAFFIC_STREETCAR,
+          this.cfg,
         );
         iv.flipSec = step.next.flipSec;
         if (step.emit) {
@@ -575,7 +694,7 @@ export class StreetcarController {
       }
 
       const lingerFrom = slot.state === 'wrecked' ? iv.wreckedAt : iv.convertedAt;
-      if (this.simTime - lingerFrom >= TRAFFIC_STREETCAR.wreckLingerSec) {
+      if (this.simTime - lingerFrom >= this.cfg.wreckLingerSec) {
         this.recycle(id);
       }
     }
@@ -589,7 +708,7 @@ export class StreetcarController {
    * trafficRef (regular civs), so a monster-truck hit here always falls through to this normal
    * force-threshold path, harmlessly (verified — see this task's report). */
   handleImpact(record: ImpactRecord): void {
-    const handle = convertibleHandle(record, TRAFFIC_STREETCAR.convertForceThreshold);
+    const handle = convertibleHandle(record, this.cfg.convertForceThreshold);
     if (handle < 0) return;
     const slotId = this.handleToSlot.get(handle);
     if (slotId === undefined) return; // not one of ours (or already converted)
@@ -605,7 +724,7 @@ export class StreetcarController {
 
     const tr = oldBody.translation();
     const rot = oldBody.rotation();
-    const hp = getEntity(iv.colliderHandle)?.hp ?? TRAFFIC_STREETCAR.hp;
+    const hp = getEntity(iv.colliderHandle)?.hp ?? this.cfg.hp;
 
     // Retire the kinematic body (its collider goes with it) + registry identity.
     this.handleToSlot.delete(iv.colliderHandle);
@@ -616,8 +735,8 @@ export class StreetcarController {
     const bodyDesc = this.rapier.RigidBodyDesc.dynamic()
       .setTranslation(tr.x, tr.y, tr.z)
       .setRotation(rot)
-      .setLinearDamping(TRAFFIC_STREETCAR.dynamicLinDamping)
-      .setAngularDamping(TRAFFIC_STREETCAR.dynamicAngDamping)
+      .setLinearDamping(this.cfg.dynamicLinDamping)
+      .setAngularDamping(this.cfg.dynamicAngDamping)
       .setCanSleep(true);
     const body = this.world.createRigidBody(bodyDesc);
     const colDesc = this.rapier.ColliderDesc.cuboid(
@@ -626,7 +745,7 @@ export class StreetcarController {
       this.halfExtents[2],
     )
       .setTranslation(0, this.colliderCenterY, 0)
-      .setMass(TRAFFIC_STREETCAR.massKg)
+      .setMass(this.cfg.massKg)
       .setCollisionGroups(CIVILIAN_GROUPS);
     const collider = this.world.createCollider(colDesc, body);
 
@@ -644,14 +763,14 @@ export class StreetcarController {
     let vy = 0;
     const pv = playerVehicle.current?.readState().velocity;
     if (pv) {
-      const k = TRAFFIC_STREETCAR.convertKickScale;
+      const k = this.cfg.convertKickScale;
       vx += pv.x * k;
       vy += pv.y * k;
       vz += pv.z * k;
     }
     body.setLinvel({ x: vx, y: vy, z: vz }, true);
 
-    registerEntity(collider.handle, { kind: 'civilian', districtId: -1, hp, isStreetcar: true });
+    registerEntity(collider.handle, { kind: 'civilian', districtId: -1, hp, isStreetcar: this.isStreetcarEntry });
     this.handleToSlot.set(collider.handle, slotId);
 
     iv.body = body;
@@ -680,8 +799,8 @@ export class StreetcarController {
     const slot = this.slots[id];
 
     iv.avenueIdx = avenueIdx;
-    iv.cursor = avenueCursorAtDistance(path, startDistanceM);
-    iv.lastMoveSpeed = TRAFFIC_STREETCAR.speedMps;
+    iv.cursor = avenueCursorAtDistance(path, startDistanceM, this.pathMode);
+    iv.lastMoveSpeed = this.cfg.speedMps;
     iv.civHitEmitted = false;
     iv.flipSec = 0;
     iv.wrecked = false;
@@ -710,8 +829,8 @@ export class StreetcarController {
     registerEntity(collider.handle, {
       kind: 'civilian',
       districtId: -1,
-      hp: TRAFFIC_STREETCAR.hp,
-      isStreetcar: true,
+      hp: this.cfg.hp,
+      isStreetcar: this.isStreetcarEntry,
     });
     this.handleToSlot.set(collider.handle, id);
 
@@ -719,7 +838,7 @@ export class StreetcarController {
     iv.colliderHandle = collider.handle;
     slot.state = 'driving';
     slot.dynamic = false;
-    slot.hp = TRAFFIC_STREETCAR.hp;
+    slot.hp = this.cfg.hp;
     slot.x = point.x;
     slot.y = 0;
     slot.z = point.z;
@@ -747,8 +866,8 @@ export class StreetcarController {
     }
     slot.state = null; // transient — spawn() below sets it back to 'driving' before this returns
     const path = this.avenues[iv.avenueIdx];
-    const roundTrip = avenueRoundTripLength(path);
-    const freshDistanceM = roundTrip > EPS ? this.rng.next() * roundTrip : 0;
+    const cycleLen = avenueCycleLength(path, this.pathMode);
+    const freshDistanceM = cycleLen > EPS ? this.rng.next() * cycleLen : 0;
     this.spawn(id, iv.avenueIdx, freshDistanceM);
   }
 
@@ -781,7 +900,7 @@ export class StreetcarController {
     this.rayDir.z = dirZ;
     const hit = this.world.castRay(
       this.ray,
-      TRAFFIC_STREETCAR.blockRayLengthM,
+      this.cfg.blockRayLengthM,
       true,
       undefined,
       BLOCK_RAY_GROUPS,

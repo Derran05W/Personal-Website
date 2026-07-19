@@ -1,0 +1,115 @@
+{
+  "_meta": {
+    "purpose": "TTC-homage transit route roster (Phase 31, Part-8 D1). One entry per game route: real TTC route number/name, mode, and an ordered list of street segments (street id from world/toronto/streets.ts STREET_DEFS + endpoint tokens) the build-time resolver (world/toronto/transitRoutes.ts) turns into a polyline. Endpoint tokens: \"start\"/\"end\" (the street's own resolved span endpoint) or another street's id (that street's centreline gives the along-coordinate where the two cross).",
+    "source": "Haiku map-researcher pass, 2026-07-18 (part-8-density-life-flip.md Phase 31 block) — real-world TTC route facts (19 Bay 2021 renumber from 6, 84/185 Sheppard 2024 split replacing 85, 510 Spadina 2026 FIFA short-turn to Queens Quay, Line 1 underground at Yonge/Eglinton so no surface LRT there). Game adaptation clips every route to our 24-street table and loops it there-and-back at the clip points (never a real terminus/loop/garage).",
+    "verified_date": "2026-07-18",
+    "note": "Every route here is a stylized homage: generic in-house/pack vehicle models, a plain nearest-neighbour route-number board (no TTC roundel, wordmark, or livery scheme). See assets/credits.json (CREDITS.brandTrademarks) for the trademark disclaimer."
+  },
+  "routes": [
+    {
+      "id": "97",
+      "name": "Yonge",
+      "mode": "bus",
+      "segments": [{ "street": "yonge", "from": "queensquay", "to": "finch" }],
+      "note": "The full-thermometer showpiece ride — Queens Quay to Finch, the whole spine."
+    },
+    {
+      "id": "19",
+      "name": "Bay",
+      "mode": "bus",
+      "segments": [{ "street": "bay", "from": "bloor", "to": "queensquay" }],
+      "note": "Renumbered from route 6 in 2021; Bloor down to the harbourfront."
+    },
+    {
+      "id": "121",
+      "name": "Front",
+      "mode": "bus",
+      "segments": [{ "street": "front", "from": "yonge", "to": "church" }],
+      "note": "Downtown Front St clip, Yonge to Church."
+    },
+    {
+      "id": "36",
+      "name": "Finch West",
+      "mode": "bus",
+      "segments": [{ "street": "finch", "from": "start", "to": "yonge" }],
+      "note": "West half of Finch Ave, split at the Finch Station hub."
+    },
+    {
+      "id": "39",
+      "name": "Finch East",
+      "mode": "bus",
+      "segments": [{ "street": "finch", "from": "yonge", "to": "end" }],
+      "note": "East half of Finch Ave, split at the Finch Station hub."
+    },
+    {
+      "id": "84",
+      "name": "Sheppard West",
+      "mode": "bus",
+      "segments": [{ "street": "sheppard", "from": "start", "to": "yonge" }],
+      "note": "West half of Sheppard Ave, split at Yonge."
+    },
+    {
+      "id": "185",
+      "name": "Sheppard Central",
+      "mode": "bus",
+      "segments": [{ "street": "sheppard", "from": "yonge", "to": "end" }],
+      "note": "185 replaced route 85 west of Don Mills in 2024; east half of Sheppard on our map, split at Yonge."
+    },
+    {
+      "id": "34",
+      "name": "Eglinton",
+      "mode": "bus",
+      "segments": [{ "street": "eglinton", "from": "start", "to": "end" }],
+      "note": "Crosses Yonge at Eglinton — Line 5 is underground here, so correctly no surface LRT."
+    },
+    {
+      "id": "501",
+      "name": "Queen",
+      "mode": "streetcar",
+      "segments": [{ "street": "queen", "from": "start", "to": "end" }],
+      "note": "Across the whole downtown block."
+    },
+    {
+      "id": "504",
+      "name": "King",
+      "mode": "streetcar",
+      "segments": [{ "street": "king", "from": "start", "to": "end" }],
+      "note": "Across the whole downtown block."
+    },
+    {
+      "id": "505",
+      "name": "Dundas",
+      "mode": "streetcar",
+      "segments": [{ "street": "dundas", "from": "start", "to": "end" }],
+      "note": "Across the whole downtown block."
+    },
+    {
+      "id": "506",
+      "name": "College",
+      "mode": "streetcar",
+      "segments": [{ "street": "college", "from": "start", "to": "end" }],
+      "note": "Across the whole downtown block."
+    },
+    {
+      "id": "509",
+      "name": "Queens Quay",
+      "mode": "streetcar",
+      "segments": [{ "street": "queensquay", "from": "york", "to": "jarvis" }],
+      "note": "York to Jarvis, the harbourfront ROW."
+    },
+    {
+      "id": "510",
+      "name": "Spadina",
+      "mode": "streetcar",
+      "segments": [{ "street": "spadina", "from": "college", "to": "queensquay" }],
+      "note": "College to Queens Quay — the 2026 FIFA-shortened pattern, matching reality."
+    },
+    {
+      "id": "511",
+      "name": "Bathurst",
+      "mode": "streetcar",
+      "segments": [{ "street": "bathurst", "from": "start", "to": "end" }],
+      "note": "Full length of Bathurst on our map (Bloor to the harbourfront)."
+    }
+  ]
+}

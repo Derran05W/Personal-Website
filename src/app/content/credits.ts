@@ -421,5 +421,18 @@ export const CREDITS: CreditsContent = {
         'Soon Tofu assets were used.',
       ].join(' '),
     },
+    {
+      name: 'TTC (Toronto Transit Commission)',
+      note: [
+        'Referenced as an original, nearest-neighbour pixel-art-style homage: real TTC route',
+        'numbers and street names on the game\'s own generic bus/streetcar route boards (e.g.',
+        '"97 YONGE"), never the official TTC roundel, wordmark, or vehicle livery scheme — the',
+        'vehicles, colours, and boards are hand-authored low-poly art, not a traced or exact',
+        'reproduction of any real mark. Route numbers/streets follow real 2026-era TTC service',
+        "for Toronto-cityscape flavour. The TTC's trademarks belong to the Toronto Transit",
+        'Commission; no affiliation, sponsorship, or endorsement is implied, and no official TTC',
+        'assets were used.',
+      ].join(' '),
+    },
   ],
 };

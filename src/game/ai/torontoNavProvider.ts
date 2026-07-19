@@ -8,7 +8,10 @@
 //   • nextWaypoint(a→b)      — BFS first-hop over the lane graph: the neighbour of a's nearest
 //                              node that lies on a shortest node-path to b's nearest node. BFS
 //                              (not greedy) so the narrow Yonge stem between downtown / midtown /
-//                              North York never dead-ends a chase. Cheap (505 nodes / ~1.8k edges).
+//                              North York never dead-ends a chase. Cheap (976 nodes / ~1.2k edges
+//                              post Phase-31 direction-offset lanes — was 505/~1.1k pre-fix; the
+//                              adjacency below is now built off DIRECTED edges, which is exactly
+//                              what a lane-respecting BFS should walk).
 //   • spawnCandidates()      — every lane-graph node as a RoadPoint (all on-road by construction,
 //                              so the director's uniform behind-camera ring pick converges; no
 //                              approach-bias context needed → spawnNav() is undefined).
@@ -162,8 +165,12 @@ export function createTorontoNavProvider(): NavProvider {
   const nodes = graph.nodes;
   const hash = new NodeHash(nodes);
 
-  // Undirected adjacency (node id → neighbour node ids) for BFS. The graph's edges are stored
-  // both ways already, but building an explicit adjacency avoids the edge-index indirection.
+  // Adjacency (node id → neighbour node ids) for BFS, built directly off the graph's edges to
+  // avoid the edge-index indirection. Phase 31: the graph's edges are DIRECTED lane edges (the
+  // direction-offset fix — see roadGraph.ts's file header), so this BFS now walks legal travel
+  // directions only; the graph stays strongly connected (every hub has both a forward and a
+  // return chain), so a route always exists, it just may no longer be the straight-line shortest
+  // hop count where that would mean cutting against a lane's direction.
   const adjacency: number[][] = nodes.map(() => []);
   for (const edge of graph.edges) adjacency[edge.from].push(edge.to);
 

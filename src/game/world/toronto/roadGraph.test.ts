@@ -61,11 +61,17 @@ describe('graph connectivity — the spine stitches capsule → fold → downtow
 });
 
 describe('edge invariants', () => {
-  it('every directed edge has its reverse', () => {
+  // Phase 31 lane-offset fix (THE regression test — head-on eliminator): before this fix the
+  // graph laid edges both ways over the SAME centreline nodes, so opposing civilian traffic
+  // met head-on in one shared lane (live evidence: a 14-car jam wall on Yonge, x=1500 z 247-285,
+  // both directions face-locked). Now every street gets two direction-offset waypoint chains
+  // (roadGraph.ts's file header), so no directed edge should ever have a reverse-adjacent pair —
+  // if one shows up, some pair of opposing lanes has collapsed back onto the same nodes.
+  it('NO directed edge has a reverse-adjacent pair (opposing lanes never share nodes)', () => {
     const key = (f: number, t: number): string => `${f}->${t}`;
     const set = new Set(edges.map((e) => key(e.from, e.to)));
     for (const e of edges) {
-      expect(set.has(key(e.to, e.from)), `reverse of ${e.from}->${e.to}`).toBe(true);
+      expect(set.has(key(e.to, e.from)), `reverse of ${e.from}->${e.to} must NOT exist`).toBe(false);
     }
   });
 
@@ -89,14 +95,19 @@ describe('edge invariants', () => {
   });
 });
 
-describe('waypoint spacing — every edge touching a waypoint is within [0.5,1.5]×spacing', () => {
-  // Part-8 (D1) compaction shortens several street spans, which can leave one small leftover
-  // remainder edge where a street's end sits close to its innermost crossing (equal-subdivision
-  // rounding has no way to avoid this for an isolated short leftover). The lower bound is loosened
-  // from 0.5x to 0.35x to accommodate that single documented remainder edge (measured ≈0.39x on
-  // the current map) — every OTHER edge still comfortably clears the original 0.5x floor.
-  it('holds (short intersection-to-intersection edges are exempt, as designed; one short leftover remainder tolerated)', () => {
-    const lo = 0.35 * WAYPOINT_SPACING_WU;
+describe('waypoint spacing — every edge touching a waypoint is within [0.1,1.5]×spacing', () => {
+  // Phase 31 lane-offset fix (roadGraph.ts's file header, MIN_SEGS): every inter-hub gap is now
+  // subdivided into AT LEAST 2 steps PER DIRECTION, even when the gap itself is far shorter than
+  // one WAYPOINT_SPACING_WU — a bare hub-to-hub edge would have no lane separation at all and
+  // would reintroduce the exact head-on bug this fix exists to remove. The rail-lands cluster
+  // (King/Front/Bremner/Queens Quay all crossing within a few car-lengths of each other) has the
+  // map's shortest inter-hub gap (~7.5 wu); forced into 2 sub-segments plus the lane offset, its
+  // shortest resulting edge measures ≈0.10x spacing (4.10 wu) — far below the pre-fix 0.35x floor
+  // (which only ever had to tolerate ONE short leftover remainder). The lower bound is loosened to
+  // 0.1x to admit this whole, now-systematic, documented class of short edges; the upper bound is
+  // untouched (MIN_SEGS only ever shortens segments, never lengthens them — measured ≈1.19x here).
+  it('holds (short forced-minimum edges near tight intersection clusters are expected, not bugs)', () => {
+    const lo = 0.1 * WAYPOINT_SPACING_WU;
     const hi = 1.5 * WAYPOINT_SPACING_WU;
     const seen = new Set<string>();
     for (const e of edges) {
@@ -109,6 +120,27 @@ describe('waypoint spacing — every edge touching a waypoint is within [0.5,1.5
       const d = Math.hypot(a.x - b.x, a.z - b.z);
       expect(d, `edge ${e.from}-${e.to}`).toBeGreaterThanOrEqual(lo - 1e-6);
       expect(d, `edge ${e.from}-${e.to}`).toBeLessThanOrEqual(hi + 1e-6);
+    }
+  });
+});
+
+describe('lane-offset containment — every node lies within at least one street ribbon', () => {
+  // Every offset waypoint is centreline ± LANE_OFFSET_WU[cls], and LANE_OFFSET_WU is capped well
+  // under every class's half-width (config/torontoMap.ts), so no lane-offset node should ever
+  // fall outside its own street's painted ribbon. Hub nodes are exactly on a centreline (offset
+  // 0), so they clear trivially. Checked against ANY street's ribbon (not a specific one) because
+  // a shared intersection hub legitimately belongs to two streets at once.
+  it('holds for all nodes', () => {
+    for (const n of nodes) {
+      const m = mapOf(n);
+      const inSomeRibbon = streets.some(
+        (s) =>
+          m.x >= s.ribbon.minX - 1e-6 &&
+          m.x <= s.ribbon.maxX + 1e-6 &&
+          m.y >= s.ribbon.minY - 1e-6 &&
+          m.y <= s.ribbon.maxY + 1e-6,
+      );
+      expect(inSomeRibbon, `node ${n.id} at (${m.x},${m.y})`).toBe(true);
     }
   });
 });

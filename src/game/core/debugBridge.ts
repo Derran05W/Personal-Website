@@ -43,6 +43,12 @@ import { getDrivingInput, isCoarsePointer, isTouchModeActive } from '../input';
 import { landmarkTeleportPoints } from '../world/landmarkGen';
 import { buildFrontage, venueViewpoint } from '../world/toronto/frontage';
 import { streetcarRef } from '../ai/streetcarTypes';
+import {
+  torontoBusRef,
+  torontoBusRouteIdsRef,
+  torontoStreetcarRef,
+  torontoStreetcarRouteIdsRef,
+} from '../ai/torontoTransitRefs';
 import { occlusionFader } from '../world/toronto/occlusionFade';
 import { worldRef } from '../world/worldRef';
 import { getReducedShake } from '../state/store';
@@ -561,6 +567,14 @@ declare global {
       /** Phase 19: live streetcar roster snapshot (state/pose per slot) — scripted proof the
        * avenue loop runs without watching pixels. Empty when no mount/roster is live. */
       streetcarSlots: () => { state: string | null; x: number; z: number }[];
+      /** Phase 31 (Part-8 D1-D5): live Toronto transit roster snapshot — bus/streetcar slot
+       * pose + which route each slot is driving (route id, e.g. "97"), for a scripted proof the
+       * seeded roster is active + tracking its assigned polyline without watching pixels. Empty
+       * arrays when the Toronto branch isn't mounted or the roster resolved to size 0. */
+      torontoTransitSlots: () => {
+        bus: { state: string | null; x: number; z: number; hp: number; route: string | null }[];
+        streetcar: { state: string | null; x: number; z: number; hp: number; route: string | null }[];
+      };
       /** Phase 25: lowest occludable opacity right now (1 = nothing fading). A scripted check
        * teleports the car behind a named tower / hero and reads this < 1 to prove the camera→car
        * occlusion raycast + fade (A.5) is live — the tight §5.3 camera setback makes a dramatic
@@ -705,6 +719,22 @@ window.__smashy = {
   landmarks: () => (worldRef.current ? landmarkTeleportPoints(worldRef.current) : []),
   streetcarSlots: () =>
     (streetcarRef.current?.slots ?? []).map((s) => ({ state: s.state, x: s.x, z: s.z })),
+  torontoTransitSlots: () => ({
+    bus: (torontoBusRef.current?.slots ?? []).map((s, i) => ({
+      state: s.state,
+      x: s.x,
+      z: s.z,
+      hp: s.hp,
+      route: torontoBusRouteIdsRef.current[i] ?? null,
+    })),
+    streetcar: (torontoStreetcarRef.current?.slots ?? []).map((s, i) => ({
+      state: s.state,
+      x: s.x,
+      z: s.z,
+      hp: s.hp,
+      route: torontoStreetcarRouteIdsRef.current[i] ?? null,
+    })),
+  }),
   setReducedShake: (value) => getGameState().setReducedShake(value),
   getReducedShake,
   occlusionMinOpacity: () => occlusionFader.minOpacity(),

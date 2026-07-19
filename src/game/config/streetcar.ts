@@ -71,3 +71,27 @@ export const TRAFFIC_STREETCAR = {
   // streetcars total, so this just guards the (rare) all-wrecked-at-once case.
   maxSpawnPerStep: 2,
 } as const;
+
+/** Shape of TRAFFIC_STREETCAR — the "streetcar-like tuning" contract ai/streetcarTraffic.ts's
+ * StreetcarController now accepts as an optional constructor override (Phase 31, Part-8 D2:
+ * "extend config/params" rather than fork the controller). config/torontoTransit.ts's
+ * TTC_BUS_TUNING is a second value of this same shape (a lighter/faster mode), so the ONE
+ * controller class serves both Toronto buses and Toronto streetcars unforked. A plain `number`-
+ * field interface (not `typeof TRAFFIC_STREETCAR`, whose `as const` literal types would reject
+ * any other tuning's differently-valued fields). */
+export interface StreetcarTuning {
+  readonly activeTarget: number;
+  readonly speedMps: number;
+  readonly blockRayLengthM: number;
+  readonly convertForceThreshold: number;
+  readonly hp: number;
+  readonly wreckUpDot: number;
+  readonly wreckFlipSustainSec: number;
+  readonly wreckLingerSec: number;
+  readonly massKg: number;
+  readonly dynamicLinDamping: number;
+  readonly dynamicAngDamping: number;
+  readonly convertKickScale: number;
+  readonly turnRateRadPerSec: number;
+  readonly maxSpawnPerStep: number;
+}

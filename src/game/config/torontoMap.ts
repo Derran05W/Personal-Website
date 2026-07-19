@@ -55,6 +55,29 @@ export const ROAD_CLASSES = {
 export type RoadClass = keyof typeof ROAD_CLASSES;
 
 /**
+ * Phase 31 lane-offset fix (Part-8, live-diagnosed head-on jam): roadGraph.ts used to emit ONE
+ * waypoint chain per street, with directed edges laid both ways over the SAME nodes — so
+ * opposing civilian traffic met head-on in the same lane (proof: a 14-car jam wall on Yonge,
+ * x=1500 z 247-285, both directions face-locked). The fix is two parallel waypoint chains per
+ * street, one per travel direction, each offset perpendicular from the centreline toward its
+ * right-hand side (right-hand traffic) so opposing lanes never share a node.
+ *
+ * Per-class offset, DERIVED (never hand-tuned per street): 0.25 x the class's own ROAD_CLASSES
+ * width, capped at 2.2 wu (== CAR_REF.widthWu, one car-width) so the offset can never push a
+ * lane's paint/waypoints outside its own ribbon even on the narrowest minor street (half-width
+ * 3.3 wu) — checked in roadGraph.test.ts. Ordering mirrors ROAD_CLASSES: spine and artery hit
+ * the cap (2.75 / 2.475 -> 2.2); major lands exactly at the cap (2.2); minor stays under it
+ * (1.65). A.6's tune path applies here too: if a class's offset ever visibly straddles the
+ * ribbon edge, narrow the cap (not the 0.25 factor) and re-test.
+ */
+export const LANE_OFFSET_WU = {
+  spine: Math.min(0.25 * ROAD_CLASSES.spine, 2.2),
+  artery: Math.min(0.25 * ROAD_CLASSES.artery, 2.2),
+  major: Math.min(0.25 * ROAD_CLASSES.major, 2.2),
+  minor: Math.min(0.25 * ROAD_CLASSES.minor, 2.2),
+} as const satisfies Record<RoadClass, number>;
+
+/**
  * Per-class asphalt colours. Tuned in the Phase 22 live pass. These render UNLIT with tone
  * mapping off (TorontoScene) — the hex below IS the on-screen colour, chosen on a strict
  * contrast ladder: canvas void (#121a2b, darkest) < asphalt (below) < ground (#454b54,

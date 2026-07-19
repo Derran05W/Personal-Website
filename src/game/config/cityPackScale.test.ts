@@ -17,6 +17,7 @@ import {
   FIRE_EXIT_TARGET_WIDTH_WU,
   ROCK_BAND_POSTER_TARGET_HEIGHT_WU,
   BOX_TARGET_HEIGHT_WU,
+  BUS_TARGET_LENGTH_WU,
 } from './cityPackScale';
 
 describe('CAR_REF — cross-check against the physics collider (config/vehicles.ts)', () => {
@@ -135,6 +136,22 @@ describe('Phase 25.7 (D9/T1) prop-scale overrides', () => {
     expect(FIRE_EXIT_TARGET_WIDTH_WU).toBe(PROP_SCALE_TARGETS.fireExitWidthWu);
     expect(ROCK_BAND_POSTER_TARGET_HEIGHT_WU).toBe(PROP_SCALE_TARGETS.rockBandPosterHeightWu);
     expect(BOX_TARGET_HEIGHT_WU).toBe(PROP_SCALE_TARGETS.boxHeightWu);
+  });
+});
+
+describe('Phase 31 (Part-8 D1/D2, T1) bus scale override', () => {
+  it('bus scale -> ~10 wu long (the category-default formula would have made it sedan-length)', () => {
+    const bus = CITY_PACK_MANIFEST.find((e) => e.id === 'bus')!;
+    expect(CITY_PACK_SCALE_OVERRIDES['bus']).toBeCloseTo(BUS_TARGET_LENGTH_WU / bus.nativeDims.d, 6);
+    expect(bus.nativeDims.d * CITY_PACK_SCALE_OVERRIDES['bus']).toBeCloseTo(BUS_TARGET_LENGTH_WU, 4);
+    const longestHorizontal = Math.max(bus.nativeDims.w, bus.nativeDims.d);
+    const categoryDefault = CAR_REF.lengthWu / longestHorizontal;
+    expect(CITY_PACK_SCALE_OVERRIDES['bus']).not.toBeCloseTo(categoryDefault, 3);
+  });
+
+  it('resolved bus collider reads as a full-size vehicle (length > 2x a sedan)', () => {
+    const half = colliderHalfExtents('bus');
+    expect(half.hz * 2).toBeGreaterThan(CAR_REF.lengthWu * 2);
   });
 });
 
