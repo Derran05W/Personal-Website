@@ -403,6 +403,74 @@ describe('applyImpact — parked car (hp-bearing non-transformer prop)', () => {
   });
 });
 
+// --- applyImpact: propDynamic yielding-body proxy (Phase 29 — found live in Toronto verification) --
+// Toronto's parked cars/lane-closure cones are registered ALREADY dynamic (world/toronto/
+// torontoColliders.ts — never fixed-then-swapped), so a real ram against one measured only
+// ~4,000-14,000 N live (a yielding body gives way, same physics as the player<->pursuit case
+// vehicleRamForceProxy already exists for) — the GLOBAL proxy's forceToSpeedProxy=125,000 would
+// never cross minImpactSpeed at that force, so parked cars could never be damaged/scored however
+// hard rammed. applySideDamage's isYieldingBodyPair widening fixes this by applying the SAME
+// reduced vehicleRamForceProxy to player<->propDynamic pairs.
+function dynamicParkedCar(hp: number, districtId = 5): EntityEntry {
+  return { kind: 'propDynamic', archetype: 'parkedCar', districtId, hp };
+}
+
+describe('applyImpact — propDynamic yielding-body proxy (Phase 29)', () => {
+  it('a force far below the GLOBAL proxy threshold (measured live: a real 6+ m/s ram read ~14,000 N) still damages a propDynamic prop via the reduced proxy', () => {
+    const car = dynamicParkedCar(40);
+    // 14,000 N is what Phase 29 T1's live verification actually measured ramming a Toronto
+    // parked car at ~6.3 m/s — nowhere near the global proxy's 625,000 N threshold, but a
+    // "solid ram" band force (matching other tests' convention) clears the REDUCED proxy easily.
+    const solidRamForce = DAMAGE.vehicleRamForceProxy * (DAMAGE.minImpactSpeed + 2);
+    expect(solidRamForce / DAMAGE.forceToSpeedProxy).toBeLessThan(DAMAGE.minImpactSpeed); // would be free under the old (global-only) formula
+
+    applyImpact(impact(PLAYER, car, solidRamForce));
+
+    expect(car.hp).toBeLessThan(40);
+  });
+
+  it('the same force against the STATIC (propStatic) parked-car fixture — pre-swap legacy shape — also damages (regression: widening must not narrow the existing propStatic path)', () => {
+    const car = parkedCar(40);
+    const solidRamForce = DAMAGE.forceToSpeedProxy * (DAMAGE.minImpactSpeed + 2);
+    applyImpact(impact(PLAYER, car, solidRamForce));
+    expect(car.hp).toBeLessThan(40);
+  });
+
+  it('a genuinely tiny nudge (below even the reduced proxy) still deals no damage — not a blanket bypass', () => {
+    const car = dynamicParkedCar(40);
+    const tinyForce = DAMAGE.vehicleRamForceProxy * (DAMAGE.minImpactSpeed - 1); // below threshold
+    applyImpact(impact(PLAYER, car, tinyForce));
+    expect(car.hp).toBe(40);
+  });
+
+  it('driving THIS car into the player (reverse direction) is symmetric — same reduced proxy applies', () => {
+    const car = dynamicParkedCar(999999); // effectively indestructible, isolate player hp loss
+    getGameState().setPlayerHp(100000);
+    const before = getGameState().playerHp;
+    const solidRamForce = DAMAGE.vehicleRamForceProxy * (DAMAGE.minImpactSpeed + 10);
+
+    applyImpact(impact(car, PLAYER, solidRamForce));
+
+    expect(getGameState().playerHp).toBeLessThan(before);
+  });
+
+  it('the SAME between-proxies force damages a propDynamic prop but NOT a propStatic one — proves the widening is KIND-gated, not a blanket proxy swap', () => {
+    // Strictly between the two thresholds: clears the reduced proxy's minImpactSpeed
+    // (100,000 / 12,000 ≈ 8.3 ≥ 5) but not the global proxy's (100,000 / 125,000 = 0.8 < 5).
+    const betweenProxies = 100_000;
+    expect(betweenProxies / DAMAGE.vehicleRamForceProxy).toBeGreaterThanOrEqual(DAMAGE.minImpactSpeed);
+    expect(betweenProxies / DAMAGE.forceToSpeedProxy).toBeLessThan(DAMAGE.minImpactSpeed);
+
+    const dynamicCar = dynamicParkedCar(40);
+    applyImpact(impact(PLAYER, dynamicCar, betweenProxies));
+    expect(dynamicCar.hp).toBeLessThan(40); // propDynamic -> reduced proxy -> damages
+
+    const staticCar = parkedCar(40); // propStatic (pre-swap legacy shape)
+    applyImpact(impact(PLAYER, staticCar, betweenProxies));
+    expect(staticCar.hp).toBe(40); // propStatic -> global proxy -> below threshold, free
+  });
+});
+
 // --- applyImpact: player hp (store, not registry) -----------------------------------------------
 
 describe('applyImpact — player damage', () => {

@@ -56,6 +56,44 @@ import { buildStreets, type MapRect, type Street, type StreetAxis } from './stre
 
 export type { MapRect } from './streets';
 
+// --- numeric district index (Phase 29 seam) ------------------------------------------------
+// world/registry.ts's EntityEntry.districtId is a plain `number` (the legacy 4x4-grid
+// convention: id = row*WORLD.districts+col) — Toronto's districts are keyed by the string
+// DistrictId instead, so every Toronto registry writer (colliders, powergrid) needs ONE
+// canonical string->number mapping, shared so a district's index is identical everywhere it's
+// read. Defined as the item's position in TORONTO_DISTRICTS (config order) — the SAME order
+// every district-ordered layer (frontage.ts/furniture.ts's DISTRICT_ORDER, this file's
+// buildDistricts()) already sorts by, so it can never drift from those.
+const DISTRICT_ORDER: readonly DistrictId[] = TORONTO_DISTRICTS.map((d) => d.id);
+const DISTRICT_INDEX = new Map<DistrictId, number>(DISTRICT_ORDER.map((id, i) => [id, i]));
+
+/** Number of Toronto districts (15: the 13 §6 rows + genericDowntown + foldCorridor) — the
+ * powergrid districtCount override (game/index.tsx passes this to initPowerGrid when
+ * torontoMap is on) and every registry districtId in Toronto colliders is bounded by this. */
+export const TORONTO_DISTRICT_COUNT = TORONTO_DISTRICTS.length;
+
+/** The canonical numeric index for a Toronto DistrictId (0..TORONTO_DISTRICT_COUNT-1). Throws
+ * on an unknown id (a typo/config drift) — every real DistrictId is a TORONTO_DISTRICTS entry
+ * by construction, so this should never legitimately fail. */
+export function torontoDistrictIndex(id: DistrictId): number {
+  const i = DISTRICT_INDEX.get(id);
+  if (i === undefined) throw new Error(`districts: unknown DistrictId '${id}'`);
+  return i;
+}
+
+/** Spatial lookup variant of torontoDistrictIndex, for placements that don't carry a
+ * districtId field of their own (named buildings, hero landmarks, places boxes — all
+ * street-referenced rather than district-referenced). `x`/`z` are WORLD coordinates; map space
+ * is the identity swap (x=x, y=z) per projection.ts's convention, matching every other
+ * consumer of districtAt in this codebase. Returns -1 (registry.ts's "not districted"
+ * convention) for a point that falls outside every resolved district rect (should not happen
+ * for anything actually inside the playable polygon, but this is spatial geometry, not a
+ * guaranteed-exhaustive lookup — never throw for it). */
+export function torontoDistrictIndexAt(x: number, z: number, districts: readonly ResolvedDistrict[]): number {
+  const def = districtAt({ x, y: z }, districts);
+  return def ? torontoDistrictIndex(def.id) : -1;
+}
+
 /** A resolved district: its static definition plus the concrete rect(s) it owns. A district may
  * own several rects (genericDowntown's complement); order within `rects` is not meaningful. */
 export interface ResolvedDistrict {

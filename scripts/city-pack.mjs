@@ -55,6 +55,7 @@ import { mkdir, readdir, readFile, writeFile, copyFile, stat } from 'node:fs/pro
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RENAME_MAP, kebabCase, idForFile, categoryFor, EXCLUDE_BASENAMES } from './lib/cityPackNaming.mjs';
+import { CIVILIAN_VEHICLE_IDS, neutralBodyId, applyNeutralBody } from './lib/cityPackNeutralBody.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const SOURCE_DIR = path.join(root, 'City Pack.undefined-glb');
@@ -208,12 +209,15 @@ function makeIO() {
 /** Runs the full D3(+D15) pipeline on one GLB. Returns the measured before/after report row;
  * throws on a hard pipeline failure (caller catches per-file so one bad model doesn't kill the
  * run). `budgets` is the parsed city-pack-budgets.json ({ caps, optOut }). */
-async function optimizeOne(id, inputPath, outputPath, budgets) {
+async function optimizeOne(id, inputPath, outputPath, budgets, preTransform = null) {
   const io = makeIO();
   const document = await io.read(inputPath);
 
   // Native bounding box, measured on the PRISTINE read — before any transform touches
-  // geometry — so it reflects the model's true native scale (D9 consumes this).
+  // geometry — so it reflects the model's true native scale (D9 consumes this). Phase 29 T2
+  // (D5): measured BEFORE the neutral-body pre-transform below so a `-neutral` variant reports
+  // the SAME nativeDims as its base (the pre-transform only recolours materials/textures, never
+  // geometry) — the runtime relies on that for collider/scale parity between the two.
   const scenes = document.getRoot().listScenes();
   const bounds = scenes.length > 0 ? getBounds(scenes[0]) : { min: [0, 0, 0], max: [0, 0, 0] };
   const nativeDims = {
@@ -221,6 +225,12 @@ async function optimizeOne(id, inputPath, outputPath, budgets) {
     h: bounds.max[1] - bounds.min[1],
     d: bounds.max[2] - bounds.min[2],
   };
+
+  // Phase 29 T2 (D5): optional pre-transform (neutral-body recolour), applied to the pristine
+  // read before the D3 pipeline so its recoloured materials/texture flow through palette/
+  // textureCompress normally. Base passes leave this null (byte-identical to before).
+  let preTransformReport = null;
+  if (preTransform) preTransformReport = await preTransform(document, id);
 
   await document.transform(dedup(), flatten(), prune());
 
@@ -268,7 +278,7 @@ async function optimizeOne(id, inputPath, outputPath, budgets) {
   const optimizedBytes = (await stat(outputPath)).size;
   const contentHash = createHash('sha256').update(await readFile(outputPath)).digest('hex');
 
-  return { id, nativeDims, ...geometry, hasTexture, optimizedBytes, contentHash, simplifyReport };
+  return { id, nativeDims, ...geometry, hasTexture, optimizedBytes, contentHash, simplifyReport, preTransformReport };
 }
 
 async function main() {
@@ -332,6 +342,20 @@ async function main() {
         rawBytes,
         ...measured,
       });
+
+      // Phase 29 T2 (D5): the seven civilian vehicle models ALSO emit a `<id>-neutral` variant —
+      // the same source geometry with its body paint recoloured to a light neutral grey (material
+      // factor for untextured cars, dominant saturated atlas cluster for textured ones), so a
+      // render-time instanceColor multiply yields a true body colour with dark glass/trim. Derived
+      // (no separate normalized archival copy): reads the SAME normalized input, writes only the
+      // optimized runtime GLB. Reuses the base rawBytes (identical source model) for the manifest.
+      if (CIVILIAN_VEHICLE_IDS.includes(id)) {
+        const neutralId = neutralBodyId(id);
+        const neutralOut = path.join(OPTIMIZED_DIR, `${neutralId}.glb`);
+        const neutralMeasured = await optimizeOne(neutralId, normalizedPath, neutralOut, budgets, applyNeutralBody);
+        totalOptimized += neutralMeasured.optimizedBytes;
+        rows.push({ id: neutralId, category: categoryFor(neutralId), rawBytes, ...neutralMeasured });
+      }
     } catch (err) {
       failures.push({ id, basename, error: err instanceof Error ? err.message : String(err) });
     }
@@ -394,6 +418,21 @@ async function main() {
     console.log('');
     console.log(`SIMPLIFY CAP VIOLATIONS (${capViolations.length}) — simplifier could not reach the cap within the error bound:`);
     for (const v of capViolations) console.log(`  FAIL ${v}`);
+  }
+
+  // Neutral-body (D5) report ---------------------------------------------------------------
+  const neutralRows = rows.filter((r) => r.preTransformReport !== null && r.preTransformReport !== undefined);
+  if (neutralRows.length > 0) {
+    console.log('');
+    console.log(`NEUTRAL-BODY (D5) — ${neutralRows.length} civilian-vehicle variant(s):`);
+    console.log('id                        class          fallback  neutralized');
+    console.log('-'.repeat(96));
+    for (const row of neutralRows.sort((a, b) => a.id.localeCompare(b.id))) {
+      const r = row.preTransformReport;
+      console.log(
+        `${row.id.padEnd(26)}${r.class.padEnd(15)}${(r.fallback ? 'YES' : 'no').padEnd(10)}${r.touched}`,
+      );
+    }
   }
 
   // Manifest -------------------------------------------------------------------------------

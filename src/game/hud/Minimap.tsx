@@ -15,6 +15,7 @@ import { playerVehicle } from '../vehicles/playerRef';
 import { useDevToggle } from '../core/devToggles';
 import { isDistrictDark, getLightPoolPositions } from '../core/debugBridge';
 import { TILE_COLORS, districtPixelRect, worldToMapPx } from './minimapMath';
+import { streetEndpointsWorld, torontoPolygonPx, torontoWorldToMapPx, TORONTO_MINIMAP_STREETS } from './torontoMinimapMath';
 
 const MAP_PX = 192;
 const REDRAW_INTERVAL_MS = 100; // ~10 Hz — a debug tool, not part of the render loop.
@@ -30,6 +31,9 @@ const DISTRICT_COUNT = WORLD.districts * WORLD.districts;
 const DISTRICT_DARK_FILL = 'rgba(4, 6, 10, 0.72)';
 const LIGHT_POOL_DOT_COLOR = '#ffd166';
 const LIGHT_POOL_DOT_RADIUS_PX = 2;
+// Phase 29 (D6): Toronto street-ribbon stroke — dimmer than the polygon outline (EDGE_STROKE)
+// so the boundary reads as the primary shape and the grid as secondary detail.
+const TORONTO_STREET_STROKE = 'rgba(255, 255, 255, 0.2)';
 
 // Fixed bottom-left. Header is a fixed 64px bar at the TOP (z-index 50, app/Header.css);
 // there is no site footer, so bottom-left is clear real estate — the 12px inset just keeps
@@ -53,6 +57,11 @@ const canvasStyle: CSSProperties = { width: '100%', height: '100%', display: 'bl
 export default function Minimap() {
   const visible = useDevToggle('minimap');
   const lightPoolVizOn = useDevToggle('lightPoolViz');
+  // Phase 29 (D6): Toronto-aware minimap source — polygon extent + road ribbons + player blip,
+  // replacing the legacy tile-grid read while the torontoMap toggle is on. District tints/
+  // dark-district overlay/light-pool viz stay legacy-only this phase (see drawToronto's doc
+  // comment) — an honest scope cut, not an oversight.
+  const torontoOn = useDevToggle('torontoMap');
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -60,9 +69,7 @@ export default function Minimap() {
     const ctx = canvasRef.current?.getContext('2d');
     if (!ctx) return;
 
-    const draw = () => {
-      ctx.clearRect(0, 0, MAP_PX, MAP_PX);
-
+    const drawLegacy = () => {
       const world = worldRef.current;
       if (!world) return; // nothing generated yet — leave the frame empty.
 
@@ -131,10 +138,52 @@ export default function Minimap() {
       }
     };
 
+    // Phase 29 (D6): the Toronto source — polygon outline + road ribbons + player blip. No
+    // world/tile grid exists to read (Toronto has no WorldData), and no district-tint/dark-
+    // district/light-pool overlay this phase (honest scope cut, flagged in phase-29-notes.md —
+    // the dark-district read would need its own Toronto-districtId-aware wiring; district COUNT
+    // already differs, 15 vs the legacy 16 DISTRICT_COUNT this file's dark-overlay loop uses).
+    const drawToronto = () => {
+      const polyPx = torontoPolygonPx(MAP_PX);
+      ctx.strokeStyle = EDGE_STROKE;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      polyPx.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+      ctx.closePath();
+      ctx.stroke();
+
+      ctx.strokeStyle = TORONTO_STREET_STROKE;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (const street of TORONTO_MINIMAP_STREETS) {
+        const { a, b } = streetEndpointsWorld(street);
+        const aPx = torontoWorldToMapPx(a.x, a.z, MAP_PX);
+        const bPx = torontoWorldToMapPx(b.x, b.z, MAP_PX);
+        ctx.moveTo(aPx.x, aPx.y);
+        ctx.lineTo(bPx.x, bPx.y);
+      }
+      ctx.stroke();
+
+      const pose = playerVehicle.current?.readState().pose;
+      if (pose) {
+        const { x, y } = torontoWorldToMapPx(pose.position.x, pose.position.z, MAP_PX);
+        ctx.fillStyle = PLAYER_DOT_COLOR;
+        ctx.beginPath();
+        ctx.arc(x, y, PLAYER_DOT_RADIUS_PX, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    };
+
+    const draw = () => {
+      ctx.clearRect(0, 0, MAP_PX, MAP_PX);
+      if (torontoOn) drawToronto();
+      else drawLegacy();
+    };
+
     draw();
     const id = setInterval(draw, REDRAW_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [visible, lightPoolVizOn]);
+  }, [visible, lightPoolVizOn, torontoOn]);
 
   if (!visible) return null;
 

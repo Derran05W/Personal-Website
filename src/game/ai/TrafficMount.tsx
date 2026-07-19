@@ -34,9 +34,13 @@ export interface TrafficProps {
   /** Impact source: called once with the conversion handler, returns an unsubscribe.
    * Integration passes combat/contacts.ts's `onImpact`. */
   readonly source?: (handler: ImpactHandler) => () => void;
+  /** Phase 29 (D3): explicit active-car roster override (config/torontoTraffic.ts's tier-scaled
+   * 32/24/16, mount-captured by the Toronto branch). Omitted on the legacy call site → the
+   * controller keeps its pre-29 TRAFFIC_CIV.activeTarget × trafficDensityModifier behaviour. */
+  readonly activeTarget?: number;
 }
 
-export function Traffic({ graph, seed, source }: TrafficProps) {
+export function Traffic({ graph, seed, source, activeTarget }: TrafficProps) {
   const { world, rapier } = useRapier();
   const controllerRef = useRef<TrafficController | null>(null);
 
@@ -44,7 +48,7 @@ export function Traffic({ graph, seed, source }: TrafficProps) {
     // The crush predicate is read LIVE (a stable closure), so the civilian system yields
     // player↔civ conversion to the monster-truck crush path whenever that car is selected —
     // no dependency on the mount re-running when the car changes (see combat/playerSpecials.ts).
-    const controller = new TrafficController(world, rapier, graph, seed, isMonsterTruckSelected);
+    const controller = new TrafficController(world, rapier, graph, seed, isMonsterTruckSelected, activeTarget);
     controllerRef.current = controller;
     trafficRef.current = controller.api;
 
@@ -56,7 +60,7 @@ export function Traffic({ graph, seed, source }: TrafficProps) {
       if (trafficRef.current === controller.api) trafficRef.current = null;
       controllerRef.current = null;
     };
-  }, [world, rapier, graph, seed, source]);
+  }, [world, rapier, graph, seed, source, activeTarget]);
 
   useBeforePhysicsStep(() => {
     controllerRef.current?.stepBefore();

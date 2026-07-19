@@ -187,3 +187,12 @@ export const TORONTO_SPAWN = {
   /** Unit heading in MAP space: +y = south. */
   heading: { x: 0, y: 1 },
 } as const;
+
+/** Phase 29 (D2): district-blackout ground-tint visual (world/toronto/groundTintBlackout.ts's
+ * darkenColorRange). Toronto has no per-archetype emissive instance buffer to flip (see that
+ * module's header) — the ground tint darkening by this factor on transformerDestroyed is the
+ * substitute "district blackouts must read" signal. < 1 darkens; kept above 0 so a blacked-out
+ * district reads as dead asphalt, not a rendering void. STARTING POINT, live-tunable. */
+export const TORONTO_BLACKOUT = {
+  groundTintDarkenFactor: 0.16,
+} as const;

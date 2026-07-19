@@ -61,6 +61,9 @@ const VEHICLE_IDS = new Set([
 ]);
 
 export function categoryFor(id) {
+  // Phase 29 T2 (D5): a `<id>-neutral` civilian-vehicle body variant categorizes as its base id
+  // (car-a-neutral → 'vehicle'), so the manifest-mirror test still matches categoryFor per entry.
+  id = id.replace(/-neutral$/, '');
   if (BUILDING_IDS.has(id)) return 'building';
   if (BUILDING_BLANK_IDS.has(id)) return 'building-blank';
   if (VEGETATION_IDS.has(id)) return 'vegetation';

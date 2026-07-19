@@ -28,7 +28,6 @@ import {
   LANE_CLOSURE,
   LANEWAY,
   LANEWAY_MODELS,
-  PARKED_MODELS,
   PARKING_LOT,
   TORONTO_TIER_IDENTITY,
   TREE_ROW,
@@ -37,6 +36,8 @@ import {
 import { getCityPackModel } from '../../assets/cityPackManifest';
 import { TORONTO_DISTRICTS, type DistrictDensity, type DistrictId, type TorontoDistrictDef } from '../../config/torontoDistricts';
 import { SIDEWALK } from '../../config/torontoMap';
+import { neutralVehicleModelId } from '../../config/carVariety';
+import { createCarVarietySequencer } from '../../vehicles/carVariety';
 import { createRng, type Rng } from '../rng';
 import { buildDistricts, districtAt, type ResolvedDistrict } from './districts';
 import { hGame } from './heightCurve';
@@ -368,12 +369,16 @@ function buildParkingLot(site: SiteCandidate, idPrefix: string, base: Rng): { fi
 
   const [loCount, hiCount] = PARKING_LOT.carsCountRange;
   const carCount = loCount + Math.floor(rng.next() * (hiCount - loCount + 1));
-  const carsRng = rng.fork('cars');
+  // Phase 29 (D4): carVariety per lot car (own rng fork). Each car gets a weighted {model, colour};
+  // the neutral-body variant renders the tint (via CityPackBatched's per-instance setColorAt) as a
+  // true body colour, exactly like the street-parked cars.
+  const variety = createCarVarietySequencer(rng.fork('carVariety'));
   // Two interior rows facing opposite directions, evenly spaced along X — a simple, readable
   // "parked in rows" read without needing real painted-stall geometry this phase.
   const usableW = Math.max(1, rect.maxX - rect.minX - 4);
   for (let i = 0; i < carCount; i++) {
-    const modelId = weightedPick(carsRng, PARKED_MODELS);
+    const v = variety.next();
+    const modelId = neutralVehicleModelId(v.modelId);
     const half = colliderHalfExtents(modelId);
     const row = i % 2;
     const cx = rect.minX + 2 + (usableW * (i + 0.5)) / carCount;
@@ -384,7 +389,7 @@ function buildParkingLot(site: SiteCandidate, idPrefix: string, base: Rng): { fi
       modelId,
       position: [cx, 0, cz],
       rotationY,
-      tint: '#ffffff',
+      tint: v.colorHex,
       hx: half.hx,
       hy: half.hy,
       hz: half.hz,

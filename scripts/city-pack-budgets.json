@@ -19,7 +19,14 @@
     "pickup-truck": 1800,
     "sports-car-a": 1500,
     "sports-car-b": 1600,
-    "motorcycle": 1200
+    "motorcycle": 1200,
+    "car-a-neutral": 1400,
+    "car-b-neutral": 1400,
+    "suv-neutral": 1500,
+    "van-neutral": 1200,
+    "pickup-truck-neutral": 1800,
+    "sports-car-a-neutral": 1500,
+    "sports-car-b-neutral": 1600
   },
   "optOut": []
 }

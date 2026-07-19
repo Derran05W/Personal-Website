@@ -72,16 +72,25 @@ export interface PowerGridState {
   readonly allDark: boolean;
 }
 
-function initialGridState(): PowerGridState {
-  return { lit: Array<boolean>(DISTRICT_COUNT).fill(true), allDark: false };
+function initialGridState(districtCount: number): PowerGridState {
+  return { lit: Array<boolean>(districtCount).fill(true), allDark: false };
 }
 
 /** Module-scope handle to the current grid state (TDD §5.8's Minimap/light-pool read
  * contract) — mirrors world/worldRef.ts's `{ current }` shape exactly. `current === `
  * `initialGridState()`'s shape until `initPowerGrid()` has run at least once. */
-export const gridRef: { current: PowerGridState } = { current: initialGridState() };
+export const gridRef: { current: PowerGridState } = { current: initialGridState(DISTRICT_COUNT) };
 
 let darkCityEmittedThisRun = false;
+
+// Phase 29 (Toronto parity): the grid tracks whatever `districtCount` the LIVE world was
+// initialized with (initPowerGrid's optional param below) — never the frozen legacy
+// DISTRICT_COUNT export, which grid.test.ts pins at exactly 16 (4x4 grid, TDD §5.8) and must
+// stay that literal constant for the legacy world. Toronto has 15 districts
+// (world/toronto/districts.ts's TORONTO_DISTRICT_COUNT); sizing gridRef's `lit` array to the
+// legacy 16 there would leave one never-addressed slot permanently lit, and DARK CITY (which
+// requires EVERY tracked district dark) could never fire.
+let activeDistrictCount = DISTRICT_COUNT;
 
 /** Defensive wrapper over emitters.ts's `blackoutDistrict` — see this file's header. A
  * throwing call (e.g. a not-yet-built city, or any future regression in the flicker
@@ -95,10 +104,10 @@ function triggerBlackout(districtId: number): void {
 }
 
 function handleTransformerDestroyed(districtId: number): void {
-  if (!Number.isInteger(districtId) || districtId < 0 || districtId >= DISTRICT_COUNT) {
+  if (!Number.isInteger(districtId) || districtId < 0 || districtId >= activeDistrictCount) {
     if (import.meta.env.DEV) {
       console.warn(
-        `[powergrid] transformerDestroyed for out-of-range districtId ${districtId} (expected 0..${DISTRICT_COUNT - 1}) — ignored.`,
+        `[powergrid] transformerDestroyed for out-of-range districtId ${districtId} (expected 0..${activeDistrictCount - 1}) — ignored.`,
       );
     }
     return;
@@ -132,9 +141,17 @@ function handleTransformerDestroyed(districtId: number): void {
  * a teardown (unsubscribe); call once at mount, call the returned function on unmount —
  * same contract as every other `init*System` in this codebase (state/heat.ts's
  * `initHeatSystem`, state/persistence.ts's `initProgressPersistence`, etc).
+ *
+ * `districtCount` (Phase 29): overrides the legacy DISTRICT_COUNT (16, 4x4 grid) for the live
+ * `lit` array's size and the transformerDestroyed range check — game/index.tsx passes
+ * world/toronto/districts.ts's TORONTO_DISTRICT_COUNT (15) when the Toronto map is active.
+ * Omitted (the original, pre-29 call site — the legacy world) defaults to DISTRICT_COUNT, so
+ * that call site's behavior — and every test that calls initPowerGrid() with no args — is
+ * byte-identical to before.
  */
-export function initPowerGrid(): () => void {
-  gridRef.current = initialGridState();
+export function initPowerGrid(districtCount: number = DISTRICT_COUNT): () => void {
+  activeDistrictCount = districtCount;
+  gridRef.current = initialGridState(districtCount);
   darkCityEmittedThisRun = false;
 
   const off = gameEvents.on('transformerDestroyed', ({ districtId }) => {
@@ -152,6 +169,7 @@ export function initPowerGrid(): () => void {
  * dark bookkeeping — tests that drive a real blackout are responsible for calling that
  * module's `clearFlickers()` themselves so state doesn't leak into an unrelated test. */
 export function __resetGridForTest(): void {
-  gridRef.current = initialGridState();
+  activeDistrictCount = DISTRICT_COUNT;
+  gridRef.current = initialGridState(DISTRICT_COUNT);
   darkCityEmittedThisRun = false;
 }

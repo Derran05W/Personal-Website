@@ -73,7 +73,9 @@ import { GarageOverlay } from './GarageOverlay';
 // subtree behind the `torontoMap` leva toggle (dev-only; never set in prod). Ships in the game
 // chunk like the dev viz overlays — small, pure geometry.
 import { TorontoScene } from './world/toronto/TorontoScene';
+import { TorontoTraffic } from './world/toronto/TorontoTraffic';
 import { TORONTO_SPAWN_POSE } from './world/toronto/torontoSceneHelpers';
+import { TORONTO_DISTRICT_COUNT } from './world/toronto/districts';
 // Dependency-free (no leva/three-heavy deps), same as core/renderOwner.ts — safe to import
 // unconditionally here even though this file ships in every build; only the DEV-gated
 // components below (Minimap, GraphViz) that CONSUME these are what actually get stripped
@@ -203,8 +205,13 @@ export default function Game() {
   useEffect(() => initProgressPersistence(), []);
 
   // Power grid (Phase 13): transformerDestroyed -> blackout + DARK CITY. Re-inits per
-  // world/run so district state always matches the freshly-lit remounted city.
-  useEffect(() => initPowerGrid(), [worldKey]);
+  // world/run so district state always matches the freshly-lit remounted city. Phase 29: the
+  // Toronto map has 15 districts (world/toronto/districts.ts), not the legacy 4x4 grid's 16 —
+  // pass the override only when torontoOn, so the legacy call site's behavior is unchanged.
+  useEffect(
+    () => initPowerGrid(torontoOn ? TORONTO_DISTRICT_COUNT : undefined),
+    [worldKey, torontoOn],
+  );
 
   // Audio event mapping (Phase 15): every gameplay event -> synthesized sound via the
   // manager seam; game-lifetime subscription.
@@ -289,9 +296,29 @@ export default function Game() {
                 streetcars, pursuit/combat/heli/powergrid). OFF → the legacy subtree below,
                 byte-identical (additive conditional only — nothing here reordered or reprop'd).
                 Frame-order systems (above) + PlayerVehicle (below) stay mounted in both
-                branches; TorontoScene carries its own RunLoopSystem for the water-death path. */}
+                branches; TorontoScene carries its own RunLoopSystem for the water-death path.
+                Phase 29 (parity core): the Toronto branch now ALSO mounts the world-agnostic
+                gameplay spine — destruction (DamageSystem/PropDynamics), heat/score, player
+                damage-state FX, particles, skidmarks, and the power-grid flicker ticker — the
+                same systems the legacy branch mounts below, minus the pursuit/combat-escalation
+                stack (SpawnDirector/SquadMount/pursuit unit meshes/projectiles/tank telegraph/
+                helicopters — ★ stays 0 this phase, per the phase-29 plan). Civilian traffic is now ALSO
+                mounted (TorontoTraffic: the existing `Traffic` controller on the Toronto road graph
+                + pack-model batched mesh, tier-scaled roster). LightPool (the trailing dynamic-light pool) is NOT mounted
+                for Toronto this phase — its streetlightEmitters() seam is legacy-WorldData-
+                shaped; deferred rather than half-adapted (see phase-29-notes.md). */}
             {torontoOn ? (
-              <TorontoScene key={`toronto-${worldKey}`} />
+              <>
+                <TorontoScene key={`toronto-${worldKey}`} />
+                <TorontoTraffic key={`toronto-traffic-${worldKey}`} />
+                <DamageSystem key={`damage-${worldKey}`} />
+                <PropDynamics key={`props-${worldKey}`} source={onImpact} />
+                <HeatScoreSystem />
+                <DamageStatesMount key={`dmgstates-${worldKey}`} />
+                <ParticlesMount key={`particles-${worldKey}`} />
+                <SkidMarks />
+                <PowerGridSystem key={`grid-${worldKey}`} />
+              </>
             ) : (
               <>
                 <CityScape key={`city-${worldKey}`} world={world} />

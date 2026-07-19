@@ -16,6 +16,11 @@ export interface RegisteredCuboidColliderProps {
   readonly halfExtents: readonly [number, number, number];
   readonly position: readonly [number, number, number];
   readonly rotationY?: number;
+  /** Phase 29 (Toronto parked-vehicle/lane-closure-cone registration): passed straight through
+   * to CuboidCollider's own `mass` prop when the collider sits on a DYNAMIC RigidBody (a fixed
+   * body ignores it). Undefined (the original, pre-29 default) omits the prop entirely, so
+   * every existing fixed-collider call site is unaffected. */
+  readonly mass?: number;
 }
 
 export function RegisteredCuboidCollider({
@@ -23,6 +28,7 @@ export function RegisteredCuboidCollider({
   halfExtents,
   position,
   rotationY = 0,
+  mass,
 }: RegisteredCuboidColliderProps) {
   const colliderRef = useRef<RapierCollider>(null);
   useEffect(() => {
@@ -37,6 +43,7 @@ export function RegisteredCuboidCollider({
       args={[halfExtents[0], halfExtents[1], halfExtents[2]]}
       position={[position[0], position[1], position[2]]}
       rotation={[0, rotationY, 0]}
+      mass={mass}
     />
   );
 }

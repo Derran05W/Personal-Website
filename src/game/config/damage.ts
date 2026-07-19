@@ -62,11 +62,13 @@ export const DAMAGE = {
   // subsequent step once it stops actually gaining speed, which now correctly falls below
   // minImpactSpeed instead of re-dealing near-fatal damage every physics step forever).
   forceToSpeedProxy: 125_000,
-  // Separate proxy for DYNAMIC-vs-DYNAMIC vehicle pairs (player <-> pursuit units).
-  // Rapier's contact forces for two yielding dynamic bodies read ~10x lower than
-  // against kinematic civilians or fixed buildings (the other body gives way), so the
-  // global proxy above maps real unit rams (~30k-150k N measured, Phase 9 Task 2) to a
-  // sub-threshold speed proxy and rams would deal 0. 12_000 puts a solid ram at ~
+  // Separate proxy for DYNAMIC-vs-DYNAMIC pairs: player <-> pursuit units (Phase 9), widened
+  // Phase 29 to player <-> propDynamic (already-dynamic props — Toronto's parked cars/lane-
+  // closure cones, or a legacy prop post-swap). Rapier's contact forces for two yielding
+  // dynamic bodies read ~10x lower than against kinematic civilians or fixed buildings (the
+  // other body gives way), so the global proxy above maps real rams (~30k-150k N measured for
+  // units, Phase 9 Task 2; ~4k-14k N measured for a rammed Toronto parked car, Phase 29 T1) to
+  // a sub-threshold speed proxy and rams would deal 0. 12_000 puts a solid ram at ~
   // 12-15 hp (TDD "sedan ram" band 10-18) and leaves light nudges under the threshold.
   vehicleRamForceProxy: 12_000,
   // Reference mass (kg) massFactor is normalized against — mirrors the player chassis mass

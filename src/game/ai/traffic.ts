@@ -410,6 +410,13 @@ export class TrafficController {
   // on contact). Injected (never a store import here — traffic stays civ-focused); defaults to
   // "never yield" so a controller built without it keeps the exact Phase-7 ram behaviour.
   private readonly crushActive: () => boolean;
+  // Phase 29 (D3): the Toronto branch mounts this SAME controller with a DISTINCT roster
+  // (config/torontoTraffic.ts's tier-scaled 32/24/16, mount-captured) instead of the legacy
+  // TRAFFIC_CIV.activeTarget × trafficDensityModifier (24/20/16). When set, it drives BOTH the
+  // pool size and the per-step active target; when undefined (the legacy call site) behaviour is
+  // byte-for-byte the pre-29 path — the constructor + stepAfter fall back to trafficActiveTarget()
+  // exactly as before, including its leva-live re-read of TRAFFIC_CIV.activeTarget.
+  private readonly activeTargetOverride: number | undefined;
 
   private readonly slots: CivSlot[];
   private readonly internal: InternalCiv[];
@@ -441,15 +448,17 @@ export class TrafficController {
     graph: TrafficGraph,
     seed: number,
     crushActive: () => boolean = () => false,
+    activeTargetOverride?: number,
   ) {
     this.world = world;
     this.rapier = rapier;
     this.graph = graph;
     this.crushActive = crushActive;
+    this.activeTargetOverride = activeTargetOverride;
     this.rng = createRng(seed).fork('traffic');
 
     this.quality = getGameState().settings.quality;
-    const size = trafficActiveTarget(TRAFFIC_CIV.activeTarget, this.quality);
+    const size = activeTargetOverride ?? trafficActiveTarget(TRAFFIC_CIV.activeTarget, this.quality);
     this.book = new SlotBook(size);
     this.slots = Array.from({ length: size }, (_, i) => freshSlot(i));
     this.internal = Array.from({ length: size }, () => freshInternal());
@@ -577,7 +586,10 @@ export class TrafficController {
       // Effective target: the tier-scaled active-car count, still clamped to the pool the
       // constructor sized (so leva-live raising TRAFFIC_CIV.activeTarget can't exceed it, and
       // lowering it thins the flow — the pre-Phase-18 leva behaviour, now tier-aware).
-      const target = Math.min(this.book.size, trafficActiveTarget(TRAFFIC_CIV.activeTarget, this.quality));
+      const target = Math.min(
+        this.book.size,
+        this.activeTargetOverride ?? trafficActiveTarget(TRAFFIC_CIV.activeTarget, this.quality),
+      );
       let budget = TRAFFIC_CIV.maxSpawnPerStep;
       while (this.book.activeCount < target && budget > 0) {
         budget--;

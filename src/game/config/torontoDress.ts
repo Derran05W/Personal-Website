@@ -249,19 +249,10 @@ export const BACKDROP_TOWER = {
   capMapWide: 90,
 } as const;
 
-/** The eligible parked-vehicle model set + relative weights (D18) — GLOBAL, not per-district
- * (unlike packStock, which is the FILLER BUILDING mapping). `police-car`/`bus`/`bicycle`/
- * `motorcycle` are deliberate exclusions (D12/D18: a parked cruiser reads as a pursuit unit; no
- * transit-lane story; kickstand/lean fiddliness is garnish-tier at best). */
-export const PARKED_MODELS: readonly { readonly id: string; readonly weight: number }[] = [
-  { id: 'car-a', weight: 0.3 },
-  { id: 'car-b', weight: 0.25 },
-  { id: 'suv', weight: 0.2 },
-  { id: 'van', weight: 0.1 },
-  { id: 'pickup-truck', weight: 0.1 },
-  { id: 'sports-car-a', weight: 0.025 },
-  { id: 'sports-car-b', weight: 0.025 },
-] as const;
+// Phase 29 (D4) superseded PARKED_MODELS: the eligible parked-vehicle model set + weights moved to
+// config/carVariety.ts's CIVILIAN_CAR_MODELS (the single source of truth for BOTH parked cars and
+// moving traffic, now folded into one carVariety pick with a colour palette + anti-repeat). The
+// same police-car/bus/bicycle/motorcycle exclusions carry over (that file's own doc comment).
 
 // ============================================================================================
 // Phase 28 ("Infill: solid streetwall, back lots, parking lots, construction") — D1-D7 config.

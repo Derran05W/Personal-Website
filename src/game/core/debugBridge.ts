@@ -13,7 +13,7 @@ import { spawnPoseRef } from '../world/spawn';
 import type { VehiclePose, VehicleState } from '../vehicles/IVehicleModel';
 import { ARCHETYPES, EMISSIVE_ARCHETYPES } from '../world/archetypes';
 import { setDistrictColor, setDistrictEmissive as setDistrictEmissiveRange } from '../world/instancing';
-import { DISTRICT_COUNT, gridRef } from '../powergrid/grid';
+import { gridRef } from '../powergrid/grid';
 import {
   isDistrictDark as emittersIsDistrictDark,
   relightDistrict as emittersRelightDistrict,
@@ -142,14 +142,27 @@ export function relightDistrict(districtId: number): void {
 /** Phase 13 Task 4: blackout every district (the devPanel "blackout ALL" button). Loops
  * `blackoutDistrict`, so it's exactly as grid-consistent (and idempotent) as blackout-one;
  * once grid.ts's subscription is live this naturally fires the real `darkCity` + persisted
- * badge at 16/16 — no separate manual emit needed here. */
+ * badge at 16/16 — no separate manual emit needed here.
+ *
+ * Phase 29 BUG FOUND LIVE (a coordinator live-gate check): this loop originally used the
+ * frozen `DISTRICT_COUNT` import (always 16, the legacy 4x4-grid constant — grid.test.ts pins
+ * it there on purpose) regardless of which world is actually live. Under the Toronto map
+ * (15 districts, `initPowerGrid(TORONTO_DISTRICT_COUNT)` — game/index.tsx), that looped one
+ * extra (nonexistent) district AND, worse, `districtDarkStates()`'s own array below silently
+ * reported 16 entries no matter what — a scripted live-gate reading that length as "did my
+ * district-count wiring take effect" would see the WRONG number even though grid.ts's actual
+ * `gridRef.current.lit` was correctly sized. Fixed: every district-count-dependent debug
+ * helper below reads `gridRef.current.lit.length` — the ACTIVE count `initPowerGrid()` was
+ * last called with (legacy 16 or Toronto 15) — instead of the frozen legacy constant, which
+ * genuinely never changes and stays exactly what grid.test.ts's own pinned assertion expects. */
 export function blackoutAll(): void {
-  for (let d = 0; d < DISTRICT_COUNT; d++) blackoutDistrict(d);
+  for (let d = 0; d < gridRef.current.lit.length; d++) blackoutDistrict(d);
 }
 
-/** Phase 13 Task 4: relight every district (visual-only debug reset). */
+/** Phase 13 Task 4: relight every district (visual-only debug reset). Phase 29: see
+ * blackoutAll's doc comment — reads the ACTIVE district count, not the frozen legacy one. */
 export function relightAll(): void {
-  for (let d = 0; d < DISTRICT_COUNT; d++) relightDistrict(d);
+  for (let d = 0; d < gridRef.current.lit.length; d++) relightDistrict(d);
 }
 
 /** Phase 13 Task 4 stub for the minimap's `lightPoolViz` overlay (see core/devToggles.ts's
@@ -504,8 +517,10 @@ declare global {
        * comment above). */
       blackoutAll: () => void;
       relightAll: () => void;
-      /** Phase 13 Task 4 proof: current lit/dark state for all 16 districts, index =
-       * districtId — the scripted mirror of what hud/Minimap.tsx's overlay is reading. */
+      /** Phase 13 Task 4 proof: current lit/dark state for every ACTIVE district (16 under
+       * the legacy world, 15 under Toronto — Phase 29 fix, see blackoutAll's doc comment),
+       * index = districtId — the scripted mirror of what hud/Minimap.tsx's overlay is
+       * reading. */
       districtDarkStates: () => boolean[];
       /** Phase 13 Task 4 stub: pooled dynamic-light world positions for the minimap's
        * lightPoolViz overlay. Empty until powergrid/lightPool.ts (Task 3) lands — see
@@ -678,7 +693,10 @@ window.__smashy = {
   relightDistrict,
   blackoutAll,
   relightAll,
-  districtDarkStates: () => Array.from({ length: DISTRICT_COUNT }, (_, d) => isDistrictDark(d)),
+  // Phase 29: ACTIVE count (gridRef.current.lit.length), not the frozen legacy DISTRICT_COUNT
+  // — see blackoutAll's doc comment for the live-gate bug this fixes (16 entries reported
+  // under the Toronto map's 15-district grid, every time, regardless of what actually ran).
+  districtDarkStates: () => Array.from({ length: gridRef.current.lit.length }, (_, d) => isDistrictDark(d)),
   lightPoolPositions: getLightPoolPositions,
   setForcedHeliTier,
   heliSlots,

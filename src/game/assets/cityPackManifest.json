@@ -270,6 +270,24 @@
     "contentHash": "6a6c06587ca22a9ff30c9b92d088cf7afa3011b76577c3abc2f493aade0d4505"
   },
   {
+    "id": "car-a-neutral",
+    "url": "/assets/city-pack/car-a-neutral.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 1.807360053062439,
+      "h": 1.1765789622440934,
+      "d": 4.220716953277588
+    },
+    "tris": 1394,
+    "prims": 1,
+    "bytes": {
+      "raw": 164752,
+      "optimized": 9376
+    },
+    "hasTexture": true,
+    "contentHash": "41258b55a442f99d6058c494967b49783b14055767203fdd4da9ab53caee01ee"
+  },
+  {
     "id": "car-b",
     "url": "/assets/city-pack/car-b.glb",
     "category": "vehicle",
@@ -286,6 +304,24 @@
     },
     "hasTexture": true,
     "contentHash": "0dea5e642bca724efea8ee0a37f6bc21c2baa9331c1e1309c05c7190b63a344e"
+  },
+  {
+    "id": "car-b-neutral",
+    "url": "/assets/city-pack/car-b-neutral.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 1.6384479999542236,
+      "h": 1.1456159725785255,
+      "d": 3.3096230030059814
+    },
+    "tris": 1394,
+    "prims": 1,
+    "bytes": {
+      "raw": 174320,
+      "optimized": 9704
+    },
+    "hasTexture": true,
+    "contentHash": "002b81f93b3576cfd1adfa6214cc889a3d0621dea637279a20e2c8032680414e"
   },
   {
     "id": "cone",
@@ -594,6 +630,24 @@
     "contentHash": "e62aff9cd94c082a1cd3f1d7f9ac515cdb690879a438565812c8978cff90b93e"
   },
   {
+    "id": "pickup-truck-neutral",
+    "url": "/assets/city-pack/pickup-truck-neutral.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 2.312174066901207,
+      "h": 1.8484454044614815,
+      "d": 5.18038130663521
+    },
+    "tris": 1794,
+    "prims": 2,
+    "bytes": {
+      "raw": 273012,
+      "optimized": 14708
+    },
+    "hasTexture": true,
+    "contentHash": "3f512e443eef25013471d316a931da500f1c03adf47592c640da9966f9ba459a"
+  },
+  {
     "id": "pizza-corner",
     "url": "/assets/city-pack/pizza-corner.glb",
     "category": "building",
@@ -756,6 +810,24 @@
     "contentHash": "280c35481dd85492ca62e159c237d2d031cbe5e6d584335aeb17fa9e1f6604eb"
   },
   {
+    "id": "sports-car-a-neutral",
+    "url": "/assets/city-pack/sports-car-a-neutral.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 1.871591031551361,
+      "h": 1.2030550129711628,
+      "d": 3.9265329837799072
+    },
+    "tris": 1500,
+    "prims": 1,
+    "bytes": {
+      "raw": 175100,
+      "optimized": 9876
+    },
+    "hasTexture": true,
+    "contentHash": "d0296e5bc230d8be54bbe2d20fa1e8ffb110afff321432df9038758a494be115"
+  },
+  {
     "id": "sports-car-b",
     "url": "/assets/city-pack/sports-car-b.glb",
     "category": "vehicle",
@@ -772,6 +844,24 @@
     },
     "hasTexture": true,
     "contentHash": "6a807ba941c171ea42344c92be5fd87c912b8869c625b331fe4ebc8800d1c597"
+  },
+  {
+    "id": "sports-car-b-neutral",
+    "url": "/assets/city-pack/sports-car-b-neutral.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 2.6706187054514885,
+      "h": 1.8647261429548294,
+      "d": 5.6551002094025
+    },
+    "tris": 1600,
+    "prims": 2,
+    "bytes": {
+      "raw": 252528,
+      "optimized": 13856
+    },
+    "hasTexture": true,
+    "contentHash": "3e99a7b2e4a38b31956c4e7a655adc4539f5063200daf8770b33c8c2379ec6b6"
   },
   {
     "id": "stop-sign",
@@ -808,6 +898,24 @@
     },
     "hasTexture": true,
     "contentHash": "17c8a5f5410ac7f57289bb341cf877221f4b15283af095f7a5aa79120f2648b3"
+  },
+  {
+    "id": "suv-neutral",
+    "url": "/assets/city-pack/suv-neutral.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 2.1111021041870117,
+      "h": 1.5278509762138128,
+      "d": 4.209349155426025
+    },
+    "tris": 1492,
+    "prims": 1,
+    "bytes": {
+      "raw": 181608,
+      "optimized": 10036
+    },
+    "hasTexture": true,
+    "contentHash": "effc99121102ece3e2c140a0475aada770b99261b777240122d3c6742d2e9193"
   },
   {
     "id": "traffic-light",
@@ -898,6 +1006,24 @@
     },
     "hasTexture": true,
     "contentHash": "a7020a83cfbf7a9ff5c6b580f7c991761408b773f0542b6f049f7354398a8cd6"
+  },
+  {
+    "id": "van-neutral",
+    "url": "/assets/city-pack/van-neutral.glb",
+    "category": "vehicle",
+    "nativeDims": {
+      "w": 43.8890495300293,
+      "h": 34.32973050195142,
+      "d": 80.23063659667969
+    },
+    "tris": 1200,
+    "prims": 1,
+    "bytes": {
+      "raw": 44152,
+      "optimized": 12388
+    },
+    "hasTexture": true,
+    "contentHash": "9700696f4367a7fac4fefc7d2f733086cdee00d31d84db3b56f6f4cdd262223d"
   },
   {
     "id": "washing-line",

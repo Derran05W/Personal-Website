@@ -21,6 +21,7 @@ import {
 // task table): rather than re-implementing the rule in the test, the test imports the SAME
 // functions the generator script uses and proves they produce exactly the shipped manifest.
 import { idForFile, kebabCase, categoryFor, RENAME_MAP } from '../../../scripts/lib/cityPackNaming.mjs';
+import { CIVILIAN_VEHICLE_IDS, neutralBodyId, NEUTRAL_SUFFIX } from '../../../scripts/lib/cityPackNeutralBody.mjs';
 
 const VALID_CATEGORIES: readonly CityPackCategory[] = [
   'building',
@@ -102,8 +103,8 @@ const EXCLUDED_BASENAMES: readonly string[] = [
 ];
 
 describe('CITY_PACK_MANIFEST — schema', () => {
-  it('has exactly 52 entries', () => {
-    expect(CITY_PACK_MANIFEST.length).toBe(52);
+  it('has exactly 59 entries (52 source models + 7 civilian-vehicle -neutral variants, D5)', () => {
+    expect(CITY_PACK_MANIFEST.length).toBe(59);
   });
 
   it('every id is lower-kebab-case and unique', () => {
@@ -167,8 +168,10 @@ describe('CITY_PACK_MANIFEST — exclusions (D2, locked "Pedestrians: none")', (
 describe('rename-map / kebab-case logic mirrors the shipped manifest', () => {
   it('idForFile(basename) for every non-excluded source file produces exactly one manifest id, with no leftovers', () => {
     const derivedIds = SOURCE_BASENAMES.map((basename) => idForFile(basename)).sort();
+    // Phase 29 T2 (D5): `-neutral` entries are DERIVED civilian-vehicle body variants, not sourced
+    // from a basename — exclude them before matching the manifest against the source-derived ids.
     const manifestIds = CITY_PACK_MANIFEST.map((e) => e.id)
-      .slice()
+      .filter((id) => !id.endsWith(NEUTRAL_SUFFIX))
       .sort();
     expect(derivedIds).toEqual(manifestIds);
   });
@@ -196,6 +199,17 @@ describe('rename-map / kebab-case logic mirrors the shipped manifest', () => {
   it('categoryFor assigns every manifest id the category actually shipped', () => {
     for (const entry of CITY_PACK_MANIFEST) {
       expect(categoryFor(entry.id), entry.id).toBe(entry.category);
+    }
+  });
+});
+
+describe('CITY_PACK_MANIFEST — neutral-body variants (D5)', () => {
+  it('every civilian vehicle has a <id>-neutral variant categorized as a vehicle', () => {
+    for (const id of CIVILIAN_VEHICLE_IDS) {
+      expect(hasCityPackModel(id), id).toBe(true);
+      const neutral = getCityPackModel(neutralBodyId(id));
+      expect(neutral.category, neutral.id).toBe('vehicle');
+      expect(categoryFor(neutral.id), neutral.id).toBe('vehicle');
     }
   });
 });

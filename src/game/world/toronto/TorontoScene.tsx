@@ -23,7 +23,7 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { CuboidCollider, CylinderCollider, RigidBody, useAfterPhysicsStep } from '@react-three/rapier';
+import { CuboidCollider, RigidBody, useAfterPhysicsStep } from '@react-three/rapier';
 import {
   BufferGeometry,
   CanvasTexture,
@@ -46,9 +46,13 @@ import { BOUNDARY, QUALITY_TIERS, interactionGroups } from '../../config';
 import { CAMERA_CLAMP_PADDING_WU, clampToPolygon } from './polygon';
 import { WINDOW_PATTERN } from '../../config/torontoMaterials';
 import { CORRIDOR_HALF_WIDTH_WU } from '../../config/tunnel';
+import { TORONTO_BLACKOUT } from '../../config/torontoMap';
 import { buildStreets } from './streets';
 import { listIntersections } from './roadGraph';
-import { buildDistricts } from './districts';
+import { buildDistricts, torontoDistrictIndexAt } from './districts';
+import { buildGroundTintRanges, darkenColorRange } from './groundTintBlackout';
+import { RegisteredCuboidCollider, RegisteredCylinderCollider } from '../landmarks/registeredCollider';
+import { torontoBuildingEntryAt } from './torontoColliders';
 import { buildFrontage } from './frontage';
 import { buildInfill } from './infill';
 import { buildFurniture } from './furniture';
@@ -432,6 +436,10 @@ function decalTransform(box: NamedBox, decal: CrownDecal): {
  * (memoized) and disposed on unmount so a toggle flip / remount never leaks GPU memory.
  */
 function NamedBuildingsLayer({ placements }: { placements: readonly NamedPlacement[] }) {
+  // Phase 29 (D1): named boxes carry no districtId field of their own (street-referenced, not
+  // district-referenced) — resolved spatially, once, against the same district rects every
+  // other Toronto layer derives from.
+  const districts = useMemo(() => buildDistricts(), []);
   // Flat box list (with its owning placement id → stable texture seed key).
   const boxes = useMemo(
     () => placements.flatMap((p) => p.boxes.map((box, i) => ({ box, key: `${p.id}#${i}` }))),
@@ -494,10 +502,17 @@ function NamedBuildingsLayer({ placements }: { placements: readonly NamedPlaceme
         </mesh>
       ))}
 
-      {/* Indestructible fixed BUILDING colliders — one per box (massing.ts's fixed-body pattern). */}
+      {/* Indestructible fixed BUILDING colliders — one per box (massing.ts's fixed-body pattern).
+          Phase 29 (D1): registered so ramming a named tower deals damage to the player instead of
+          silently no-op'ing (combat/damage.ts requires both impact sides registered). */}
       <RigidBody type="fixed" colliders={false} collisionGroups={BUILDING_GROUPS}>
         {boxes.map(({ box, key }) => (
-          <CuboidCollider key={key} args={[box.hx, box.hy, box.hz]} position={[box.cx, box.hy, box.cz]} />
+          <RegisteredCuboidCollider
+            key={key}
+            entry={torontoBuildingEntryAt(torontoDistrictIndexAt(box.cx, box.cz, districts))}
+            halfExtents={[box.hx, box.hy, box.hz]}
+            position={[box.cx, box.hy, box.cz]}
+          />
         ))}
       </RigidBody>
     </>
@@ -527,6 +542,9 @@ function HeroesLayer() {
     },
     [cn, rogers],
   );
+  // Phase 29 (D1): only two lots, spatial lookup is cheap — same district-resolution idiom as
+  // NamedBuildingsLayer above.
+  const districts = useMemo(() => buildDistricts(), []);
 
   const cnAt = lotCenter(HERO_LOTS[0]); // CN Tower (Part-8: BASE ≈ (950, 3390), compacted live)
   const rgAt = lotCenter(HERO_LOTS[1]); // Rogers Centre (Part-8: BASE ≈ (860, 3450), compacted live)
@@ -548,14 +566,19 @@ function HeroesLayer() {
         <meshBasicMaterial vertexColors toneMapped={false} />
       </mesh>
       {/* Base-cylinder colliders (§5 precedent from the P19 legacy tower): CN over the leg zone,
-          Rogers a ring-base wall the car crashes into. Indestructible fixed BUILDING bodies. */}
+          Rogers a ring-base wall the car crashes into. Indestructible fixed BUILDING bodies.
+          Phase 29 (D1): registered (spatial districtId lookup — both lots sit in harbourfront). */}
       <RigidBody type="fixed" colliders={false} collisionGroups={BUILDING_GROUPS}>
-        <CylinderCollider
-          args={[cn.meta.collider.halfHeight, cn.meta.collider.radius]}
+        <RegisteredCylinderCollider
+          entry={torontoBuildingEntryAt(torontoDistrictIndexAt(cnAt.x, cnAt.z, districts))}
+          halfHeight={cn.meta.collider.halfHeight}
+          radius={cn.meta.collider.radius}
           position={[cnAt.x, cn.meta.collider.centerY, cnAt.z]}
         />
-        <CylinderCollider
-          args={[rogers.meta.collider.halfHeight, rogers.meta.collider.radius]}
+        <RegisteredCylinderCollider
+          entry={torontoBuildingEntryAt(torontoDistrictIndexAt(rgAt.x, rgAt.z, districts))}
+          halfHeight={rogers.meta.collider.halfHeight}
+          radius={rogers.meta.collider.radius}
           position={[rgAt.x, rogers.meta.collider.centerY, rgAt.z]}
         />
       </RigidBody>
@@ -758,6 +781,8 @@ function buildVibeSolidsGeometry(layer: PlacesLayerData): BufferGeometry {
  */
 function PlacesLayer({ layer }: { layer: PlacesLayerData }) {
   const atlas = useMemo(() => getLogoAtlas(), []);
+  // Phase 29 (D1): places boxes carry no districtId either — same spatial-lookup idiom.
+  const districts = useMemo(() => buildDistricts(), []);
 
   // Sam-host + Sankofa boxes → one instancedMesh (per-instance colour) + colliders.
   const boxes = useMemo<PlaceBox[]>(
@@ -814,7 +839,12 @@ function PlacesLayer({ layer }: { layer: PlacesLayerData }) {
       ) : null}
       <RigidBody type="fixed" colliders={false} collisionGroups={BUILDING_GROUPS}>
         {boxes.map((b, i) => (
-          <CuboidCollider key={i} args={[b.hx, b.hy, b.hz]} position={[b.cx, b.hy, b.cz]} />
+          <RegisteredCuboidCollider
+            key={i}
+            entry={torontoBuildingEntryAt(torontoDistrictIndexAt(b.cx, b.cz, districts))}
+            halfExtents={[b.hx, b.hy, b.hz]}
+            position={[b.cx, b.hy, b.cz]}
+          />
         ))}
       </RigidBody>
 
@@ -867,6 +897,29 @@ export function TorontoScene() {
   useEffect(() => () => tintGeometry.dispose(), [tintGeometry]);
   const roadGeometry = useMemo(() => buildRoadGeometry(streets, intersections), [streets, intersections]);
   useEffect(() => () => roadGeometry.dispose(), [roadGeometry]);
+
+  // Phase 29 (D2): district-blackout VISUAL. Toronto has no per-archetype emissive instance
+  // buffer to flip on transformerDestroyed (see groundTintBlackout.ts's header for why) — the
+  // ground-tint mesh's own per-district vertex range is the substitute "district blackouts must
+  // read" signal: darken that district's tint slice, once, the instant its power box dies.
+  // Districts tracked in a Set for idempotency (a district's power can only fail once in a real
+  // run, but this guards defensively the same way powergrid/grid.ts's own handler does).
+  const groundTintRanges = useMemo(() => buildGroundTintRanges(buildDistricts()), []);
+  useEffect(() => {
+    const darkened = new Set<number>();
+    const colorAttr = tintGeometry.getAttribute('color');
+    if (!colorAttr) return;
+    const colors = colorAttr.array as Float32Array;
+    const off = gameEvents.on('transformerDestroyed', ({ districtId }) => {
+      if (darkened.has(districtId)) return;
+      const range = groundTintRanges.find((r) => r.districtIndex === districtId);
+      if (!range) return;
+      darkened.add(districtId);
+      darkenColorRange(colors, range, TORONTO_BLACKOUT.groundTintDarkenFactor);
+      colorAttr.needsUpdate = true;
+    });
+    return off;
+  }, [tintGeometry, groundTintRanges]);
 
   // Phase 25.8 (D5): raised-sidewalk curb colliders (top at SIDEWALK.curbHeightWu), from the same
   // segment set the visual band uses. Gated by SIDEWALK.colliders (drive-feel kill-switch).

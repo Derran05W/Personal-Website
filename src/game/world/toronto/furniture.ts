@@ -28,7 +28,6 @@ import {
   HYDRANT_ROW,
   MANHOLE_ROW,
   PARKED,
-  PARKED_MODELS,
   POWER_BOX,
   SIDEWALK_ROW,
   STOP_SIGN,
@@ -42,6 +41,8 @@ import {
 import { TORONTO_DISTRICTS, type DistrictDensity, type DistrictId, type TorontoDistrictDef } from '../../config/torontoDistricts';
 import { ROAD_CLASSES } from '../../config/torontoMap';
 import { getCityPackModel } from '../../assets/cityPackManifest';
+import { neutralVehicleModelId } from '../../config/carVariety';
+import { createCarVarietySequencer } from '../../vehicles/carVariety';
 import { createRng, type Rng } from '../rng';
 import { buildDistricts, districtAt, type ResolvedDistrict } from './districts';
 import { buildNamedBuildings } from './namedBuildings';
@@ -75,10 +76,15 @@ export interface LampMast extends FurniturePlacement {
 }
 
 export interface ParkedVehicle {
+  /** Phase 29 (D4/D5): the NEUTRAL-BODY variant id (config/carVariety.ts neutralVehicleModelId) so
+   * the per-car `tint` multiplies to a true body colour; collider/scale resolve identically to the
+   * base id (same native dims). */
   readonly modelId: string;
   readonly position: readonly [number, number, number];
   readonly rotationY: number;
   readonly districtId: DistrictId;
+  /** Phase 29 (D4): carVariety body colour (sRGB hex) applied as the render material colour. */
+  readonly tint?: string;
 }
 
 export interface DistrictRange {
@@ -199,16 +205,6 @@ function seededSpin(rng: Rng): number {
 function toWorldPlacement(modelId: string, p: MapPoint, rotationY: number, districtId: DistrictId): FurniturePlacement {
   const [x, z] = mapToWorld(p);
   return { modelId, position: [x, 0, z], rotationY, districtId };
-}
-
-function weightedPick(rng: Rng, entries: readonly { readonly id: string; readonly weight: number }[]): string {
-  const total = entries.reduce((s, e) => s + e.weight, 0);
-  let r = rng.next() * total;
-  for (const e of entries) {
-    r -= e.weight;
-    if (r <= 0) return e.id;
-  }
-  return entries[entries.length - 1].id;
 }
 
 /** Deterministic even-stride thinning to a hard cap — preserves the walk's spatial spread
@@ -487,12 +483,15 @@ function buildParked(
   const out: ParkedVehicle[] = [];
   const eligible = new Set<string>(PARKED.eligibleClasses);
   const densityFactor: Record<DistrictDensity, number> = { dense: 0, medium: 0.5, sparse: 1 };
+  // Phase 29 (D4): one carVariety sequencer for the whole parked layer (its own rng fork, so the
+  // rest of buildParked's per-street rolls are untouched). Drawn in deterministic placement order,
+  // it gives each car a weighted {model, colour} with anti-repeat across the street.
+  const variety = createCarVarietySequencer(rng.fork('carVariety'));
 
   for (const street of streets) {
     if (!eligible.has(street.cls)) continue;
     const crossings = intersectionsByStreet.get(street.id) ?? [];
     for (const side of [1, -1] as const) {
-      const streetRng = rng.fork(`parked:${street.id}:${side}`);
       const [lo, hi] = street.span;
       let along = lo;
       while (along < hi) {
@@ -508,9 +507,15 @@ function buildParked(
         const districtDensity: DistrictDensity = district?.density ?? 'medium';
         const spacing = (spacingLo + (spacingHi - spacingLo) * densityFactor[districtDensity]) / densityScalar;
         if (district && !tooCloseToExclusion(p, exclusions, 1.5)) {
-          const modelId = weightedPick(streetRng, PARKED_MODELS);
+          const v = variety.next();
           const rotationY = faceRoadRotationY(street, side) + Math.PI / 2; // parallel-parked: long axis along the street
-          out.push({ modelId, position: withY(mapToWorld(p), 0), rotationY, districtId: district.id });
+          out.push({
+            modelId: neutralVehicleModelId(v.modelId),
+            position: withY(mapToWorld(p), 0),
+            rotationY,
+            districtId: district.id,
+            tint: v.colorHex,
+          });
         }
         along += spacing;
       }

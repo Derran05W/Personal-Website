@@ -326,13 +326,26 @@ function applySideDamage(
   point: Vec3 | undefined,
 ): void {
   if (!target || !other) return;
-  // Dynamic-vs-dynamic vehicle pairs use the dedicated ram proxy (see config comment):
-  // two yielding bodies produce far lower contact forces than hits against kinematic /
-  // fixed geometry, so the global proxy would map real rams to zero.
-  const isVehiclePair =
-    (target.kind === 'player' && other.kind === 'pursuit') ||
-    (target.kind === 'pursuit' && other.kind === 'player');
-  const cfg: DamageConfig = isVehiclePair
+  // Dynamic-vs-dynamic pairs use the dedicated ram proxy (see config comment): two yielding
+  // bodies produce far lower contact forces than hits against kinematic/fixed geometry, so
+  // the global proxy would map real rams to zero. Originally pursuit-vehicle-only (Phase 9);
+  // Phase 29 (Toronto parity) extends the SAME physical reasoning to `propDynamic` — a live
+  // dynamic body is a live dynamic body regardless of whether it's a pursuit unit or a prop,
+  // and Rapier's solver doesn't distinguish. This was FOUND LIVE during Phase 29 T1
+  // verification: Toronto's already-dynamic parked cars/lane-closure cones (registered at
+  // creation, never swapped from fixed — see world/toronto/torontoColliders.ts) measured
+  // ~4,000-14,000 N on a genuine 6+ m/s ram — an order of magnitude below the global proxy's
+  // threshold (minImpactSpeed=5 needs forceMag > 625,000), meaning they could NEVER score
+  // under the un-widened formula, however hard rammed. Legacy props reach `propDynamic` only
+  // AFTER the fixed->dynamic swap (world/propDynamics.ts), by which point they're typically
+  // launched/tumbling and rarely struck a clean second time — this widening is a no-op for
+  // that rare path in practice, not a retune of legacy's signed-off fixed-hit feel (which
+  // stays on the default proxy: the swap-triggering hit itself is always against a
+  // `propStatic` entry, never `propDynamic`).
+  const isYieldingBodyPair =
+    (target.kind === 'player' && (other.kind === 'pursuit' || other.kind === 'propDynamic')) ||
+    ((target.kind === 'pursuit' || target.kind === 'propDynamic') && other.kind === 'player');
+  const cfg: DamageConfig = isYieldingBodyPair
     ? { ...DAMAGE, forceToSpeedProxy: DAMAGE.vehicleRamForceProxy }
     : DAMAGE;
   let damage = computeDamage(forceMag, massFactorOf(other), cfg);
