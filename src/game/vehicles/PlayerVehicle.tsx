@@ -17,18 +17,28 @@ import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import {
   CuboidCollider,
   RigidBody,
+  useAfterPhysicsStep,
   useBeforePhysicsStep,
   useRapier,
   type RapierRigidBody,
 } from '@react-three/rapier';
 import { Group } from 'three';
-import { interactionGroups } from '../config';
+import { interactionGroups, PLAYER_RECOVERY } from '../config';
 import { getDrivingInput } from '../input';
 import { createRaycastVehicle } from './raycastVehicle';
 import { getSelectedCarDef } from './definitions';
 import { playerVehicle } from './playerRef';
 import { dispatchContactForce } from '../combat/contacts';
 import { registerEntity, unregisterEntity } from '../world/registry';
+import { getGameState } from '../state/store';
+import { getDeathPullback } from '../fx/cameraRig';
+import {
+  chassisUpDot,
+  tickFlipRecovery,
+  yawOnlyRotation,
+  INITIAL_FLIP_RECOVERY_STATE,
+  type FlipRecoveryState,
+} from './flipRecovery';
 
 // Mirrors <Physics timeStep={1/60}> in game/index.tsx: useBeforePhysicsStep fires once per
 // fixed step, so the model integrates against this exact dt.
@@ -89,6 +99,39 @@ export function PlayerVehicle({ position = [0, 1, 0], children }: PlayerVehicleP
   // sets <Physics paused={machine !== 'PLAYING'}>), so this naturally only runs during a run.
   useBeforePhysicsStep(() => {
     playerVehicle.current?.applyInputs(getDrivingInput(), PHYSICS_DT);
+  });
+
+  // Automatic flip recovery (Part 8 feel-tuning workstream C): a car stuck upside-down/on
+  // its side for PLAYER_RECOVERY.sustainSec continuous seconds auto-rights itself — same
+  // lift + yaw-only reset the dev "flip recover" button (core/devPanel.tsx) does by hand.
+  // Ref, not store/React state: this ticks at physics rate and must never trigger a
+  // re-render (mirrors the per-frame-hot-data rule in state/store.ts's header comment).
+  // Reset to INITIAL_FLIP_RECOVERY_STATE on every mount (fresh car = fresh timer).
+  const flipRecoveryRef = useRef<FlipRecoveryState>(INITIAL_FLIP_RECOVERY_STATE);
+  useAfterPhysicsStep(() => {
+    const state = getGameState();
+    // Guards: only during a live run, and never while the WRECKED/BUSTED death-beat lock
+    // is playing (fx/cameraRig.ts's getDeathPullback) — auto-righting a car mid-death-beat
+    // would visibly fight the camera's pull-back/converge framing.
+    if (state.machine !== 'PLAYING' || getDeathPullback()) return;
+    const vehicle = playerVehicle.current;
+    if (!vehicle) return;
+
+    const { rawPose } = vehicle.readState();
+    const upDot = chassisUpDot(rawPose.rotation);
+    const result = tickFlipRecovery(flipRecoveryRef.current, upDot, PHYSICS_DT);
+    flipRecoveryRef.current = result.next;
+
+    if (result.fire) {
+      vehicle.reset({
+        position: {
+          x: rawPose.position.x,
+          y: rawPose.position.y + PLAYER_RECOVERY.liftY,
+          z: rawPose.position.z,
+        },
+        rotation: yawOnlyRotation(rawPose.rotation),
+      });
+    }
   });
 
   // Register the player's chassis collider in world/registry.ts so Phase 6's contact spine

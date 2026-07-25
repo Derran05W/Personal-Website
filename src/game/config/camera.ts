@@ -3,8 +3,9 @@ export const CAMERA = {
   // Fixed yaw/pitch — no player rotation control; key to the Smashy look. TDD §5.3.
   yawDeg: 45,
   pitchDeg: 50,
-  // Base follow distance (m).
-  baseDist: 18,
+  // Base follow distance (m). Feel-tuning pass: 18 -> 24 (zoomed out for a wider view of
+  // the action; total distance = baseDist + speedZoom·ease + tierZoom·tier).
+  baseDist: 24,
   // Distance eases out up to +this many meters with speed...
   speedZoom: 10,
   // ...and +this many meters per wanted tier.
@@ -23,6 +24,13 @@ export const CAMERA = {
   // feel like a real crash, while a big, rare one (a hard impact, an explosion) is allowed to
   // fill it. Values are feel placeholders, live-tunable via leva.
   shake: {
+    // Master kill-switch (feel-tuning pass): false disables ALL applied shake — both the
+    // positional jitter offset and the FOV micro-kick — at the application point in
+    // fx/cameraRig.ts's updateCameraRig (`suppress`), same gate as reducedShake/death-beat.
+    // Trauma still accumulates/decays underneath (untouched), so flipping this back to true
+    // resumes exactly where the pre-existing math left off. All other shake values below are
+    // left intact so the effect is fully reversible.
+    enabled: false,
     // Hard ceiling on the applied jitter (m of peak offset). Unchanged from Phase 3.
     maxAmplitude: 0.5,
     // Linear trauma decay (per second), applied to every per-source bucket.

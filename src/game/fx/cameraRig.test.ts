@@ -85,6 +85,15 @@ function setReducedShake(value: boolean): void {
   useGameStore.setState((s) => ({ settings: { ...s.settings, reducedShake: value } }));
 }
 
+// CAMERA.shake is a typed `as const` config block (config/camera.ts) — mutate-and-restore is
+// the repo idiom for live-tuning it (core/devPanel.tsx's writeConfigLeaf uses the same
+// `Mutable<>`-cast trick). Shipped default is `false` (feel-tuning pass: shake killed
+// wholesale); captured once so every describe block below can restore exactly what it found.
+const SHIPPED_SHAKE_ENABLED = CAMERA.shake.enabled;
+function setShakeEnabled(value: boolean): void {
+  (CAMERA.shake as { enabled: boolean }).enabled = value;
+}
+
 const v3 = (): Vec3 => ({ x: 0, y: 0, z: 0 });
 
 describe('easeSpeedZoom (smoothstep, clamped)', () => {
@@ -571,12 +580,17 @@ describe('updateCameraRig — reducedShake zeroing + FOV kick application', () =
     resetCameraRig();
     playerVehicle.current = makeStubModel();
     setReducedShake(false);
+    // This block exercises the reducedShake-specific gate in isolation from the
+    // CAMERA.shake.enabled master kill-switch (shipped default false — see the dedicated
+    // describe below), so force the switch on for the duration of these tests.
+    setShakeEnabled(true);
   });
 
   afterEach(() => {
     playerVehicle.current = null;
     resetCameraRig();
     setReducedShake(false);
+    setShakeEnabled(SHIPPED_SHAKE_ENABLED);
   });
 
   it('applies the positional shake to the camera when reducedShake is OFF', () => {
@@ -646,5 +660,59 @@ describe('updateCameraRig — reducedShake zeroing + FOV kick application', () =
     updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 240);
     expect(cam.fov).toBe(60);
     expect(getDeathPullback()).toBe(true);
+  });
+});
+
+describe('updateCameraRig — CAMERA.shake.enabled master kill-switch', () => {
+  beforeEach(() => {
+    resetCameraRig();
+    playerVehicle.current = makeStubModel();
+    setReducedShake(false);
+    setShakeEnabled(false); // shipped default (feel-tuning pass) — explicit for clarity
+  });
+
+  afterEach(() => {
+    playerVehicle.current = null;
+    resetCameraRig();
+    setReducedShake(false);
+    setShakeEnabled(SHIPPED_SHAKE_ENABLED);
+  });
+
+  it('zeroes both the positional shake offset and the FOV kick when disabled, even with trauma banked', () => {
+    const cam = makeFakeCamera(60);
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60); // frame 1: snap to rest, captures baseFov=60
+    const rest = { x: cam.position.x, y: cam.position.y, z: cam.position.z };
+
+    addShake(10, 'ram'); // banks positional trauma (ram bucket)...
+    armFovKick(100); // ...and saturates the FOV-kick trauma.
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 240);
+
+    // Position is unchanged (no jitter applied)...
+    expect(cam.position.x).toBeCloseTo(rest.x, 12);
+    expect(cam.position.y).toBeCloseTo(rest.y, 12);
+    expect(cam.position.z).toBeCloseTo(rest.z, 12);
+    // ...and the lens holds at its base FOV (no kick applied)...
+    expect(cam.fov).toBe(60);
+    // ...but both trauma models keep accumulating/decaying underneath — the kill-switch only
+    // gates the APPLICATION point, same accumulate/decay contract as reducedShake above.
+    expect(getSourceTrauma('ram')).toBeGreaterThan(0);
+    expect(getFovKick()).toBeGreaterThan(0);
+  });
+
+  it('re-enabling the switch applies shake again on the very next frame (fully reversible)', () => {
+    const cam = makeFakeCamera(60);
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60); // frame 1: snap to rest
+    const rest = { x: cam.position.x, y: cam.position.y, z: cam.position.z };
+
+    addShake(10, 'ram');
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 240); // disabled: no movement
+    expect(cam.position.x).toBeCloseTo(rest.x, 12);
+
+    setShakeEnabled(true);
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 120); // re-enabled: jitter resumes
+
+    const moved =
+      Math.abs(cam.position.x - rest.x) + Math.abs(cam.position.y - rest.y) + Math.abs(cam.position.z - rest.z);
+    expect(moved).toBeGreaterThan(0);
   });
 });

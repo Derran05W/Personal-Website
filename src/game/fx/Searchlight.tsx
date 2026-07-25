@@ -139,7 +139,7 @@ export function Searchlight() {
   const coneMaterial = useMemo(
     () =>
       new MeshBasicMaterial({
-        color: new Color(SEARCHLIGHT.cone.color),
+        color: new Color(SEARCHLIGHT.color),
         vertexColors: true,
         transparent: true,
         blending: AdditiveBlending,
@@ -162,7 +162,7 @@ export function Searchlight() {
     () =>
       new MeshBasicMaterial({
         map: groundTexture,
-        color: new Color(SEARCHLIGHT.ground.color),
+        color: new Color(SEARCHLIGHT.color),
         transparent: true,
         blending: AdditiveBlending,
         depthWrite: false,
@@ -231,7 +231,7 @@ export function Searchlight() {
     // --- the one real SpotLight ---------------------------------------------------------
     const L = SEARCHLIGHT.light;
     spot.position.set(hx, hy, hz);
-    spot.color.set(L.color);
+    spot.color.set(SEARCHLIGHT.color);
     spot.angle = L.halfAngleRad;
     spot.penumbra = L.penumbra;
     spot.distance = L.distance;
@@ -287,7 +287,7 @@ export function Searchlight() {
         ref={spotRef}
         castShadow={false}
         intensity={0}
-        color={SEARCHLIGHT.light.color}
+        color={SEARCHLIGHT.color}
         angle={SEARCHLIGHT.light.halfAngleRad}
         penumbra={SEARCHLIGHT.light.penumbra}
         distance={SEARCHLIGHT.light.distance}

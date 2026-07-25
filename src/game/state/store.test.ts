@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { gameEvents } from './events';
 import { getGameState, tierForHeat, useGameStore } from './store';
 import { PROGRESS_STORAGE_KEY } from './persistence';
-import { WORLD_GEN } from '../config';
+import { WORLD_GEN, PLAYER_CARS } from '../config';
+
+const RUSTY_SEDAN_HP = PLAYER_CARS.rustySedan.hp;
 
 const SETTINGS_KEY = 'smashy6ix:settings';
 
@@ -28,7 +30,7 @@ describe('initial state', () => {
     expect(state.heat).toBe(0);
     expect(state.tier).toBe(0);
     expect(state.score).toBe(0);
-    expect(state.playerHp).toBe(100);
+    expect(state.playerHp).toBe(RUSTY_SEDAN_HP);
     expect(state.seed).toBe(WORLD_GEN.defaultSeed);
     expect(state.settings).toEqual({ quality: 'high', qualitySource: 'auto', muted: false, reducedShake: false });
     expect(state.selectedCarId).toBe('rustySedan');
@@ -253,7 +255,7 @@ describe('hardReset', () => {
     expect(state.heat).toBe(0);
     expect(state.tier).toBe(0);
     expect(state.score).toBe(0);
-    expect(state.playerHp).toBe(100);
+    expect(state.playerHp).toBe(RUSTY_SEDAN_HP);
     expect(state.seed).toBe(999);
     expect(state.settings).toEqual({ quality: 'low', qualitySource: 'user', muted: false, reducedShake: false });
   });
@@ -276,7 +278,7 @@ describe('runReset', () => {
     expect(state.heat).toBe(0);
     expect(state.tier).toBe(0);
     expect(state.score).toBe(0);
-    expect(state.playerHp).toBe(100);
+    expect(state.playerHp).toBe(RUSTY_SEDAN_HP);
   });
 
   it('preserves settings and seed, same as hardReset', () => {

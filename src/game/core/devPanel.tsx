@@ -8,14 +8,14 @@
 // so it is structured around a top-level "Debug" folder plus auto-generated config folders.
 
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Quaternion, Euler, Color } from 'three';
+import { Color } from 'three';
 import { useControls, folder, button, monitor, Leva } from 'leva';
 import { getGameState, useGameStore } from '../state/store';
 import { canTransition, TRANSITIONS } from '../state/machine';
 import { CONFIG, QUALITY_TIERS, type QualityTier } from '../config';
 import { playerVehicle } from '../vehicles/playerRef';
 import { spawnPoseRef } from '../world/spawn';
-import type { VehiclePose } from '../vehicles/IVehicleModel';
+import { yawOnlyRotation } from '../vehicles/flipRecovery';
 import { getDevToggles, setDevToggle } from './devToggles';
 import { loadProgress, resetProgress, unlockAllCars } from '../state/persistence';
 import { trafficRef } from '../ai/trafficTypes';
@@ -157,20 +157,6 @@ function buildConfigSchema(): Record<string, unknown> {
     }
   }
   return schema;
-}
-
-/**
- * Strips pitch/roll from a pose's rotation, keeping only yaw (rotation about world Y).
- * Backs the "flip recover" debug button: a car resting on its roof/side should come back
- * down right-side up, not just get nudged upward in whatever orientation it flipped to.
- */
-function yawOnlyRotation(rotation: VehiclePose['rotation']): VehiclePose['rotation'] {
-  const euler = new Euler().setFromQuaternion(
-    new Quaternion(rotation.x, rotation.y, rotation.z, rotation.w),
-    'YXZ',
-  );
-  const yaw = new Quaternion().setFromEuler(new Euler(0, euler.y, 0, 'YXZ'));
-  return { x: yaw.x, y: yaw.y, z: yaw.z, w: yaw.w };
 }
 
 // Phase 9 Task 4 debug tooling: unit state overlay ------------------------------------------

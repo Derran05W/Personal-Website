@@ -61,8 +61,9 @@ export const TRAFFIC_STREETCAR = {
   dynamicLinDamping: 0.6,
   dynamicAngDamping: 0.8,
   // Conversion kick — same fraction of the player's velocity as TRAFFIC_CIV.convertKickScale;
-  // unchanged because the "bolted down" feel it guards against is mass-independent.
-  convertKickScale: 0.6,
+  // feel-pass boost (comically powerful player collisions) applied identically here since the
+  // "bolted down" feel it guards against is mass-independent.
+  convertKickScale: 1.5,
   // Kinematic yaw slew (rad/s) — much slower than TRAFFIC_CIV's 3.5: "turns like a boat" (TDD
   // §5.9's Red Rocket line) applies to the traffic variant too. A loop corner still resolves,
   // just with a wide, lumbering arc.

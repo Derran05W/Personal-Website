@@ -489,9 +489,9 @@ export const PROPS = {
   //   dir     = normalize(propPos − impactPoint), then dir.y += launchUpKick
   //   impulse = dir × min(forceMag, launchForceCap) × launchImpulseScale
   // All FEEL-TUNABLE PLACEHOLDERS.
-  launchImpulseScale: 0.14, // N → kg·m/s toss conversion (a solid hit throws a post satisfyingly)
-  launchUpKick: 0.55, // +Y added to the unit horizontal launch dir → arc + tumble
-  launchForceCap: 9000, // clamp runaway contact forces so one huge hit can't over-launch (N)
+  launchImpulseScale: 0.28, // N → kg·m/s toss conversion (comically powerful — a solid hit sends a post flying)
+  launchUpKick: 0.7, // +Y added to the unit horizontal launch dir → arc + tumble
+  launchForceCap: 15000, // clamp runaway contact forces so one huge hit can't over-launch (N)
   // Settling damping on a freshly-swapped body so it comes to rest (and auto-sleeps) within
   // a few seconds instead of skating forever. Feel-tunable placeholders.
   settleLinearDamping: 0.4,
@@ -596,9 +596,11 @@ export const TRAFFIC_CIV = {
   dynamicLinDamping: 0.4,
   dynamicAngDamping: 0.5,
   // On conversion the new dynamic body inherits its waypoint velocity (travel dir × the speed
-  // it was moving) PLUS this fraction of the PLAYER's velocity as the impact kick — the
-  // part-file gotcha: without an explicit shove the hit feels like the car was bolted down.
-  convertKickScale: 0.6,
+  // it was moving) PLUS this fraction of the PLAYER's velocity as the impact kick — feel-pass
+  // boost (comically powerful player collisions): a rammed civilian now inherits MORE of the
+  // player's velocity than the player itself carried into the hit, so it visibly rockets away
+  // rather than just unsticking from "bolted down".
+  convertKickScale: 1.5,
   // Kinematic yaw slews toward the travel-direction heading at most this fast (rad/s) so cars
   // arc through turns instead of snapping — a ~90° corner takes roughly 90°/(this) seconds.
   turnRateRadPerSec: 3.5,

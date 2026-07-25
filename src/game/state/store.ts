@@ -234,7 +234,7 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   heat: 0,
   tier: 0,
   score: 0,
-  playerHp: 100,
+  playerHp: selectedCarHp('rustySedan'),
   selectedCarId: 'rustySedan',
   unlockedCarIds: hydrateUnlockedCarIds(),
   seed: hydrateSeed(),

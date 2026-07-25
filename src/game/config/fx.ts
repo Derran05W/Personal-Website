@@ -199,15 +199,24 @@ export const TANK_TELEGRAPH = {
 // only number/boolean leaves) skips them — tune colours in code + HMR; every number is a
 // live "SEARCHLIGHT" folder slider.
 export const SEARCHLIGHT = {
+  // Single shared beam colour (feel-tuning pass: the light/cone/ground-spot previously each
+  // had their own close-but-not-identical warm hex — collapsed to ONE leaf so the whole rig
+  // reads as one consistent light colour). Hex string, so the leva auto-schema builder
+  // (core/devPanel.tsx's buildBlockSchema, which only surfaces number/boolean leaves) skips
+  // it — tune in code + HMR, same convention as every other colour leaf in this file.
+  color: '#ffe6a8',
+
   // The one real SpotLight. castShadow is FALSE in the component (additive drama, not a
   // shadow-caster — and the pooled-light budget, POWER_GRID.lightPoolSize=6, leaves room
   // for exactly one more real light). three r155+ is physically-based, so `decay` is kept
   // low: a physically-accurate 1/d² over a 35 m throw would swallow the beam, so this is a
   // stylized reach-to-the-ground value, not a photometric one.
   light: {
-    color: '#fff2d0', // warm-white
     intensity: 90,
-    halfAngleRad: 0.34, // spot cone half-angle (~19.5°); also drives the fake cone's base radius
+    // Feel-tuning pass: 0.34 -> 0.18 (spot cone half-angle, ~10.3°; was ~19.5°) — beam
+    // radius ≈ tan(halfAngle)·dist, so this roughly halves the lit ground spot. Also drives
+    // the fake cone's base radius (fx/Searchlight.tsx's coneBaseRadius).
+    halfAngleRad: 0.18,
     penumbra: 0.75, // soft edge (0 = hard, 1 = fully feathered)
     distance: 70, // cutoff >= the longest beam throw (altitude over the orbit lean)
     decay: 0.9, // < 2 → stylized long reach (see note above)
@@ -230,7 +239,6 @@ export const SEARCHLIGHT = {
   // z-fights. Opacity is PER QUALITY TIER — low tier is dim (P18's mobile pass may trim it
   // to 0, which the component treats as "hide the cone").
   cone: {
-    color: '#ffe6a8',
     radialSegments: 28,
     apexBrightness: 1, // vertex brightness at the heli end of the shaft
     baseBrightness: 0.2, // vertex brightness at the ground end (the fade-out)
@@ -244,9 +252,11 @@ export const SEARCHLIGHT = {
   // beam→ground intersection, additive, lifted just above the SkidMarks (0.03) / scorch
   // (0.035) decal layers so it never z-fights them (SkidMarks' y-hygiene rule).
   ground: {
-    color: '#ffe6a8',
     yOffset: 0.05,
-    radiusScale: 1.4, // spot radius = cone base radius · this (spills a touch past the cone)
+    // Feel-tuning pass: 1.4 -> 1.0 (spot radius = cone base radius · this) — the ground pool
+    // now hugs the actual beam footprint instead of spilling past it, so the smaller spot
+    // (halfAngleRad above) reads as one clean lit circle, not a soft halo bleeding wider.
+    radiusScale: 1.0,
     opacity: 0.55,
     textureSize: 128, // CanvasTexture resolution for the radial falloff
   },

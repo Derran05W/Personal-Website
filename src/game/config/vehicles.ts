@@ -25,7 +25,7 @@ export const PLAYER_CARS = {
     speed: 'C',
     accel: 'C',
     handling: 'B',
-    hp: 100,
+    hp: 200,
     massFactor: 1.0,
     character: 'Honest, balanced',
   },
@@ -34,7 +34,7 @@ export const PLAYER_CARS = {
     speed: 'A',
     accel: 'A',
     handling: 'A',
-    hp: 60,
+    hp: 120,
     massFactor: 0.8,
     character: 'Glass cannon — outrun everything, die to one tank shell',
   },
@@ -43,7 +43,7 @@ export const PLAYER_CARS = {
     speed: 'B',
     accel: 'C',
     handling: 'C',
-    hp: 130,
+    hp: 260,
     massFactor: 1.4,
     character: 'Good pusher, stable',
   },
@@ -52,7 +52,7 @@ export const PLAYER_CARS = {
     speed: 'D',
     accel: 'D',
     handling: 'D',
-    hp: 220,
+    hp: 440,
     massFactor: 2.6,
     character: 'Wrecking ball; smashes props without slowing',
   },
@@ -61,7 +61,7 @@ export const PLAYER_CARS = {
     speed: 'C',
     accel: 'B',
     handling: 'C',
-    hp: 180,
+    hp: 360,
     massFactor: 2.2,
     character: 'Rides over civilian cars (crush = auto-wreck them)',
   },
@@ -70,7 +70,7 @@ export const PLAYER_CARS = {
     speed: 'C',
     accel: 'D',
     handling: 'D',
-    hp: 260,
+    hp: 520,
     massFactor: 3.0,
     character: 'Absurd Toronto joke unlock; huge, nearly unstoppable, turns like a boat',
   },
@@ -169,6 +169,15 @@ export const VEHICLE_TUNING = {
     liftToY: 0.85,
   },
 } as const;
+
+// Automatic flip-recovery timer (Part 8 feel-tuning workstream C; vehicles/flipRecovery.ts's
+// tickFlipRecovery + vehicles/PlayerVehicle.tsx's useAfterPhysicsStep hook): a player car
+// resting upside-down/on-its-side (chassis-up · world-up below upDotThreshold) for
+// sustainSec CONTINUOUS seconds gets auto-righted — lifted liftY and yaw-only reset, the
+// same move the dev "flip recover" button already does by hand. upDotThreshold 0.3
+// deliberately matches AI_STEERING.wreckUpDot below (the civilian/pursuit "on its roof"
+// convention) so flipped/upright means the same thing for every vehicle in the game.
+export const PLAYER_RECOVERY = { upDotThreshold: 0.3, sustainSec: 3, liftY: 1 } as const;
 
 // Enemy AI behavior kinds. TDD §5.6.
 export type EnemyBehavior = 'pursuit' | 'flank' | 'standoff' | 'siege';

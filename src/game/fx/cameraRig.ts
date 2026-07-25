@@ -483,11 +483,12 @@ export function updateCameraRig(camera: PerspectiveCamera, dt: number): void {
   smoothedCamPos.z = frame.desiredCamPos.z;
 
   // Shake + FOV kick ALWAYS step (trauma keeps decaying), but their offsets are suppressed
-  // when the player has asked for reduced shake OR while the death beat is playing — the
-  // beat must read as a clean, deliberate camera move, never as residual crash jitter.
+  // when the CAMERA.shake.enabled kill-switch is off, OR the player has asked for reduced
+  // shake, OR while the death beat is playing — the beat must read as a clean, deliberate
+  // camera move, never as residual crash jitter.
   const shake = stepShake(dt);
   const fovKick = stepFovKick(dt);
-  const suppress = getReducedShake() || deathPullbackActive;
+  const suppress = !CAMERA.shake.enabled || getReducedShake() || deathPullbackActive;
   const ox = suppress ? 0 : shake.x;
   const oy = suppress ? 0 : shake.y;
   const oz = suppress ? 0 : shake.z;
