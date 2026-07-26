@@ -43,6 +43,12 @@ CLAUDE_MD="CLAUDE.md"
 LOG_DIR=".planning/run-logs"
 mkdir -p "$LOG_DIR"
 
+# Phase sessions orchestrate long-lived background subagents; print mode's default 600 s
+# background-wait ceiling KILLS a session mid-phase (observed 2026-07-26: iteration 1 was
+# terminated mid-Phase-35 with gates green and a live battery still running). 0 = wait
+# indefinitely; this loop's own stop conditions are the real backstops.
+export CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0
+
 MAX_ITERATIONS="${MAX_ITERATIONS:-25}"   # 20 phases + headroom for reruns after a fix
 MAX_BUDGET_USD="${MAX_BUDGET_USD:-}"     # unset = no per-run cap
 PERMISSION_ARGS="${PERMISSION_ARGS:---dangerously-skip-permissions}"
