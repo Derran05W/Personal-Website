@@ -62,17 +62,31 @@ checklist_section() {
   sed -n '/^## Phase checklist$/,/^## Locked decisions/p' "$CLAUDE_MD"
 }
 
-any_incomplete() {
-  checklist_section | grep -qE '^- \[[ ~]\]'
+# All predicates are COUNT-based on purpose: `grep -q` exits at its first match and
+# closes the pipe, and if sed is still writing it dies with SIGPIPE — which pipefail
+# then reports as the pipeline failing, i.e. "no incomplete phases" the moment the
+# checklist got long enough to outrun the pipe buffer (observed 2026-07-26: the loop
+# declared "All phases [x]" against a checklist with 39 open phases). `grep -c` always
+# reads to EOF, so sed always finishes; `|| true` keeps its exit-1-on-zero-matches from
+# tripping pipefail.
+incomplete_count() {
+  checklist_section | grep -cE '^- \[[ ~]\]' || true
 }
 
-any_blocked() {
-  checklist_section | grep -qE '^- \[!\]'
+done_count() {
+  checklist_section | grep -cE '^- \[x\]' || true
 }
 
 blocked_count() {
-  # grep -c exits 1 on zero matches (it still prints "0"); don't let pipefail kill us.
   checklist_section | grep -cE '^- \[!\]' || true
+}
+
+any_incomplete() {
+  [[ "$(incomplete_count)" -gt 0 ]]
+}
+
+any_blocked() {
+  [[ "$(blocked_count)" -gt 0 ]]
 }
 
 fingerprint() {
@@ -82,6 +96,14 @@ fingerprint() {
 iteration=0
 while (( iteration < MAX_ITERATIONS )); do
   iteration=$((iteration + 1))
+
+  # Parse sanity: 35+ phases are [x] on any healthy checkout, so a zero done-count means
+  # the checklist itself failed to parse (heading drift, sed failure) — refuse to conclude
+  # ANYTHING from an unreadable checklist rather than mis-declare the build finished.
+  if [[ "$(done_count)" -eq 0 ]]; then
+    echo "[run-all-phases] Can't parse the Phase checklist (0 done lines) — refusing to run. Check CLAUDE.md's section headings."
+    exit 5
+  fi
 
   if ! any_incomplete; then
     if any_blocked; then
