@@ -129,8 +129,30 @@ describe('pointInPolygon — ray cast, boundary-inclusive', () => {
 describe('clampToPolygon — nearest point ≥ padding inside', () => {
   const PAD = CAMERA_CLAMP_PADDING_WU;
 
+  // Phase 34 re-pin: 80 → 30. NOT a safety reduction — measurement showed the clamp is a void
+  // SOURCE past ~30 wu (holding the eye inside while it aims at a car further out tilts the lens
+  // at the horizon), so 30 is the largest padding that leaves the void ring at its lens-imposed
+  // floor. Full derivation + the measured ring table live on the constant in polygon.ts.
   it('exports the spec padding constant', () => {
-    expect(CAMERA_CLAMP_PADDING_WU).toBe(80);
+    expect(CAMERA_CLAMP_PADDING_WU).toBe(30);
+  });
+
+  it('stays under the measured knee where the clamp itself starts adding void', () => {
+    // The knee, measured across every edge class over the whole camera envelope (Phase 34): at
+    // pad ≤ 30 the void ring equals the unclamped floor; at 40 it starts growing; at 80 it was
+    // double. Raising this constant past the knee makes the map edge WORSE, which is the exact
+    // mistake this test exists to block.
+    expect(PAD).toBeLessThanOrEqual(30);
+  });
+
+  it('leaves the fold corridor usable: ≥ 300 wu of camera free travel across it', () => {
+    // The corridor is the tightest place the clamp bites (360 wu wide, x ∈ [1320,1680]); free
+    // travel is what's left after padding both walls — 300 wu now, was 200 at PAD 80.
+    const corridorWidth = 1680 - 1320;
+    expect(corridorWidth - 2 * PAD).toBeGreaterThanOrEqual(300);
+    // ...and the camera can actually sit on the Yonge spine (x=1500) inside that band.
+    expect(1500).toBeGreaterThan(1320 + PAD);
+    expect(1500).toBeLessThan(1680 - PAD);
   });
 
   it('pulls outside points to at least padding inside', () => {

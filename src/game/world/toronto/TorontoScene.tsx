@@ -15,9 +15,9 @@
 //     to face the fixed §5.3 camera;
 //   • TUNNEL EMISSION — a physics-step-aligned fold-crossing stepper (world/toronto/tunnel.ts's
 //     createFoldTrigger) that emits `tunnelTransit` (hud/TunnelOverlay.tsx already listens);
-//   • CAMERA CLAMP — a late (priority-2) pass that, only when the camera would show the void,
-//     clamps it back inside the padded polygon (see the clamp's own note for why it re-renders
-//     rather than fight fx/cameraRig's atomic priority-1 position+render).
+//   • CAMERA CLAMP — the padded-polygon clamp that keeps the camera's frustum off the void,
+//     registered into fx/cameraRig's position-constraint seam on mount (Phase 34 — it used to be
+//     a late priority-2 pass with a second gl.render(); see clampCameraPos below).
 // Lighting reuses world/BlueHourRig.tsx (its shadow frustum follows the player, so it is
 // map-size-agnostic and self-restores scene state on unmount — clean when the toggle flips back).
 
@@ -82,7 +82,7 @@ import { gameEvents } from '../../state/events';
 import { getGameState, useGameStore } from '../../state/store';
 import { playerVehicle } from '../../vehicles/playerRef';
 import { spawnPoseRef } from '../spawn';
-import { computeLookTarget, type Vec3 } from '../../fx/cameraRig';
+import { setCameraPosConstraint, type Vec3 } from '../../fx/cameraRig';
 import { BlueHourRig } from '../BlueHourRig';
 import { RunLoopSystem } from '../../combat/runLoop';
 import { LightPool } from '../../powergrid/LightPoolMount';
@@ -127,8 +127,36 @@ const BUILDING_GROUPS = interactionGroups('BUILDING');
 // The lake band's world box, computed once (rectWorldBox is pure).
 const WATER_BOX = rectWorldBox(WATER_RECT);
 
-// Reused camera-clamp look-target scratch (hot path — no per-frame alloc, cameraRig discipline).
-const lookScratch: Vec3 = { x: 0, y: 0, z: 0 };
+// --- polygon camera clamp (Phase 34) ------------------------------------------------------
+// The world's half of fx/cameraRig's PROD-ACTIVE position-constraint seam: keep the camera eye at
+// least CAMERA_CLAMP_PADDING_WU inside the §1 playable polygon so the frustum never reaches past a
+// map edge and paints sky where ground should be (spec §1). Registered on mount below; the rig
+// applies it to its own smoothed follow position every frame, so the clamp is part of the rig's
+// state (it converges to the clamped point) rather than a correction painted over the top.
+//
+// Replaces the Phase-22..33 architecture: a priority-2 useFrame that ran AFTER CameraFxSystem's
+// priority-1 update+render, wrote camera.position, re-aimed, and then had to fire a SECOND full
+// gl.render() to make the correction visible — while the rig, whose lerp state it could not reach,
+// re-generated the unclamped position on the very next frame. One render per frame again, and the
+// re-aim is gone too because the rig's own lookAt now runs after the clamp, not before it.
+//
+// Module scope, not a component closure: the identity must be stable across renders so the mount
+// effect registers/clears exactly one function (and a StrictMode double-mount is a no-op re-register
+// of the same fn). The map-space probe is reused for the same no-per-frame-alloc reason cameraRig
+// keeps its own scratch — clampToPolygon only allocates on the frames it actually clamps.
+const clampProbe = { x: 0, y: 0 };
+const clampCameraPos = (pos: Vec3): void => {
+  // world [x,z] → map {x,y}; clampToPolygon returns the point unchanged when ≥ padding inside.
+  clampProbe.x = pos.x;
+  clampProbe.y = pos.z;
+  const clamped = clampToPolygon(clampProbe, CAMERA_CLAMP_PADDING_WU);
+  if (clamped.x === clampProbe.x && clamped.y === clampProbe.y) return;
+  // Phase 33 counter, re-pointed by Phase 34: the frames the clamp ACTED on (it no longer costs a
+  // second render — see cameraClipStats.ts). DEV-folded.
+  if (import.meta.env.DEV) recordClampFired();
+  pos.x = clamped.x;
+  pos.z = clamped.y; // y (height) is never clamped — the polygon is a 2D map footprint.
+};
 
 /** Apply the occlusion fade to one material: opacity + `transparent` only WHILE fading (a fully
  * opaque surface stays in the cheap no-sort opaque pass). Structural type — every three Material
@@ -1119,36 +1147,17 @@ export function TorontoScene() {
     }
   });
 
-  // --- camera clamp (priority 2, AFTER fx/cameraRig's priority-1 pass) ---------------------
-  // fx/cameraRig's CameraFxSystem sets the camera position from its OWN internal smoothed state
-  // AND renders, atomically, at priority 1 — a later pass that merely writes camera.position is
-  // both overwritten next frame and applied after the render, i.e. it never reaches a pixel.
-  // So this pass only ACTS when the camera would actually show the void: it clamps, re-aims at
-  // the (unclamped) look target, and issues one corrective render on top of CameraFxSystem's.
-  // When the camera is already inside the padded polygon (the common case) it early-returns and
-  // CameraFxSystem's own render stands unchallenged — no render-owner takeover, no fighting the
-  // rig's damping, and the scene can never go black (CameraFxSystem always paints).
-  useFrame((state) => {
-    const camera = state.camera as PerspectiveCamera;
-    // world [x,z] → map {x,y}; clampToPolygon returns the point unchanged when ≥ padding inside.
-    const clamped = clampToPolygon(
-      { x: camera.position.x, y: camera.position.z },
-      CAMERA_CLAMP_PADDING_WU,
-    );
-    if (clamped.x === camera.position.x && clamped.y === camera.position.z) return;
-    // Phase 33: count the frames the clamp actually acts on (each costs the corrective render
-    // below) — Phase 34's clamp rework wants that baseline per candidate rig. DEV-folded.
-    if (import.meta.env.DEV) recordClampFired();
-    camera.position.x = clamped.x;
-    camera.position.z = clamped.y;
-    const model = playerVehicle.current;
-    if (model) {
-      const s = model.readState();
-      computeLookTarget(lookScratch, s.pose.position, s.velocity, s.speed);
-      camera.lookAt(lookScratch.x, lookScratch.y, lookScratch.z);
-    }
-    state.gl.render(state.scene, state.camera);
-  }, 2);
+  // --- camera clamp registration (Phase 34) ------------------------------------------------
+  // Hand the polygon clamp (module scope above) to fx/cameraRig's position-constraint seam for as
+  // long as this world is mounted, and take it back on unmount so a world swap / run remount can
+  // never leave a stale clamp shaping a camera over a different map. Empty deps + a module-scope
+  // fn = one register per mount; under StrictMode's mount → cleanup → mount the last write wins
+  // and the constraint ends up registered (Phase 30's StrictMode registration bug was exactly the
+  // opposite shape — a registration that survived its own cleanup).
+  useEffect(() => {
+    setCameraPosConstraint(clampCameraPos);
+    return () => setCameraPosConstraint(null);
+  }, []);
 
   // --- Phase 33 camera lab: static building AABB index (DEV-only) --------------------------
   // Built from the layouts this component ALREADY memoizes — the index is a re-view of the
@@ -1180,11 +1189,12 @@ export function TorontoScene() {
     return () => clearClipIndex();
   }, [frontage, infill, named]);
 
-  // --- Phase 33 camera lab: clip sampling (DEV-only, priority 2 AFTER the clamp) ------------
-  // Registered after the clamp pass at the SAME priority, so it observes the camera exactly as it
-  // was painted this frame: if the clamp acted, its corrective gl.render has already run and this
-  // reads the clamped pose; if it didn't, this reads the pose CameraFxSystem rendered at priority
-  // 1. Either way the sample describes a frame the player actually saw, not a speculative one.
+  // --- Phase 33 camera lab: clip sampling (DEV-only, priority 2 = after the render) ---------
+  // Priority 2 runs after CameraFxSystem's priority-1 update + render, so it observes the camera
+  // exactly as it was painted this frame — including the polygon clamp, which since Phase 34 is
+  // folded into the rig's own position solve (the module-scope clampCameraPos above) and is
+  // therefore already applied by the time anything is drawn. The sample always describes a frame
+  // the player actually saw, not a speculative one.
   // Also the (dev-only) publisher of fx/cameraRef's live-camera handle — the preset apply path
   // needs the real PerspectiveCamera to write `fov` on, and this is the one pass that holds it
   // every frame in every machine state.

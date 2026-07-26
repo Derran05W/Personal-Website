@@ -75,11 +75,13 @@ export function buildRouteBoardAtlas(entries: readonly RouteBoardEntry[]): Route
  *
  * LIVE-VERIFICATION FIX (Phase 31, Part-8 T1): a board rotated to face the vehicle's OWN yaw (a
  * "windshield sign") reads fine from some headings but goes near edge-on/foreshorted from others
- * under the LOCKED fixed camera bearing (yaw 45°/pitch 50°, CLAUDE.md "Renderer decisions" —
- * "exactly two faces of every box are ever visible; author decals on those two faces only", a box
- * face convention that does NOT hold for a face that rotates with a moving object's own heading).
+ * under the LOCKED fixed camera bearing (yaw 45°, CLAUDE.md "Renderer decisions" — "exactly two
+ * faces of every box are ever visible; author decals on those two faces only", a box face
+ * convention that does NOT hold for a face that rotates with a moving object's own heading).
  * Rotated flat (-90° about X, normal +Y) instead — a rooftop board read from above, ALWAYS
- * face-on to the elevated fixed camera regardless of which way the vehicle is driving. The
+ * face-on to the elevated fixed camera regardless of which way the vehicle is driving. Pitch is
+ * irrelevant to this fix by construction (a flat, +Y-normal plane reads face-on at any pitch); the
+ * Phase 34 rig steepened pitch 50→58, which only makes the read MORE face-on, never less. The
  * caller (TransitRouteBoards) never applies the vehicle's yaw to this mesh, only its position. */
 export function buildRouteBoardGeometry(row: number, rowCount: number): BufferGeometry {
   const g = new PlaneGeometry(ROUTE_BOARD.widthWu, ROUTE_BOARD.heightWu);

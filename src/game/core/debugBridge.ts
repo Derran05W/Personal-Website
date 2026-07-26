@@ -54,6 +54,7 @@ import { worldRef } from '../world/worldRef';
 import { getReducedShake } from '../state/store';
 import { applyCameraPreset, getCameraPreset } from '../fx/cameraLab';
 import { liveCamera } from '../fx/cameraRef';
+import { setDeathCause, setDeathPullback } from '../fx/cameraRig';
 import { getClipIndexSize } from '../world/toronto/cameraClipIndex';
 import { readCameraClipStats, resetCameraClipStats, type CameraClipStats } from '../world/toronto/cameraClipStats';
 import { cameraVantages, type CameraVantage } from '../world/toronto/cameraVantages';
@@ -224,6 +225,25 @@ export function forceBustedGameOver(): void {
   const state = getGameState();
   gameEvents.emit('runEnded', { score: state.score, reason: 'busted' });
   if (canTransition(state.machine, 'GAMEOVER')) state.transition('GAMEOVER');
+}
+
+// Phase 34 T3: dev-only camera-BEAT visualizer, not a death trigger. No in-repo path reaches
+// the BUSTED beat today: forceBustedGameOver() above deliberately SKIPS the lock window (it
+// jumps straight to runEnded/GAMEOVER, the flow-verification shortcut its own doc comment
+// describes) and the organic BUSTED condition (speed < 1 m/s for 3 s with >=3 pursuers within
+// 8 m) is a known-unreachable geometry on the current map (phase-30 notes). That left the T4
+// evidence battery with no way to SEE the BUSTED camera framing (converge-in/lower, per
+// CAMERA.cinematic) for a screenshot. This drives the beat DIRECTLY through fx/cameraRig.ts's
+// own public seam — the exact two calls combat/runLoop.ts makes at a real lock start/end — and
+// nothing else: no runEnded, no store.transition, no heat/score/HUD change. It is a camera-only
+// tool; a screenshot taken while it's active is NOT proof any real death path fires the beat.
+export function forceDeathBeat(cause: 'wrecked' | 'busted' | null): void {
+  if (cause === null) {
+    setDeathPullback(false); // also clears the captured cause + beat clock (see that fn's comment)
+    return;
+  }
+  setDeathPullback(true);
+  setDeathCause(cause);
 }
 
 /** Task 5 perf snapshot for the screenshot suite. The PerfOverlay draws these numbers to a
@@ -456,6 +476,10 @@ declare global {
        * forceBustedGameOver's doc comment above for exactly what this does and doesn't
        * stand in for. */
       forceBustedGameOver: () => void;
+      /** Phase 34 T3 debug: drive the WRECKED/BUSTED death-beat CAMERA FRAMING directly, with no
+       * run-loop/state-machine involvement — see forceDeathBeat's doc comment above. Pass 'wrecked'
+       * or 'busted' to start the beat, null to end it (mirrors setDeathPullback(false)). */
+      forceDeathBeat: (cause: 'wrecked' | 'busted' | null) => void;
       /** Phase 9 Task 4 proof: per-voice siren binding + gain, and the shared
        * AudioContext's state (audio/sirens.ts). Real audible output can't be verified in
        * this headless container — see that module's file header. */
@@ -707,6 +731,7 @@ window.__smashy = {
       facing: c.facing,
     })),
   forceBustedGameOver,
+  forceDeathBeat,
   sirenSnapshot: () => getSirenDebugSnapshot(),
   audioSnapshot,
   humSnapshot: () => getHumDebugSnapshot(),

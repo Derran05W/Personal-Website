@@ -179,9 +179,10 @@ function makeSpringArmModifier(cfg: CameraSpringArmConfig): CameraRigModifier {
 
 // --- preset application -------------------------------------------------------------------------
 
-/** The preset the lab last applied. 'A' by default because preset A IS the shipped CAMERA block
- * (test-locked), so a fresh session honestly reports the rig it is actually running. */
-let activePresetId: CameraPresetId = 'A';
+/** The preset the lab last applied. 'E' by default because Phase 34 adopted E as the shipped
+ * CAMERA block (test-locked identity), so a fresh session honestly reports the rig it is actually
+ * running — a stale 'A' here would make the lab lie about the default boot. */
+let activePresetId: CameraPresetId = 'E';
 
 export function getCameraPreset(): CameraPresetId {
   return activePresetId;

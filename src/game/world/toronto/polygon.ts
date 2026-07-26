@@ -68,9 +68,51 @@ export const PLAYABLE_POLYGON: readonly MapVertex[] = [
   { x: CAPSULE_WEST, y: ZONE_BOUNDARIES[1] },
 ] as const;
 
-/** Camera clamp padding (spec §1): the camera stays this far inside the polygon so the void
- * never shows at default zoom. */
-export const CAMERA_CLAMP_PADDING_WU = 80;
+/**
+ * Camera clamp padding (spec §1): how far inside the polygon fx/cameraRig's position constraint
+ * (registered by world/toronto/TorontoScene.tsx) holds the camera EYE. Since Phase 34 the clamp is
+ * part of the follow rig's own solve, so this number is not free — every wu of it is a wu the lens
+ * is held back from where the rig wants it near a map edge.
+ *
+ * 80 → 30 (Phase 34, 2026-07-26), and the direction is deliberate. §1 sold this constant as "the
+ * camera stays this far inside so the void never shows"; measuring it against rig E showed that
+ * story is backwards, so here is what is actually true:
+ *
+ *   1. UNCLAMPED, the rig cannot show void from more than ~40 wu out. The fixed 45° yaw means the
+ *      lens only ever looks toward −x/−z, and the pitch is steep enough that the frustum's TOP ray
+ *      still hits the ground — there is no horizon in frame. Worst-case ground reach from the eye,
+ *      measured across the whole envelope at 16:9 / 2.4 aspect: ★0 rest 34.9/40.1, ★5 top speed
+ *      40.1/46.7, WRECKED ★5 41.7/48.8, BUSTED ★5 49.1/54.4. The eye trails the car by only
+ *      ~9.7 wu horizontally, so void appears once the CAR is within ~25-45 wu of an edge — a floor
+ *      set by the lens, which no camera clamp can lower.
+ *   2. CLAMPED, it gets worse, not better. Holding the eye inside while it still aims at a car
+ *      further out tilts the lens UP toward the horizon, and the ground reach explodes (hundreds of
+ *      wu). Sweeping the car inward from every edge class and measuring the inset at which the last
+ *      void sample disappears ("void ring", 16:9, ★0 rest / ★5 top speed / BUSTED ★5):
+ *          no clamp   40 / 55 / 50 wu
+ *          pad 30     40 / 55 / 50   ← unchanged: the clamp never becomes the binding constraint
+ *          pad 40     45 / 55 / 50
+ *          pad 60     65 / 65 / 65
+ *          pad 80     85 / 85 / 90   ← the shipped value until Phase 34, i.e. DOUBLE the floor
+ *      Photographed at pad 80/60: the frame's top third is sky and the car is off-screen entirely.
+ *
+ * So 30 is the largest padding that costs nothing — the biggest guard that still leaves the void
+ * ring at its irreducible, lens-imposed floor. What the constraint still buys at 30 is the job it
+ * can actually do: the eye can never leave the map footprint (over the void beside the fold
+ * corridor's notches, where the camera CAN otherwise drift outside the polygon).
+ *
+ * The residual ring — void whenever the car itself is within ~40-55 wu of a boundary — is a WORLD
+ * problem, not a camera one, and Phase 37 (diegetic barriers + out-of-bounds auto-WRECKED) is what
+ * closes it: keep the car out of the ring and the lens never sees past the edge.
+ *
+ * Recovered: the fold corridor is 360 wu wide, so camera free travel across it goes 360 − 2·80 =
+ * 200 wu → 360 − 2·30 = 300 wu (+50%), and the edge band where the car slides out of frame while
+ * the clamped lens stares at the horizon shrinks from ~85 wu to ~40.
+ *
+ * RE-DERIVE whenever the camera envelope moves (pitch, FOV, baseDist, either zoom ramp, the
+ * death-beat offsets): both numbers above are pure functions of them plus the viewport aspect.
+ */
+export const CAMERA_CLAMP_PADDING_WU = 30;
 
 const EPS = 1e-6;
 

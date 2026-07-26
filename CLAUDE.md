@@ -169,8 +169,8 @@ global placement arbiter is law after Phase 40; tri-budget raises are deliberate
 re-pinned, never silent.
 
 ### Part 9 — Camera, Scale & World Edge (`.planning/part-9-camera-world-edge.md`)
-- [!] **Phase 33 — Camera lab: candidate rigs, clip instrumentation, USER GATE decision** — 2026-07-26: lab shipped ALL dev-gated (5 live-swap presets w/ FOV-into-config, prod bit-for-bit unchanged — chunk-grep-proven), clip instrumentation (2,383-AABB index + 9 counters incl. mid-session boresight metric), deterministic 12-leg scripted drive (waypoint-boxed after time-boxing proved non-comparable) + 35-still/10-drive battery + contact sheet; measured: A rests INSIDE a wall 100% at fold-corridor + 2.7% eye-inside driving, C buries the car behind rooftops, D's spring arm self-defeats (pull-in lowers the eye — probe-the-base-rig fix + insight for P36), E zero eye-inside across every run, B clean except one 7.4% wedge draw (its corridor margin is ~0 wu vs E's ~1); corridor-airspace law discovered (eye must stay inside the street's airspace: hr ≤ ~14.8 wu); 2,753 tests, 0 errors. AWAITING USER: **pick the rig — recommendation E (45/58/26/FOV 38), runner-up B** (see phase-33-notes.md)
-- [ ] **Phase 34 — Camera adoption: new §5.3 law, clamp rework, visible-face re-derivation**
+- [x] **Phase 33 — Camera lab: candidate rigs, clip instrumentation, USER GATE decision** — 2026-07-26: lab shipped ALL dev-gated (5 live-swap presets w/ FOV-into-config, prod bit-for-bit unchanged — chunk-grep-proven), clip instrumentation (2,383-AABB index + 9 counters incl. mid-session boresight metric), deterministic 12-leg scripted drive (waypoint-boxed after time-boxing proved non-comparable) + 35-still/10-drive battery + contact sheet; measured: A rests INSIDE a wall 100% at fold-corridor + 2.7% eye-inside driving, C buries the car behind rooftops, D's spring arm self-defeats (pull-in lowers the eye — probe-the-base-rig fix + insight for P36), E zero eye-inside across every run, B clean except one 7.4% wedge draw (its corridor margin is ~0 wu vs E's ~1); corridor-airspace law discovered (eye must stay inside the street's airspace: hr ≤ ~14.8 wu); 2,753 tests, 0 errors. USER GATE RESOLVED 2026-07-26: **rig E picked (yaw 45 / pitch 58 / dist 26 / FOV 38)** — Phase 34 adopts it as law (see phase-33-notes.md)
+- [x] **Phase 34 — Camera adoption: new §5.3 law, clamp rework, visible-face re-derivation** — 2026-07-26: rig E SHIPPED (45/58/26/FOV 38) w/ the ramp SPLIT (speedZoom 4 + new speedPitchDeg 5 / tierPitchDeg 1.3 — corridor law hr ≤ 14.8 holds across the whole envelope, worst pitch 69.5°; law test pins literals + the invariant durably), death beat retuned (−22° restores the 36° arrest; BUSTED ★2+ excursion documented → P36), clamp moved IN-RIG via new prod-active pos-constraint seam (second gl.render DELETED, grep-proven; padding 80→30 MEASURED — clamp-can't-fix-void discovery, corridor free travel +50%, residual edge ring → P37), face pin south+east CONFIRMED standing (yaw-pure, all 6 sites), forceDeathBeat dev tool, boot pose derived; battery: E **0% eyeInside on every still+drive** (A's fold-corridor 100/100 = the before), perf Δ0 calls; 2,779 tests, smoke 31/31, 0 errors (see phase-34-notes.md)
 - [ ] **Phase 35 — Height re-grade under the new camera + the one true eye-line constant**
 - [ ] **Phase 36 — Occlusion v2: dithered fade for batched/instanced geometry + camera anti-clip**
 - [ ] **Phase 37 — World edge: diegetic barriers + universal out-of-bounds auto-WRECKED**
@@ -301,17 +301,25 @@ already makes.
   flat/vertex colours — no photo textures anywhere. Tri budgets: CN Tower ≤ 600,
   Rogers ≤ 500, filler box ≤ 12 — **budgets rise deliberately in Parts 11–12** (e.g.
   CN v2 ≤ 2,500) per the overview's tri-budget addendum; re-pin, never silently.
-- **Camera bearing: UNLOCKED 2026-07-26** (was: FIXED, answered 2026-07-17 — yaw 45°,
-  pitch 50°, no player rotation control; sole exception the death-beat's 8° yaw drift).
-  The user's immersion directive re-opens angle/pitch/distance/FOV; **Phase 33's USER
-  GATE picks the new rig, Phase 34 re-pins it as law** — until then the 45/50 values
-  stand and no new camera-dependent pins may be authored. The fixed-bearing MODEL
-  itself survives (no player rotation control): exactly two faces of every box are ever
-  visible; CROWN/FASCIA decals go on those two faces only; the face pair is
-  **re-derived in Phase 34** (currently south+east). CAUTION: the "~13.8/15 wu visible
+- **Camera bearing: RE-LOCKED 2026-07-26** (was briefly UNLOCKED the same day for the
+  Phase 33 USER GATE; Phase 34 adopted the pick as law): **yaw 45° / pitch 58° /
+  baseDist 26 / FOV 38 — rig E**, `config/camera.ts`'s `CAMERA` block, superseding the
+  pre-P34 45/50/24/45 rig (kept in `CAMERA_PRESETS` as historical preset 'A' for
+  future re-comparisons, not as a fallback). Picked at the Phase 33 lab's USER GATE
+  over four other candidates on the corridor-airspace measurement (the eye's
+  horizontal radius must stay inside the dieted spine's street airspace, ≤ ~14.8 wu;
+  E holds 13.78 at rest). The fixed-bearing MODEL itself was never in question and is
+  unchanged (no player rotation control; the death-beat's yaw drift stays the sole
+  exception): exactly two faces of every box are ever visible; CROWN/FASCIA decals go
+  on those two faces only. Face pair **RE-DERIVED (not re-picked) at Phase 34**: yaw is
+  unchanged from the old rig and the face set is a pure function of yaw alone (pitch
+  only changes obliqueness) — **SOUTH + EAST CONFIRMED STANDING**, verified against
+  every pinned site (namedBuildings.ts, venueDress.ts, frontage.ts, infill.ts,
+  TorontoScene.tsx's SignBoard, routeBoardAtlas.ts). CAUTION: the "~13.8/15 wu visible
   ceiling" cited across P19–P25.7 notes is STALE (derived from baseDist 18; the feel
-  pass shipped 24 → eye 18.4–26 wu). Phase 35 replaces it with a config-derived
-  constant; do not cite the old wall.
+  pass shipped 24 → eye 18.4–26 wu) — Phase 35 still owes the config-derived constant
+  that replaces it; do not cite the old wall, and do NOT confuse it with rig E's
+  13.78 wu **horizontal radius** (a different quantity, same coincidental digits).
 - Logo decals: quads from the 32×32 pixel atlas, nearest-neighbour, mipmaps OFF.
 - Occlusion: any mesh intersecting the camera→car ray fades to alpha ≤ 0.4 within
   150 ms (Phase 25 test; mandatory for the financial district and CN Tower). Phase 36

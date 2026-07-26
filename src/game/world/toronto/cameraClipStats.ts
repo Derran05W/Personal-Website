@@ -25,8 +25,11 @@ export interface CameraClipStats {
   readonly occlusionHitSum: number;
   /** Worst single-frame occluder count seen. */
   readonly occlusionHitMax: number;
-  /** Frames on which the polygon camera clamp actually acted (it also costs a second
-   * gl.render() — Phase 34 reworks the clamp and wants this baseline per rig). */
+  /** Frames on which the polygon camera clamp actually MOVED the camera. Phase 33 counted these
+   * because each one also cost a second gl.render(); Phase 34 folded the clamp into fx/cameraRig's
+   * position-constraint seam, so the extra render is gone and the counter now means exactly what
+   * it says: how much of a measured window the camera spent pinned against the map edge (expect
+   * 0 mid-map, non-zero within ~a camera-length of a boundary). */
   readonly clampedFrames: number;
   /** Frames where ≥1 INDEXED building sat on the eye→car segment. The occluded* counters above
    * only see the ~18 registered named/hero meshes; this is the full-coverage version against the

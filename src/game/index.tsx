@@ -56,6 +56,7 @@ import ContextLossOverlay from './hud/ContextLossOverlay';
 import { ContextLossSystem } from './core/ContextLossMount';
 import { startQualityProbe } from './core/quality';
 import { SkidMarks } from './fx/SkidMarks';
+import { sphericalOffset } from './fx/cameraRig';
 import { PlayerVehicle } from './vehicles/PlayerVehicle';
 import { PlayerCarMesh } from './vehicles/PlayerCarMesh';
 import { applyDetectedQuality } from './core/quality';
@@ -151,6 +152,14 @@ const visuallyHiddenStyle: CSSProperties = {
   whiteSpace: 'nowrap',
   border: 0,
 };
+
+// Pre-PLAYING Canvas pose (GARAGE/LOADING), aimed at the origin by onCreated's lookAt below.
+// DERIVED from the shipped rig rather than written down: the literal this replaces ([18,16,18])
+// matched no camera the game ever actually ran, and survived every rig change since Phase 2
+// precisely because nothing tied it to CAMERA. The follow rig snaps to its real ideal on the
+// first PLAYING frame, so this only has to be a sane establishing pose in the rig's own bearing.
+const BOOT_CAM = sphericalOffset({ x: 0, y: 0, z: 0 }, CAMERA.baseDist);
+const BOOT_CAM_POSITION: [number, number, number] = [BOOT_CAM.x, BOOT_CAM.y, BOOT_CAM.z];
 
 export default function Game() {
   // Attach the keyboard input system for the game's whole lifetime (detaches on route
@@ -265,7 +274,7 @@ export default function Game() {
         // camera candidate is expressible as data — this prop is INITIAL-ONLY (R3F reads it
         // at Canvas creation), so a live FOV change goes through fx/cameraLab.ts's preset
         // apply (camera.fov + updateProjectionMatrix + resetBaseFov), never through here.
-        camera={{ position: [18, 16, 18], fov: CAMERA.fov, near: 0.1, far: 1000 }}
+        camera={{ position: BOOT_CAM_POSITION, fov: CAMERA.fov, near: 0.1, far: 1000 }}
         onCreated={({ camera, gl }) => {
           camera.lookAt(0, 0, 0);
           // The REAL <canvas> carries the img role/label (Phase 20 QA FILED-2) — the

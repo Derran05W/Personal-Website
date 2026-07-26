@@ -4,6 +4,7 @@ import {
   addShake,
   armFovKick,
   cameraDistance,
+  cameraPitchOffsetDeg,
   computeCameraFrame,
   computeIdealCamPos,
   computeLookTarget,
@@ -12,11 +13,13 @@ import {
   easeSpeedZoom,
   getDeathCause,
   getDeathPullback,
+  getCameraPosConstraint,
   getFovKick,
   getShakeTrauma,
   getSourceTrauma,
   resetCameraRig,
   resetShake,
+  setCameraPosConstraint,
   setDeathCause,
   setDeathPullback,
   sphericalOffset,
@@ -154,6 +157,62 @@ describe('cameraDistance (base + speed zoom + tier zoom)', () => {
 
   it('adds pullback on top of base/speed/tier zoom, additively', () => {
     expect(cameraDistance(5, 2, 6) - cameraDistance(5, 2, 0)).toBeCloseTo(6, 12);
+  });
+});
+
+// The pitch half of the same ramp (Phase 34). The zoom is split across distance AND pitch because
+// distance alone widens the eye's horizontal radius past the corridor-airspace bound the shipped
+// rig lives inside — config/camera.ts carries the derivation, config/camera.law.test.ts pins the
+// bound itself. These cases pin the SHAPE (one shared ease, linear per tier, additive with the
+// external offsets) rather than the tuned degrees.
+describe('cameraPitchOffsetDeg (the speed/tier pitch ramp)', () => {
+  it('is 0 at a standstill with no heat, so the base pitch IS the resting pitch', () => {
+    expect(cameraPitchOffsetDeg(0, 0)).toBe(0);
+  });
+
+  it('adds the full speedPitchDeg at top speed', () => {
+    expect(cameraPitchOffsetDeg(STARTER_TOP_SPEED, 0)).toBeCloseTo(CAMERA.speedPitchDeg, 12);
+  });
+
+  it('rides the SAME smoothstep as the speed zoom — one ease, two outputs', () => {
+    for (const fraction of [0.1, 0.25, 0.5, 0.75, 1]) {
+      const speed = STARTER_TOP_SPEED * fraction;
+      expect(cameraPitchOffsetDeg(speed, 0)).toBeCloseTo(CAMERA.speedPitchDeg * easeSpeedZoom(speed), 12);
+    }
+  });
+
+  it('clamps past top speed and never dips below the base pitch on garbage speed', () => {
+    expect(cameraPitchOffsetDeg(STARTER_TOP_SPEED * 5, 0)).toBeCloseTo(cameraPitchOffsetDeg(STARTER_TOP_SPEED, 0), 12);
+    expect(cameraPitchOffsetDeg(-50, 0)).toBe(0);
+  });
+
+  it('adds tierPitchDeg per wanted tier, independent of speed', () => {
+    expect(cameraPitchOffsetDeg(0, 3) - cameraPitchOffsetDeg(0, 0)).toBeCloseTo(3 * CAMERA.tierPitchDeg, 12);
+    expect(cameraPitchOffsetDeg(STARTER_TOP_SPEED, 2) - cameraPitchOffsetDeg(STARTER_TOP_SPEED, 0)).toBeCloseTo(
+      2 * CAMERA.tierPitchDeg,
+      12,
+    );
+  });
+
+  it('is what the ideal position is actually solved at (the rig reads the ramp)', () => {
+    const ideal = computeIdealCamPos(v3(), { x: 0, y: 0, z: 0 }, STARTER_TOP_SPEED, 4);
+    const dist = cameraDistance(STARTER_TOP_SPEED, 4);
+    const pitch = ((CAMERA.pitchDeg + cameraPitchOffsetDeg(STARTER_TOP_SPEED, 4)) * Math.PI) / 180;
+    expect(ideal.y).toBeCloseTo(dist * Math.sin(pitch), 9);
+    expect(Math.hypot(ideal.x, ideal.z)).toBeCloseTo(dist * Math.cos(pitch), 9);
+  });
+
+  it('leaves external pitch offsets (death beat, lab modifier) ADDITIVE on top of it', () => {
+    const external = 7;
+    const withExternal = computeIdealCamPos(v3(), { x: 0, y: 0, z: 0 }, STARTER_TOP_SPEED, 2, 0, 0, external);
+    const dist = cameraDistance(STARTER_TOP_SPEED, 2);
+    const pitch = ((CAMERA.pitchDeg + cameraPitchOffsetDeg(STARTER_TOP_SPEED, 2) + external) * Math.PI) / 180;
+    expect(withExternal.y).toBeCloseTo(dist * Math.sin(pitch), 9);
+    // The ramp is not double-counted: dropping the external offset moves the eye by exactly the
+    // difference between the two pitches, nothing more.
+    const bare = computeIdealCamPos(v3(), { x: 0, y: 0, z: 0 }, STARTER_TOP_SPEED, 2);
+    const barePitch = ((CAMERA.pitchDeg + cameraPitchOffsetDeg(STARTER_TOP_SPEED, 2)) * Math.PI) / 180;
+    expect(withExternal.y - bare.y).toBeCloseTo(dist * (Math.sin(pitch) - Math.sin(barePitch)), 9);
   });
 });
 
@@ -714,5 +773,158 @@ describe('updateCameraRig — CAMERA.shake.enabled master kill-switch', () => {
     const moved =
       Math.abs(cam.position.x - rest.x) + Math.abs(cam.position.y - rest.y) + Math.abs(cam.position.z - rest.z);
     expect(moved).toBeGreaterThan(0);
+  });
+});
+
+// --- position constraint hook (Phase 34 clamp rework) ------------------------------------
+// The PROD-ACTIVE seam world/toronto/TorontoScene.tsx registers the polygon camera clamp into.
+// The behaviour that matters (and that the deleted priority-2 clamp pass could NOT provide) is
+// FEEDBACK: the constrained point becomes the rig's lerp state, so the next frame damps FROM the
+// clamped position instead of regenerating the unclamped one and fighting the clamp forever.
+// Shake stays OFF for this whole block (shipped default) so camera.position IS smoothedCamPos and
+// every assertion can be exact rather than approximate.
+describe('updateCameraRig — position constraint hook', () => {
+  beforeEach(() => {
+    resetCameraRig();
+    playerVehicle.current = makeStubModel();
+    setCameraPosConstraint(null);
+  });
+
+  afterEach(() => {
+    setCameraPosConstraint(null);
+    playerVehicle.current = null;
+    resetCameraRig();
+  });
+
+  it('is unregistered by default, and round-trips through the getter', () => {
+    expect(getCameraPosConstraint()).toBeNull();
+    const fn = (): void => {};
+    setCameraPosConstraint(fn);
+    expect(getCameraPosConstraint()).toBe(fn);
+    setCameraPosConstraint(null);
+    expect(getCameraPosConstraint()).toBeNull();
+  });
+
+  it('with no constraint, the rig solves exactly the pre-Phase-34 math (frame 1 snaps to the ideal)', () => {
+    const cam = makeFakeCamera();
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60);
+    const ideal = computeIdealCamPos(v3(), { x: 0, y: 0, z: 0 }, 0, 0);
+    expect(cam.position.x).toBeCloseTo(ideal.x, 12);
+    expect(cam.position.y).toBeCloseTo(ideal.y, 12);
+    expect(cam.position.z).toBeCloseTo(ideal.z, 12);
+  });
+
+  it('a registered identity constraint changes nothing (bit-for-bit the unconstrained sequence)', () => {
+    const cam = makeFakeCamera();
+    const unconstrained: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60);
+      unconstrained.push(cam.position.x, cam.position.y, cam.position.z);
+    }
+
+    resetCameraRig();
+    const cam2 = makeFakeCamera();
+    setCameraPosConstraint(() => {}); // touches nothing
+    const constrained: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      updateCameraRig(cam2 as unknown as PerspectiveCamera, 1 / 60);
+      constrained.push(cam2.position.x, cam2.position.y, cam2.position.z);
+    }
+
+    expect(constrained).toEqual(unconstrained);
+  });
+
+  it('applies the constraint on the FIRST frame (the cold-start snap), not just from frame 2', () => {
+    // A respawn/teleport beside a map edge snaps rather than lerps; an unconstrained snap would
+    // paint exactly one frame of void before the damping path took over.
+    const cam = makeFakeCamera();
+    setCameraPosConstraint((pos) => {
+      pos.y = 999;
+    });
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60); // frame 1 = the snap
+    expect(cam.position.y).toBe(999);
+  });
+
+  it('feeds the constrained position back into the lerp state (next frame damps FROM it)', () => {
+    // THE regression this hook exists to prevent. The stub player never moves, so the ideal camera
+    // position is constant; a constraint that pins x to a value well short of it means every frame
+    // after the first must arrive having lerped from the PINNED x, not from the ideal.
+    const cam = makeFakeCamera();
+    const ideal = computeIdealCamPos(v3(), { x: 0, y: 0, z: 0 }, 0, 0);
+    const PIN_X = ideal.x - 10;
+    const incomingX: number[] = [];
+    setCameraPosConstraint((pos) => {
+      incomingX.push(pos.x); // what the rig solved BEFORE the constraint touched it
+      if (pos.x > PIN_X) pos.x = PIN_X;
+    });
+
+    // Frame 1 calls the constraint TWICE — once on the cold-start snap, once after that frame's
+    // damping step. Harmless by contract (the constraint must be idempotent) and deliberate: the
+    // snap must never be left unconstrained for the lab modifier or the lerp to read.
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60);
+    expect(incomingX).toHaveLength(2);
+    expect(incomingX[0]).toBeCloseTo(ideal.x, 12); // the raw snap, before pinning
+    // The damping step that follows started from the PINNED snap, so it lands a lerp-fraction of
+    // the way back toward the ideal — not at the ideal itself.
+    expect(incomingX[1]).toBeCloseTo(PIN_X + (ideal.x - PIN_X) * CAMERA.lerp, 9);
+    expect(cam.position.x).toBeCloseTo(PIN_X, 12);
+
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60); // frame 2
+    // Feedback: frame 2's solve is again lerp(PIN_X → ideal.x), i.e. strictly between the two.
+    // WITHOUT feedback the rig would have re-solved from its own unclamped ideal and this would
+    // read exactly ideal.x — that is the old two-passes-fighting behaviour, and it fails here.
+    expect(incomingX[2]).toBeCloseTo(PIN_X + (ideal.x - PIN_X) * CAMERA.lerp, 9);
+    expect(incomingX[2]).toBeGreaterThan(PIN_X);
+    expect(incomingX[2]).toBeLessThan(ideal.x);
+    // ...and the camera itself stays pinned, frame after frame (converged, not oscillating).
+    expect(cam.position.x).toBeCloseTo(PIN_X, 12);
+  });
+
+  it('unregistering restores the unconstrained rig on the very next frame', () => {
+    const cam = makeFakeCamera();
+    const ideal = computeIdealCamPos(v3(), { x: 0, y: 0, z: 0 }, 0, 0);
+    setCameraPosConstraint((pos) => {
+      pos.x = 0;
+    });
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60);
+    expect(cam.position.x).toBe(0);
+
+    setCameraPosConstraint(null);
+    // Big dt → alpha ≈ 1 → the rig snaps back to its own ideal in one step, proving nothing of the
+    // constraint survived in module state beyond the position it left behind.
+    updateCameraRig(cam as unknown as PerspectiveCamera, 100);
+    expect(cam.position.x).toBeCloseTo(ideal.x, 6);
+  });
+
+  it('leaves the shake offset OUTSIDE the constrained state (visual offset, never fed back)', () => {
+    // Shake is applied after the constraint on purpose: a hard hit may jitter the lens a few cm
+    // past the clamp for a frame, but it must never become part of the position the rig damps from.
+    setShakeEnabled(true);
+    try {
+      const cam = makeFakeCamera();
+      const pinned = { x: 1, y: 2, z: 3 };
+      const incoming: Vec3[] = [];
+      setCameraPosConstraint((pos) => {
+        incoming.push({ x: pos.x, y: pos.y, z: pos.z });
+        pos.x = pinned.x;
+        pos.y = pinned.y;
+        pos.z = pinned.z;
+      });
+      updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60); // frame 1: pin, no trauma yet
+      addShake(10, 'ram');
+      updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 120); // frame 2: jitter applied on top
+
+      // The lens moved off the pin (shake IS applied)...
+      const jitter =
+        Math.abs(cam.position.x - pinned.x) + Math.abs(cam.position.y - pinned.y) + Math.abs(cam.position.z - pinned.z);
+      expect(jitter).toBeGreaterThan(0);
+      // ...but frame 2's solve started from the clean pinned state, not from the jittered lens.
+      // (incoming[0] = frame 1's snap, incoming[1] = frame 1's damping step, incoming[2] = frame 2.)
+      const solvedFrom2 = incoming[2];
+      const idealPos = computeIdealCamPos(v3(), { x: 0, y: 0, z: 0 }, 0, 0);
+      expect(solvedFrom2.x).toBeCloseTo(pinned.x + (idealPos.x - pinned.x) * dampingAlpha(CAMERA.lerp, 1 / 120), 9);
+    } finally {
+      setShakeEnabled(SHIPPED_SHAKE_ENABLED);
+    }
   });
 });

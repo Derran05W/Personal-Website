@@ -1,11 +1,27 @@
 // Follow-camera tunables. TDD §5.3.
+//
+// THE RIG IS LAW (Phase 34, user pick 2026-07-26): yaw 45 / pitch 58 / baseDist 26 / FOV 38 —
+// the Phase 33 lab's candidate E, chosen at that phase's USER GATE and pinned field-for-field in
+// config/camera.law.test.ts. It supersedes the TDD §5.3 numbers (45/50/18) and the feel pass's
+// baseDist 24; the fixed-bearing MODEL is unchanged (no player rotation control, so exactly two
+// faces — south + east — of every box are ever visible).
+//
+// THE CONSTRAINT THAT PICKED IT — the corridor-airspace law, measured live in Phase 33: on the
+// dieted Yonge spine (15.4 wu road + 3 wu sidewalk) the streetwall face plane sits ~10.7 wu off
+// the centreline, so under the 45° yaw the eye only stays inside the street's own airspace while
+// its HORIZONTAL RADIUS hr = dist·cos(pitch) ≤ ~14.8 wu. Rigs that "clear" by rising above the
+// roofline don't exist here — downtown facades are far taller than any sane eye height. E holds
+// hr = 26·cos58 = 13.78 wu with ~1 wu of margin; runner-up B sat at 14.84 (≈0 margin) and went
+// eye-inside on 1 of 4 measured drives when a wedge angled it into the frontage. Every change to
+// pitch/baseDist/speedZoom/tierZoom below is a change to that margin — the law test asserts the
+// bound so feel churn can never silently re-break the corridor.
 export const CAMERA = {
   // Fixed yaw/pitch — no player rotation control; key to the Smashy look. TDD §5.3.
   yawDeg: 45,
-  pitchDeg: 50,
-  // Base follow distance (m). Feel-tuning pass: 18 -> 24 (zoomed out for a wider view of
-  // the action; total distance = baseDist + speedZoom·ease + tierZoom·tier).
-  baseDist: 24,
+  pitchDeg: 58,
+  // Base follow distance (m): 18 (TDD) -> 24 (feel pass) -> 26 (Phase 34 / rig E). Total distance
+  // = baseDist + speedZoom·ease + tierZoom·tier; resting eye = 26·sin58 = 22.05 wu.
+  baseDist: 26,
   // Vertical field of view (deg). Phase 33 moved this INTO config: it previously existed only as
   // a literal on the <Canvas camera> prop (game/index.tsx), which made a camera candidate
   // impossible to express as data. game/index.tsx now reads CAMERA.fov for the boot camera — but
@@ -13,12 +29,27 @@ export const CAMERA = {
   // must additionally write camera.fov + updateProjectionMatrix() AND relatch fx/cameraRig's
   // FOV-kick base (resetBaseFov). fx/cameraLab.ts's applyCameraPreset is the one path that does
   // all three; tuning this leaf alone in leva changes config without moving the live lens.
-  // Phase 34 pins this as law alongside yaw/pitch/baseDist.
-  fov: 45,
-  // Distance eases out up to +this many meters with speed...
-  speedZoom: 10,
-  // ...and +this many meters per wanted tier.
+  // 38° is rig E's flatten: it buys back the on-screen size the longer follow distance would
+  // otherwise cost (26·tan19° = 8.95 of half-frame at the car vs the old rig's 24·tan22.5° =
+  // 9.94, so the car actually reads a touch LARGER than before) while compressing canyon depth.
+  fov: 38,
+  // --- speed/tier framing ramp -------------------------------------------------------------
+  // The ramp used to be pure DISTANCE (+10 m eased in with speed). Phase 33 measured what that
+  // costs under the corridor law: distance alone grows hr, so the old +10 put the eye at
+  // 36·cos58 = 19.08 wu of horizontal radius — inside the streetwall every time the player was
+  // fast, which on the spine is most of the time. Phase 34 splits the ramp into a distance term
+  // AND a PITCH term, because lifting the eye SHORTENS hr at the same follow distance: the frame
+  // still opens up with speed and heat, but it opens upward-and-back instead of purely outward.
+  // Both terms ride eases the rig already had (easeSpeedZoom's smoothstep for speed, linear per
+  // tier), so nothing about the ramp's continuity changed — only where the extra framing goes.
+  // Measured envelope (fx/cameraRig.ts's cameraDistance + cameraPitchOffsetDeg are the two
+  // consumers): hr 13.78 at rest/★0, 13.62 at top speed/★0, 14.42 at rest/★5, 13.13 at top
+  // speed/★5 — all inside the ~14.8 bound, worst absolute pitch 69.5° at ★5 + top speed (the
+  // ~70° vertigo ceiling is the other side of this trade).
+  speedZoom: 4,
+  speedPitchDeg: 5,
   tierZoom: 1.5,
+  tierPitchDeg: 1.3,
   // Position damped-lerp factor per frame @60fps.
   lerp: 0.08,
   // Look-target leads this many meters along velocity.
@@ -77,44 +108,63 @@ export const CAMERA = {
   },
   // WRECKED death beat (combat/runLoop.ts calls fx/cameraRig.ts's setDeathPullback(true),
   // TDD §5.10 "brief ... camera pull-back"): extra follow-distance (m) added on top of the
-  // normal base/speed/tier zoom while the lock window is active. Phase 16 bumped this 6 -> 8
-  // for a more deliberate, cinematic pull-back (the positional shake is suppressed for the
-  // whole beat, so the extra distance now reads as a clean camera move, not jitter).
-  deathPullback: 8,
+  // normal base/speed/tier zoom while the lock window is active. 6 (Phase 9) -> 8 (Phase 16,
+  // a more deliberate move once the beat's shake was suppressed) -> 5 (Phase 34): at pitch 58
+  // the corridor law leaves only ~2 m of pure-distance headroom (14.8/cos58 = 27.93 vs a base
+  // of 26), so the old +8 pushed hr to 16.48 wu and put the eye in the streetwall for the one
+  // moment the player is guaranteed to be watching. 5 m paired with the +4° lift below lands
+  // hr 14.56 — the beat still steps visibly back, it just steps UP as it does.
+  deathPullback: 5,
   // Cinematic death-beat framing (Phase 16, fx/cameraRig.ts). The beat eases in over
   // `easeInSec`; WRECKED pulls BACK and lifts slightly, BUSTED converges IN and LOWER
   // toward the arrest — two distinct, deliberate camera moves off the same lock window.
   // The gentle yaw drift is the fixed-yaw model's one sanctioned exception, and only during
-  // the death beat.
+  // the death beat. These are OFFSETS on the live framing, so they compose on top of the
+  // speed/tier ramp above — a death at ★4 is already pitched up before the beat adds its own.
   cinematic: {
     // Seconds to ease the orbit/pitch offsets to full (the pull-back distance itself is
     // smoothed by the normal position lerp, so it needs no separate ease here).
     easeInSec: 0.9,
     // Gentle orbit (deg of yaw drift) eased in over the beat — a slight drift, not a spin.
-    orbitYawDeg: 8,
+    // 8 -> 10 in Phase 34: the swept WORLD arc is dist·cos(pitch)·Δyaw, and the higher pitch
+    // shrinks that cos term ~11% against the old rig, so the drift needed a couple more degrees
+    // to sweep the same amount of city.
+    orbitYawDeg: 10,
     // WRECKED: a touch of extra downward look (deg of pitch, + = higher/more top-down) as
-    // the camera pulls back — reads as "stepping back to survey the wreck".
-    wreckedPitchOffsetDeg: 3,
+    // the camera pulls back — reads as "stepping back to survey the wreck". 3 -> 4 buys the
+    // shortened pull-back (above) its corridor margin without tipping toward top-down flat.
+    wreckedPitchOffsetDeg: 4,
     // BUSTED: pull the camera IN (negative = closer than the WRECKED pull-back — a tighter
     // frame) and LOWER (negative pitch = nearer the horizon) toward the surrounded car.
-    bustedPullback: -4,
-    bustedPitchOffsetDeg: -14,
+    // The -14 was sized against pitch 50 to land the arrest at ~36° absolute; from 58 it landed
+    // at 44° and the low-angle identity was gone, so Phase 34 deepened it to -22 — 36° at ★0,
+    // 38.6-39.9° at the ★2-★3 tiers a bust actually happens on. A low angle is inherently
+    // wide (hr = dist·cos(36°) is 0.81·dist), so the converge was deepened -4 -> -8 to buy
+    // back what the pitch spends: ★0 lands hr 14.56, inside the corridor. Higher tiers add
+    // distance faster than the arrest angle can absorb (★2 16.4, ★5 18.8) — a deliberate,
+    // measured cinematic excursion, and Phase 36's anti-clip is where it gets covered.
+    bustedPullback: -8,
+    bustedPitchOffsetDeg: -22,
   },
 } as const;
 
-// --- Phase 33 camera lab: candidate rigs (NOT shipped defaults) ------------------------------
-// The Part-9 user directive re-opened the "Camera bearing: FIXED" lock: the camera phases through
-// buildings (pack streetwall facades ≈ 19.4 wu vs a resting eye of 24·sin50° = 18.39 wu). These
-// five candidates are the evidence apparatus for that decision, applied LIVE by fx/cameraLab.ts
-// (dev-only) and judged at the Phase 33 USER GATE; Phase 34 promotes the pick into CAMERA above
-// and pins it as §5.3 law. Nothing here changes a shipped frame on its own — CAMERA is untouched
-// until applyCameraPreset() writes into it.
+// --- Phase 33 camera lab: candidate rigs (kept for re-comparison, NOT re-applied on boot) ------
+// The Part-9 user directive re-opened the "Camera bearing: FIXED" lock: the camera phased through
+// buildings (pack streetwall facades ≈ 19.4 wu vs the old rig's resting eye of 24·sin50° =
+// 18.39 wu). These five candidates were the evidence apparatus for that decision, applied LIVE by
+// fx/cameraLab.ts (dev-only) and judged at the Phase 33 USER GATE. Phase 34 promoted the pick (E)
+// into CAMERA above and pinned it as §5.3 law — the identity invariant lives on preset E
+// (cameraLab.test.ts), not on this table being touched. The table itself STAYS: it's the lab's
+// re-comparison harness for P35 (height re-grade) and P36 (occlusion v2), both of which may want
+// to re-run the gate against a changed city. Nothing here changes a shipped frame on its own —
+// CAMERA is untouched until applyCameraPreset() writes into it.
 //
 // Every preset keeps the fixed-bearing MODEL (no player rotation control): yaw may take a
 // different VALUE, but it never tracks the car during play. Presets deliberately carry only the
-// four geometry leaves that define a rig — yaw/pitch/distance/lens; speedZoom, tierZoom, lerp and
-// lookAhead stay SHARED (they are feel, not framing, and Phase 34 retunes them once against
-// whichever geometry wins, rather than five times here).
+// four geometry leaves that define a rig — yaw/pitch/distance/lens; speedZoom, tierZoom,
+// speedPitchDeg, tierPitchDeg, lerp and lookAhead stay SHARED (they are feel, not framing, and
+// Phase 34 retuned them once — including splitting the ramp into distance AND pitch terms —
+// against the winning geometry, rather than five times here).
 
 /** Preset D's spring-arm ("canyon-aware") tunables. The arm reads the Phase-33 static building
  * AABB index (world/toronto/cameraClipIndex.ts) rather than physics raycasts — deterministic, no
@@ -149,11 +199,13 @@ export interface CameraPreset {
 
 export const CAMERA_PRESETS = [
   {
-    // Baseline control — MUST equal the shipped CAMERA values field-for-field (test-locked), so
-    // "lab inactive" and "preset A" are the same camera. Wins only if the height re-grade (P35)
-    // and occlusion v2 (P36) fix phasing on their own.
+    // The Phase-33 lab's baseline CONTROL — the pre-P34 shipped rig (45/50/24/45), kept exactly
+    // as it was so P35/P36 can still ask "does the new geometry read better than what shipped
+    // before adoption?". It no longer equals CAMERA above (that identity moved to preset E at
+    // adoption — see E's comment below) and carries no test-locked invariant of its own; it's
+    // history, not a fallback.
     id: 'A',
-    label: 'A · tuned status quo',
+    label: 'A · pre-P34 status quo',
     yawDeg: 45,
     pitchDeg: 50,
     baseDist: 24,
@@ -201,18 +253,22 @@ export const CAMERA_PRESETS = [
     },
   },
   {
-    // The lab's discovery slot, tuned live 2026-07-26. The part file's worked example (54/28/38,
-    // eye 22.65) AND a 56° variant both FAILED the fold-corridor rest test on the new boresight
-    // counter (eye outside the flanking building, car 100% hidden behind the streetwall). Root
-    // geometry, measured that session: on the dieted spine (15.4 road + 3 sidewalk) the
-    // streetwall face plane sits ~10.7 wu off the centreline, so any rig with horizontal radius
-    // dist·cos(pitch) > ~14.8 (i.e. >10.7 per axis under the 45° yaw) parks the eye inside or
-    // behind the east frontage — B clears NOT by seeing over roofs but by keeping its eye inside
-    // the canyon airspace. E therefore adopts B's corridor-safe envelope one step tighter
-    // (58/26 → eye 22.05, horizontal 13.78 — ~1 wu of extra margin) and keeps its narrower
-    // 38° lens as the flatten. Identity vs B: closer, calmer perspective; same clearance class.
+    // THIS IS THE SHIPPED RIG (Phase 33 USER GATE pick, 2026-07-26; promoted into CAMERA above at
+    // Phase 34 — that block is the LAW copy, this row is kept only so the table stays a complete,
+    // re-runnable comparison set for P35/P36). Discovered live in the Phase 33 lab session. The
+    // part file's worked example (54/28/38, eye 22.65) AND a 56° variant both FAILED the
+    // fold-corridor rest test on the boresight counter (eye outside the flanking building, car
+    // 100% hidden behind the streetwall). Root geometry, measured that session: on the dieted
+    // spine (15.4 road + 3 sidewalk) the streetwall face plane sits ~10.7 wu off the centreline,
+    // so any rig with horizontal radius dist·cos(pitch) > ~14.8 (i.e. >10.7 per axis under the
+    // 45° yaw) parks the eye inside or behind the east frontage — B clears NOT by seeing over
+    // roofs but by keeping its eye inside the canyon airspace. E adopts B's corridor-safe envelope
+    // one step tighter (58/26 → eye 22.05, horizontal 13.78 — ~1 wu of extra margin) and keeps its
+    // narrower 38° lens as the flatten. Identity vs B: closer, calmer perspective; same clearance
+    // class. CAMERA_PRESETS's own identity test (cameraLab.test.ts) pins this row against CAMERA
+    // field-for-field — if the two ever diverge, the test catches it, not this comment.
     id: 'E',
-    label: 'E · combo',
+    label: 'E · combo (shipped)',
     yawDeg: 45,
     pitchDeg: 58,
     baseDist: 26,

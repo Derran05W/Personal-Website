@@ -22,6 +22,7 @@ import { trafficRef } from '../ai/trafficTypes';
 import { unitsRef, type UnitSlot } from '../ai/pursuitTypes';
 import {
   forceBustedGameOver,
+  forceDeathBeat,
   blackoutDistrict,
   blackoutAll,
   relightDistrict,
@@ -908,6 +909,12 @@ export default function DevPanel() {
       });
       schema['reset clip stats'] = button(() => resetCameraClipStats());
       schema['clip index size'] = monitor(() => getClipIndexSize(), { interval: 500 });
+      // Phase 34 T3: camera-only death-beat visualizer (forceDeathBeat's doc comment in
+      // debugBridge.ts) — starts/ends the WRECKED/BUSTED framing directly, no run/state-machine
+      // involvement, so the lab can be judged mid-drive without actually ending the run.
+      schema['death beat: WRECKED'] = button(() => forceDeathBeat('wrecked'));
+      schema['death beat: BUSTED'] = button(() => forceDeathBeat('busted'));
+      schema['death beat: end'] = button(() => forceDeathBeat(null));
       return schema as unknown as LevaSchema;
     },
     [],

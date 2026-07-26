@@ -129,7 +129,12 @@ afterEach(() => {
   resetBaseFov();
   resetCameraRig();
   playerVehicle.current = null;
-  applyCameraPreset('A', null); // active id back to the shipped rig
+  // E is the shipped rig (Phase 34 adoption) — restoring the ACTIVE PRESET ID to 'A' here would
+  // leave every test's afterEach state lying about which rig a fresh session reports. The
+  // subsequent restoreShippedCamera() is technically redundant against E (applying E already
+  // writes the exact SHIPPED numbers), but it's kept as the belt-and-suspenders reset it always
+  // was — cheap, and it stops mattering if a future preset ever stops being field-identical.
+  applyCameraPreset('E', null); // active id back to the shipped rig
   restoreShippedCamera();
 });
 
@@ -141,10 +146,13 @@ describe('CAMERA_PRESETS — table invariants', () => {
     expect(new Set(CAMERA_PRESETS.map((p) => p.id)).size).toBe(CAMERA_PRESETS.length);
   });
 
-  it('preset A IS the shipped camera, field for field (the identity control)', () => {
-    const a = findCameraPreset('A');
-    expect(a).not.toBeNull();
-    expect({ yawDeg: a?.yawDeg, pitchDeg: a?.pitchDeg, baseDist: a?.baseDist, fov: a?.fov }).toEqual(SHIPPED);
+  // Phase 34 moved this invariant off A (the pre-adoption rig, kept as the comparison control)
+  // and onto the winning candidate: an identity test that doesn't point at the TRUE shipped rig
+  // makes a fresh dev session lie about what it is running.
+  it('preset E IS the shipped camera, field for field (the identity invariant)', () => {
+    const e = findCameraPreset('E');
+    expect(e).not.toBeNull();
+    expect({ yawDeg: e?.yawDeg, pitchDeg: e?.pitchDeg, baseDist: e?.baseDist, fov: e?.fov }).toEqual(SHIPPED);
   });
 
   it('every preset is a physically sane rig', () => {
@@ -208,7 +216,7 @@ describe('CAMERA_PRESETS — table invariants', () => {
 
 describe('applyCameraPreset', () => {
   it('defaults to reporting the shipped rig', () => {
-    expect(getCameraPreset()).toBe('A');
+    expect(getCameraPreset()).toBe('E');
   });
 
   it('writes the four geometry leaves into the runtime CAMERA block', () => {
@@ -232,7 +240,7 @@ describe('applyCameraPreset', () => {
 
   it('rejects an unknown id without touching anything', () => {
     expect(applyCameraPreset('Z', null)).toBe(false);
-    expect(getCameraPreset()).toBe('A');
+    expect(getCameraPreset()).toBe('E');
     expect(CAMERA.baseDist).toBe(SHIPPED.baseDist);
   });
 
@@ -250,9 +258,9 @@ describe('applyCameraPreset', () => {
     expect(getCameraRigModifier()).toBeNull();
   });
 
-  it('round-trips back to the shipped rig when A is re-applied', () => {
+  it('round-trips back to the shipped rig when E is re-applied', () => {
     applyCameraPreset('C', null);
-    applyCameraPreset('A', null);
+    applyCameraPreset('E', null);
     expect({
       yawDeg: CAMERA.yawDeg,
       pitchDeg: CAMERA.pitchDeg,

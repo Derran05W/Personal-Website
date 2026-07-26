@@ -4,10 +4,16 @@
 // parameter and imports three types-only. core/frameOrder.tsx's CameraFxSystem drives this
 // once per frame from a priority-1 useFrame and then owns the render.
 //
-// Camera model: the camera sits at a FIXED spherical offset from the player — yaw and
-// pitch never track the car (no rotation control = the readable Smashy 3/4 look). Only the
-// follow DISTANCE reacts (to speed and wanted tier). The position is damped toward its
-// ideal with a frame-rate-independent lerp; the look target leads ahead along velocity.
+// Camera model: the camera sits at a FIXED spherical offset from the player — the BEARING
+// never tracks the car (no rotation control = the readable Smashy 3/4 look). What reacts is
+// the follow DISTANCE and, since Phase 34, the PITCH: both ease out with speed and wanted
+// tier, because distance alone widens the camera's horizontal radius past the corridor-
+// airspace bound the shipped rig is built around (config/camera.ts has the derivation).
+// The position is damped toward its ideal with a frame-rate-independent lerp; the look
+// target leads ahead along velocity. The damped position may then be re-shaped by an optional
+// PROD-ACTIVE position constraint (setCameraPosConstraint — the world's polygon camera clamp),
+// applied to the lerp state itself so the clamp is something the rig converges to rather than a
+// correction fought every frame.
 //
 // Hot-path discipline: no per-frame allocation. All working vectors and the returned
 // result live at module scope and are mutated in place — computeCameraFrame() returns a
@@ -105,10 +111,24 @@ export function cameraDistance(speed: number, tier: number, pullback = 0): numbe
   return CAMERA.baseDist + CAMERA.speedZoom * easeSpeedZoom(speed) + CAMERA.tierZoom * tier + pullback;
 }
 
-/** Fixed yaw/pitch spherical offset (player → camera) at `distance`, written into `out`.
- * `yawOffsetDeg`/`pitchOffsetDeg` (default 0) nudge the fixed yaw/pitch — used ONLY by the
- * Phase 16 death-beat cinematic (a gentle orbit + lower/higher framing); every normal frame
- * passes 0 and gets the unchanged fixed-yaw Smashy offset. */
+/**
+ * Extra pitch (deg, + = higher/more top-down) the framing ramp adds to CAMERA.pitchDeg for the
+ * given player state — the pitch half of the speed/tier zoom, rising on the SAME smoothstep as
+ * cameraDistance's speed term and linearly per tier like its tier term.
+ *
+ * Why the ramp has a pitch half at all: a purely-distance zoom grows the eye's horizontal radius
+ * (dist·cos pitch), and past ~14.8 wu that radius parks the eye inside the streetwall on a dieted
+ * street. Trading part of the distance for pitch buys the same "more of the world on screen" while
+ * SHRINKING the radius. Rationale + the measured envelope live in config/camera.ts.
+ */
+export function cameraPitchOffsetDeg(speed: number, tier: number): number {
+  return CAMERA.speedPitchDeg * easeSpeedZoom(speed) + CAMERA.tierPitchDeg * tier;
+}
+
+/** Fixed-yaw spherical offset (player → camera) at `distance`, written into `out`. Deliberately a
+ * dumb spherical solve: the caller resolves what the pitch/yaw for this frame ARE (the ramp above,
+ * the death beat, a lab modifier) and passes the total as `yawOffsetDeg`/`pitchOffsetDeg` (default
+ * 0 = the bare fixed-bearing Smashy offset). */
 export function sphericalOffset(out: Vec3, distance: number, yawOffsetDeg = 0, pitchOffsetDeg = 0): Vec3 {
   const yaw = (CAMERA.yawDeg + yawOffsetDeg) * DEG2RAD;
   const pitch = (CAMERA.pitchDeg + pitchOffsetDeg) * DEG2RAD;
@@ -119,9 +139,11 @@ export function sphericalOffset(out: Vec3, distance: number, yawOffsetDeg = 0, p
   return out;
 }
 
-/** Ideal (un-damped) camera position for the given player state, written into `out`.
- * `yawOffsetDeg`/`pitchOffsetDeg` (default 0) are the death-beat cinematic offsets — see
- * sphericalOffset. */
+/** Ideal (un-damped) camera position for the given player state, written into `out`. The speed/
+ * tier ramp (cameraDistance + cameraPitchOffsetDeg) is the framing itself, so it is applied here;
+ * `yawOffsetDeg`/`pitchOffsetDeg` (default 0) are EXTERNAL offsets — the death-beat cinematic, a
+ * lab modifier — and stay additive ON TOP of the ramped pitch, so a beat during a ★4 chase reads
+ * as a beat against the framing the player was actually looking at. */
 export function computeIdealCamPos(
   out: Vec3,
   playerPos: Readonly<Vec3>,
@@ -131,7 +153,12 @@ export function computeIdealCamPos(
   yawOffsetDeg = 0,
   pitchOffsetDeg = 0,
 ): Vec3 {
-  sphericalOffset(out, cameraDistance(speed, tier, pullback), yawOffsetDeg, pitchOffsetDeg);
+  sphericalOffset(
+    out,
+    cameraDistance(speed, tier, pullback),
+    yawOffsetDeg,
+    cameraPitchOffsetDeg(speed, tier) + pitchOffsetDeg,
+  );
   out.x += playerPos.x;
   out.y += playerPos.y;
   out.z += playerPos.z;
@@ -389,7 +416,8 @@ export interface CameraRigModifierContext {
   /** Player render position this frame (the interpolated pose the rig itself reads). */
   readonly playerPos: Readonly<Vec3>;
   /** The rig's CURRENT smoothed camera position — i.e. where the lens is right now, before
-   * this frame's damping step. Shake/clamp offsets are not included (they never feed back). */
+   * this frame's damping step. The shake offset is NOT included (it never feeds back); the
+   * position constraint (below) IS, since Phase 34 folds it into this same smoothed state. */
   readonly camPos: Readonly<Vec3>;
   readonly speed: number;
   readonly tier: number;
@@ -426,6 +454,55 @@ export function setCameraRigModifier(fn: CameraRigModifier | null): void {
 /** Test/debug: the currently registered modifier (null = today's stock rig). */
 export function getCameraRigModifier(): CameraRigModifier | null {
   return rigModifier;
+}
+
+// --- position constraint hook (Phase 34 clamp rework) --------------------------------------
+// A single optional per-frame hook that may MOVE the smoothed follow position — the seam the
+// world's polygon camera clamp (world/toronto/polygon.ts's clampToPolygon, registered by
+// world/toronto/TorontoScene.tsx) plugs into so the rig can be kept inside the playable map
+// without this module learning that a map polygon exists.
+//
+// PROD-ACTIVE — the deliberate opposite of the rig-modifier hook above. That one is null in
+// production by construction (its only registrar is the dev-gated lab); THIS one is registered by
+// the shipped world component on mount and shapes every frame the player sees. Treat a change to
+// its contract as a change to shipped camera behaviour.
+//
+// WHY A HOOK AT ALL — the architecture it replaces: until Phase 34 the clamp lived in a SECOND,
+// later useFrame (priority 2) in TorontoScene that wrote `camera.position` after CameraFxSystem's
+// priority-1 update+render had already painted, and therefore had to issue a whole extra
+// `gl.render()` of its own to make its correction visible. Worse, it never fed back: `smoothedCamPos`
+// (the lerp state) is module-private, so the very next frame the rig lerped from its OWN unclamped
+// position again and the two passes fought for as long as the player hugged the edge. Applying the
+// constraint HERE — after the damping lerp, with the result written back into the lerp state — makes
+// the clamp part of the rig's state rather than a correction applied on top of it: the next frame's
+// lerp starts from the CLAMPED position, so the rig converges toward the constraint instead of
+// re-fighting it, and one render per frame is enough again.
+//
+// CONTRACT for an implementer:
+//   • MUTATE `pos` IN PLACE (no return value, no allocation) — it is handed the rig's live
+//     smoothedCamPos, matching this module's scratch discipline.
+//   • Be IDEMPOTENT: f(f(p)) === f(p). It is applied every frame to its own previous output, so a
+//     constraint that keeps nudging would drift the camera without bound. (clampToPolygon is
+//     idempotent by construction — its own doc explains how.)
+//   • Be CHEAP: it runs once per rendered frame, on the hot path.
+// Shake is applied AFTER this (see updateCameraRig): shake is a purely visual offset that must
+// never feed back into the lerp, so it is deliberately outside the constrained state — a hard
+// impact can jitter the lens a few cm past the constraint for a frame, which is the intent.
+export type CameraPosConstraint = (pos: Vec3) => void;
+
+let posConstraint: CameraPosConstraint | null = null;
+
+/** Register (or clear, with null) the per-frame position constraint. Unlike the rig modifier
+ * above, production DOES register one — world/toronto/TorontoScene.tsx installs the polygon camera
+ * clamp on mount and clears it on unmount. Idempotent by design (last writer wins), so a
+ * StrictMode double-mount's register → cleanup → register sequence lands registered. */
+export function setCameraPosConstraint(fn: CameraPosConstraint | null): void {
+  posConstraint = fn;
+}
+
+/** Test/debug: the currently registered position constraint (null = unconstrained rig). */
+export function getCameraPosConstraint(): CameraPosConstraint | null {
+  return posConstraint;
 }
 
 // --- live rig ----------------------------------------------------------------------------
@@ -530,8 +607,13 @@ export function updateCameraRig(camera: PerspectiveCamera, dt: number): void {
   const beat = deathBeatFraming(deathPullbackActive, deathCause, deathBeatElapsed);
 
   if (!rigInitialized) {
-    // First frame of a run: snap to the ideal so we don't lerp in from the origin.
+    // First frame of a run: snap to the ideal so we don't lerp in from the origin. The snap goes
+    // through the constraint too, so a respawn/teleport beside the map edge never hands an
+    // unconstrained position to the lab modifier below or to this frame's damping step. (That
+    // makes the init frame the one frame the constraint runs twice — free, given the idempotence
+    // the hook's contract already demands.)
     computeIdealCamPos(smoothedCamPos, pos, speed, tier, beat.pullback, beat.yawOffsetDeg, beat.pitchOffsetDeg);
+    posConstraint?.(smoothedCamPos);
     rigInitialized = true;
   }
 
@@ -565,6 +647,11 @@ export function updateCameraRig(camera: PerspectiveCamera, dt: number): void {
   smoothedCamPos.x = frame.desiredCamPos.x;
   smoothedCamPos.y = frame.desiredCamPos.y;
   smoothedCamPos.z = frame.desiredCamPos.z;
+  // Positional constraint (the polygon camera clamp in production) applied to the LERP STATE, not
+  // to camera.position — so next frame's damping starts from the constrained point and the rig
+  // converges toward it instead of fighting it. Null → these three lines above are the final
+  // smoothed position, exactly as before Phase 34.
+  posConstraint?.(smoothedCamPos);
 
   // Shake + FOV kick ALWAYS step (trauma keeps decaying), but their offsets are suppressed
   // when the CAMERA.shake.enabled kill-switch is off, OR the player has asked for reduced
