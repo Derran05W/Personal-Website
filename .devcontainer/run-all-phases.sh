@@ -93,7 +93,11 @@ fingerprint() {
   checklist_section | grep -oE '^- \[.\]' | tr -d '\n'
 }
 
+MAX_NET_RETRIES="${MAX_NET_RETRIES:-5}"        # consecutive transient failures before giving up
+NET_RETRY_COOLDOWN_S="${NET_RETRY_COOLDOWN_S:-120}"
+
 iteration=0
+net_retries=0
 while (( iteration < MAX_ITERATIONS )); do
   iteration=$((iteration + 1))
 
@@ -133,9 +137,22 @@ while (( iteration < MAX_ITERATIONS )); do
   status="${PIPESTATUS[0]}"
 
   if [[ "$status" -ne 0 ]]; then
+    # A days-long loop must survive transient network weather (observed 2026-07-26:
+    # iteration 2 died in seconds to a DNS blip — "ENOTFOUND"). Retry ONLY when the
+    # failure looks transient (connectivity/5xx/overload), bounded, with a cooldown;
+    # anything else is a real error and stops the loop as before. The retry consumes
+    # an iteration slot on purpose — MAX_ITERATIONS stays the absolute backstop.
+    if (( net_retries < MAX_NET_RETRIES )) && \
+       grep -qE 'ENOTFOUND|ETIMEDOUT|ECONNREFUSED|ECONNRESET|EAI_AGAIN|Unable to connect|overloaded_error|529|502|503' "$log"; then
+      net_retries=$((net_retries + 1))
+      echo "[run-all-phases] claude exited $status on a transient-looking network/API error — retry $net_retries/$MAX_NET_RETRIES in ${NET_RETRY_COOLDOWN_S}s."
+      sleep "$NET_RETRY_COOLDOWN_S"
+      continue
+    fi
     echo "[run-all-phases] claude exited $status — stopping. See $log."
     exit 1
   fi
+  net_retries=0
 
   after="$(fingerprint)"
   after_blocked="$(blocked_count)"
