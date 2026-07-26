@@ -64,6 +64,9 @@ import { CityPackBatched } from './cityPack/CityPackBatched';
 import { HERO_LOTS, buildNamedBuildings, type CrownDecal, type NamedBox, type NamedPlacement } from './namedBuildings';
 import { buildCnTowerGeometry, buildRogersGeometry } from './heroes';
 import { needsTransparent, occlusionFader, occlusionRegistry } from './occlusionFade';
+import { buildClipAabbs, clearClipIndex, eyeInsideAny, pointInsideAny, segmentHitCount, setClipIndex } from './cameraClipIndex';
+import { recordClampFired, recordOcclusionHits, sampleCameraClip } from './cameraClipStats';
+import { liveCamera } from '../../fx/cameraRef';
 import { getLogoAtlas, logoCellUv } from './logoAtlas';
 import {
   buildPlacesLayer,
@@ -142,6 +145,10 @@ const occlusionRay = new Raycaster();
 const occlusionDir = new Vector3();
 const occlusionHitKeys = new Set<string>();
 const occlusionKeyList: string[] = [];
+
+// Phase 33 camera-lab scratch: the near-plane corner point under test, reused across the four
+// corners and across frames (same no-per-frame-alloc discipline as the occlusion scratch above).
+const nearCornerScratch = new Vector3();
 
 /** Two-triangle +Y quad (world XZ) at height `y`, appended to positions/normals. Winding matches
  * world/CityScape.tsx's buildTileQuadGeometry (verified +Y face normal there). */
@@ -1091,6 +1098,9 @@ export function TorontoScene() {
     occlusionRay.near = 0;
     occlusionRay.far = dist; // only occluders BETWEEN camera and car
     const hits = occlusionRay.intersectObjects(meshes as Object3D[], false);
+    // Phase 33 clip instrumentation: the boresight occluder count is already computed right here,
+    // so the stat piggybacks the existing ray rather than casting a second one. DEV-folded.
+    if (import.meta.env.DEV) recordOcclusionHits(hits.length);
     occlusionHitKeys.clear();
     for (const h of hits) occlusionHitKeys.add(h.object.uuid);
     occlusionKeyList.length = 0;
@@ -1126,6 +1136,9 @@ export function TorontoScene() {
       CAMERA_CLAMP_PADDING_WU,
     );
     if (clamped.x === camera.position.x && clamped.y === camera.position.z) return;
+    // Phase 33: count the frames the clamp actually acts on (each costs the corrective render
+    // below) — Phase 34's clamp rework wants that baseline per candidate rig. DEV-folded.
+    if (import.meta.env.DEV) recordClampFired();
     camera.position.x = clamped.x;
     camera.position.z = clamped.y;
     const model = playerVehicle.current;
@@ -1135,6 +1148,75 @@ export function TorontoScene() {
       camera.lookAt(lookScratch.x, lookScratch.y, lookScratch.z);
     }
     state.gl.render(state.scene, state.camera);
+  }, 2);
+
+  // --- Phase 33 camera lab: static building AABB index (DEV-only) --------------------------
+  // Built from the layouts this component ALREADY memoizes — the index is a re-view of the
+  // shipped placement, never a second generation pass (rebuilding frontage would cost seconds
+  // and could silently drift from what is on screen). Throwaway: Phase 40's placement arbiter
+  // replaces it (world/toronto/cameraClipIndex.ts's header).
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    // heroes.ts publishes its base-collider hint only through a built model's `meta`, so build
+    // both geometries, read the hints and dispose immediately — a few ms once per world mount,
+    // dev-only (HeroesLayer keeps its own memoized copies for rendering).
+    const cn = buildCnTowerGeometry();
+    const rogers = buildRogersGeometry();
+    const heroBases = [
+      { at: lotCenter(HERO_LOTS[0]), collider: cn.meta.collider },
+      { at: lotCenter(HERO_LOTS[1]), collider: rogers.meta.collider },
+    ].map(({ at, collider }) => ({ x: at.x, z: at.z, ...collider }));
+    cn.geometry.dispose();
+    rogers.geometry.dispose();
+    setClipIndex(
+      buildClipAabbs({
+        groundedBuildings: [...frontage.slots, ...frontage.cornerFills],
+        centredBoxes: [...frontage.towerBoxes, ...infill.boxes],
+        infillFixed: infill.fixed,
+        namedBoxes: named.placements.flatMap((p) => p.boxes),
+        heroBases,
+      }),
+    );
+    return () => clearClipIndex();
+  }, [frontage, infill, named]);
+
+  // --- Phase 33 camera lab: clip sampling (DEV-only, priority 2 AFTER the clamp) ------------
+  // Registered after the clamp pass at the SAME priority, so it observes the camera exactly as it
+  // was painted this frame: if the clamp acted, its corrective gl.render has already run and this
+  // reads the clamped pose; if it didn't, this reads the pose CameraFxSystem rendered at priority
+  // 1. Either way the sample describes a frame the player actually saw, not a speculative one.
+  // Also the (dev-only) publisher of fx/cameraRef's live-camera handle — the preset apply path
+  // needs the real PerspectiveCamera to write `fov` on, and this is the one pass that holds it
+  // every frame in every machine state.
+  useFrame((state) => {
+    if (!import.meta.env.DEV) return;
+    const camera = state.camera as PerspectiveCamera;
+    liveCamera.current = camera;
+    camera.updateMatrixWorld();
+    const eye = camera.position;
+    const eyeInside = eyeInsideAny(eye.x, eye.y, eye.z);
+    // The four near-plane corners in world space (camera-local ±halfW/±halfH at −near, through
+    // the camera's world matrix): the lens can be clipping through a facade well before the eye
+    // POINT is inside it, and that is what the player sees as "phasing".
+    const halfH = Math.tan((camera.fov * Math.PI) / 360) * camera.near;
+    const halfW = halfH * camera.aspect;
+    let nearPlaneInside = false;
+    for (let corner = 0; corner < 4 && !nearPlaneInside; corner++) {
+      nearCornerScratch.set(corner & 1 ? halfW : -halfW, corner & 2 ? halfH : -halfH, -camera.near);
+      nearCornerScratch.applyMatrix4(camera.matrixWorld);
+      nearPlaneInside = pointInsideAny(nearCornerScratch.x, nearCornerScratch.y, nearCornerScratch.z);
+    }
+    // Boresight cover vs the FULL index (the occlusion-fade pass above only sees the ~18
+    // registered named/hero meshes): how many indexed buildings sit between eye and car. This is
+    // the counter that catches "eye outside a wall, car invisible behind it" — the first tuning
+    // round produced exactly such frames at the fold corridor with eyeInside reading 0.
+    const model = playerVehicle.current;
+    let boresightHits: number | null = null;
+    if (model) {
+      const car = model.readState().pose.position;
+      boresightHits = segmentHitCount(eye.x, eye.y, eye.z, car.x, car.y, car.z);
+    }
+    sampleCameraClip(eyeInside, nearPlaneInside, boresightHits);
   }, 2);
 
   const handleWaterEnter = (): void => {

@@ -17,7 +17,7 @@ import { lazy, Suspense, useEffect, useMemo, type CSSProperties } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Physics } from '@react-three/rapier';
 import { useProgress } from '@react-three/drei';
-import { QUALITY_TIERS } from './config';
+import { CAMERA, QUALITY_TIERS } from './config';
 import { WORLD_SOURCE } from './config/worldSource';
 import { getGameState, useGameStore } from './state/store';
 import { useInputSystem } from './input';
@@ -260,9 +260,12 @@ export default function Game() {
         dpr={[1, dprCap]}
         // Pre-PLAYING framing only (GARAGE/LOADING). Once a run starts, fx/cameraRig's
         // CameraFxSystem pass owns position + lookAt every frame (fixed-yaw follow rig,
-        // TDD §5.3) and snaps to its ideal on the first PLAYING frame; fov/near/far
-        // stay governed by this prop.
-        camera={{ position: [18, 16, 18], fov: 45, near: 0.1, far: 1000 }}
+        // TDD §5.3) and snaps to its ideal on the first PLAYING frame; near/far stay
+        // governed by this prop. Phase 33: the FOV literal moved into config/camera.ts so a
+        // camera candidate is expressible as data — this prop is INITIAL-ONLY (R3F reads it
+        // at Canvas creation), so a live FOV change goes through fx/cameraLab.ts's preset
+        // apply (camera.fov + updateProjectionMatrix + resetBaseFov), never through here.
+        camera={{ position: [18, 16, 18], fov: CAMERA.fov, near: 0.1, far: 1000 }}
         onCreated={({ camera, gl }) => {
           camera.lookAt(0, 0, 0);
           // The REAL <canvas> carries the img role/label (Phase 20 QA FILED-2) — the

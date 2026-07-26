@@ -46,11 +46,22 @@ import { landmarkTeleportPoints } from '../world/landmarkGen';
 import { buildFrontage, venueViewpoint } from '../world/toronto/frontage';
 import { attachFxEmitter, pushFxBurst, type ParticlePreset } from '../fx/particleFeed';
 import { getParticleStats } from '../fx/particles';
+import { CAMERA_PRESETS } from '../config/camera';
+import { applyCameraPreset, findCameraPreset, getCameraPreset } from '../fx/cameraLab';
+import { liveCamera } from '../fx/cameraRef';
+import { getClipIndexSize } from '../world/toronto/cameraClipIndex';
+import { readCameraClipStats, resetCameraClipStats } from '../world/toronto/cameraClipStats';
+import { cameraVantages } from '../world/toronto/cameraVantages';
 
 // Task 5 debug-tint colour: the ONE end-to-end proof that an archetype's district-grouped
 // [start,count] ranges (world/instancing.ts) are correct — a single button recolours every
 // instance in exactly one district, nothing else. Module-scope: one Color, reused per click.
 const TINT_COLOR = new Color('#ff2222');
+
+// Drop height (m) for debug teleports — mirrors world/spawn.ts's SPAWN_HEIGHT_M (module-private
+// there) and the Venues folder's existing literal: just above the suspension settle, so the wheel
+// rays are in ground contact on the very first physics step after the reset.
+const TELEPORT_DROP_Y = 0.85;
 
 // Phase 15 Task 4 debug tooling: sound-test board -------------------------------------------
 // Reasonable-for-a-preview param bag per SoundName (audio/synth.ts's SoundParams — a loose,
@@ -845,6 +856,58 @@ export default function DevPanel() {
         { interval: 200 },
       );
       schema['fx draw calls'] = monitor(() => getParticleStats().drawCalls, { interval: 200 });
+      return schema as unknown as LevaSchema;
+    },
+    [],
+  );
+
+  // --- Camera lab (P33): candidate rig switcher + clip counters -------------------------------
+  // The camera decision's cockpit. The dropdown applies a CAMERA_PRESETS entry LIVE through
+  // fx/cameraLab.ts (the same path window.__smashy.setCameraPreset drives, so a human clicking
+  // here and the scripted battery can never diverge); the teleport buttons drop the car on the
+  // standard vantage anchors so every rig is judged from identical framings; the stat buttons
+  // print / zero the clip counters world/toronto/TorontoScene.tsx samples each frame. Rates, not
+  // raw counts, are the comparison — the log line derives them.
+  useControls(
+    'Camera lab (P33)',
+    () => {
+      const schema: Record<string, unknown> = {
+        preset: {
+          value: getCameraPreset(),
+          options: CAMERA_PRESETS.map((p) => p.id),
+          onChange: (id: string, _path: string, ctx: { initial: boolean }) => {
+            // leva fires onChange once during registration; applying then would stomp a preset a
+            // script had already set (same guard as the Debug folder's quality dropdown).
+            if (ctx.initial) return;
+            applyCameraPreset(id, liveCamera.current);
+          },
+        },
+        label: {
+          value: findCameraPreset(getCameraPreset())?.label ?? '—',
+          disabled: true,
+        },
+      };
+      for (const vantage of cameraVantages()) {
+        schema[`→ ${vantage.id}`] = button(() => {
+          playerVehicle.current?.reset({
+            position: { x: vantage.x, y: TELEPORT_DROP_Y, z: vantage.z },
+            rotation: { x: 0, y: 0, z: 0, w: 1 },
+          });
+        });
+      }
+      schema['log clip stats'] = button(() => {
+        const s = readCameraClipStats();
+        const rate = (n: number): string => (s.frames > 0 ? `${((n / s.frames) * 100).toFixed(1)}%` : 'n/a');
+        console.info(
+          `[cameraLab] preset ${getCameraPreset()} · ${s.frames} frames · eye-inside ${rate(s.eyeInsideFrames)} · ` +
+            `near-plane ${rate(s.nearPlaneFrames)} · occluded ${rate(s.occludedFrames)} ` +
+            `(mean ${s.frames > 0 ? (s.occlusionHitSum / s.frames).toFixed(2) : '0'}, max ${s.occlusionHitMax}) · ` +
+            `clamped ${rate(s.clampedFrames)}`,
+          s,
+        );
+      });
+      schema['reset clip stats'] = button(() => resetCameraClipStats());
+      schema['clip index size'] = monitor(() => getClipIndexSize(), { interval: 500 });
       return schema as unknown as LevaSchema;
     },
     [],

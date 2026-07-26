@@ -6,6 +6,15 @@ export const CAMERA = {
   // Base follow distance (m). Feel-tuning pass: 18 -> 24 (zoomed out for a wider view of
   // the action; total distance = baseDist + speedZoom·ease + tierZoom·tier).
   baseDist: 24,
+  // Vertical field of view (deg). Phase 33 moved this INTO config: it previously existed only as
+  // a literal on the <Canvas camera> prop (game/index.tsx), which made a camera candidate
+  // impossible to express as data. game/index.tsx now reads CAMERA.fov for the boot camera — but
+  // that prop is INITIAL-ONLY, so a live change (this leaf via leva, or a CAMERA_PRESETS apply)
+  // must additionally write camera.fov + updateProjectionMatrix() AND relatch fx/cameraRig's
+  // FOV-kick base (resetBaseFov). fx/cameraLab.ts's applyCameraPreset is the one path that does
+  // all three; tuning this leaf alone in leva changes config without moving the live lens.
+  // Phase 34 pins this as law alongside yaw/pitch/baseDist.
+  fov: 45,
   // Distance eases out up to +this many meters with speed...
   speedZoom: 10,
   // ...and +this many meters per wanted tier.
@@ -92,3 +101,123 @@ export const CAMERA = {
     bustedPitchOffsetDeg: -14,
   },
 } as const;
+
+// --- Phase 33 camera lab: candidate rigs (NOT shipped defaults) ------------------------------
+// The Part-9 user directive re-opened the "Camera bearing: FIXED" lock: the camera phases through
+// buildings (pack streetwall facades ≈ 19.4 wu vs a resting eye of 24·sin50° = 18.39 wu). These
+// five candidates are the evidence apparatus for that decision, applied LIVE by fx/cameraLab.ts
+// (dev-only) and judged at the Phase 33 USER GATE; Phase 34 promotes the pick into CAMERA above
+// and pins it as §5.3 law. Nothing here changes a shipped frame on its own — CAMERA is untouched
+// until applyCameraPreset() writes into it.
+//
+// Every preset keeps the fixed-bearing MODEL (no player rotation control): yaw may take a
+// different VALUE, but it never tracks the car during play. Presets deliberately carry only the
+// four geometry leaves that define a rig — yaw/pitch/distance/lens; speedZoom, tierZoom, lerp and
+// lookAhead stay SHARED (they are feel, not framing, and Phase 34 retunes them once against
+// whichever geometry wins, rather than five times here).
+
+/** Preset D's spring-arm ("canyon-aware") tunables. The arm reads the Phase-33 static building
+ * AABB index (world/toronto/cameraClipIndex.ts) rather than physics raycasts — deterministic, no
+ * physics cost, and the same index the clip instrumentation samples. */
+export interface CameraSpringArmConfig {
+  /** Max pitch the arm may ADD (deg, + = higher/more top-down) when the near field is blocked. */
+  readonly maxPitchLiftDeg: number;
+  /** Max follow distance the arm may REMOVE (m) when the near field is blocked. */
+  readonly maxPullInM: number;
+  /** Seconds for a full 0 → cap traversal (both axes rate-limit at cap/easeSec per second). */
+  readonly easeSec: number;
+  /** The near field must read CLEAR continuously for this long before the arm releases —
+   * hysteresis, so grazing a corner can't strobe the framing (the flashing complaint reborn). */
+  readonly clearHoldSec: number;
+  /** Length (m) of the boresight probe ahead of the eye. Only occluders THIS close to the lens
+   * count as "near field" — the whole eye→car segment is blocked constantly in a dense streetwall
+   * (a corner building between camera and car is the normal case), which would leave the arm
+   * permanently lifted and stop being a canyon RESPONSE. */
+  readonly probeAheadM: number;
+}
+
+export interface CameraPreset {
+  readonly id: string;
+  readonly label: string;
+  readonly yawDeg: number;
+  readonly pitchDeg: number;
+  readonly baseDist: number;
+  readonly fov: number;
+  /** Present only on candidates that run a dynamic arm (D). */
+  readonly springArm?: CameraSpringArmConfig;
+}
+
+export const CAMERA_PRESETS = [
+  {
+    // Baseline control — MUST equal the shipped CAMERA values field-for-field (test-locked), so
+    // "lab inactive" and "preset A" are the same camera. Wins only if the height re-grade (P35)
+    // and occlusion v2 (P36) fix phasing on their own.
+    id: 'A',
+    label: 'A · tuned status quo',
+    yawDeg: 45,
+    pitchDeg: 50,
+    baseDist: 24,
+    fov: 45,
+  },
+  {
+    // More top-down (closer to actual Smashy Road): the resting eye rises 18.39 → 23.75 wu, which
+    // clears the 19.4 wu pack streetwall outright. Costs facade obliqueness — fascia/CROWN decals
+    // are read at a steeper angle.
+    id: 'B',
+    label: 'B · high table',
+    yawDeg: 45,
+    pitchDeg: 58,
+    baseDist: 28,
+    fov: 45,
+  },
+  {
+    // Telephoto flatten: distance buys the clearance (eye 26.81 wu) and the narrow lens keeps the
+    // car the same size on screen. Compresses canyon depth — the city reads flatter/more diorama.
+    id: 'C',
+    label: 'C · long lens',
+    yawDeg: 45,
+    pitchDeg: 50,
+    baseDist: 35,
+    fov: 31,
+  },
+  {
+    // A's framing in the open, with an arm that lifts/pulls in only when the near field is
+    // blocked. Prototype-grade this phase: the most complex to tune and the easiest to make
+    // strobe, but the only candidate that costs nothing in the 90% of the map that is open road.
+    id: 'D',
+    label: 'D · canyon-aware',
+    yawDeg: 45,
+    pitchDeg: 50,
+    baseDist: 24,
+    fov: 45,
+    springArm: {
+      maxPitchLiftDeg: 12,
+      maxPullInM: 6,
+      easeSec: 0.25,
+      clearHoldSec: 0.3,
+      // 8 m ≈ the distance the lens closes in ~0.2 s of hard cornering, so the arm starts moving
+      // before a facade reaches the near plane, while ordinary streetwall 20 m out never trips it.
+      probeAheadM: 8,
+    },
+  },
+  {
+    // The lab's discovery slot, tuned live 2026-07-26. The part file's worked example (54/28/38,
+    // eye 22.65) AND a 56° variant both FAILED the fold-corridor rest test on the new boresight
+    // counter (eye outside the flanking building, car 100% hidden behind the streetwall). Root
+    // geometry, measured that session: on the dieted spine (15.4 road + 3 sidewalk) the
+    // streetwall face plane sits ~10.7 wu off the centreline, so any rig with horizontal radius
+    // dist·cos(pitch) > ~14.8 (i.e. >10.7 per axis under the 45° yaw) parks the eye inside or
+    // behind the east frontage — B clears NOT by seeing over roofs but by keeping its eye inside
+    // the canyon airspace. E therefore adopts B's corridor-safe envelope one step tighter
+    // (58/26 → eye 22.05, horizontal 13.78 — ~1 wu of extra margin) and keeps its narrower
+    // 38° lens as the flatten. Identity vs B: closer, calmer perspective; same clearance class.
+    id: 'E',
+    label: 'E · combo',
+    yawDeg: 45,
+    pitchDeg: 58,
+    baseDist: 26,
+    fov: 38,
+  },
+] as const satisfies readonly CameraPreset[];
+
+export type CameraPresetId = (typeof CAMERA_PRESETS)[number]['id'];

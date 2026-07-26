@@ -373,6 +373,61 @@ gameEvents.on('busted', () => {
   deathCause = 'busted';
 });
 
+// --- rig modifier hook (Phase 33 camera lab) ----------------------------------------------
+// A single optional per-frame hook that may nudge the follow framing: it returns extra pitch
+// (deg) and extra follow distance (m), which updateCameraRig COMPOSES additively with the
+// death-beat's own offsets. It exists so a candidate rig with dynamic behaviour (preset D's
+// canyon-aware spring arm, fx/cameraLab.ts) can be prototyped WITHOUT this module learning
+// anything about buildings, the AABB index, or the lab.
+//
+// PROD-INERT BY CONSTRUCTION: the modifier is null unless something registers one, and the only
+// registrar is the dev-gated lab (core/debugBridge.ts / core/devPanel.tsx). With null registered
+// the composition below reduces to `beat.pullback` / `beat.pitchOffsetDeg` verbatim — today's
+// math, bit-for-bit.
+
+export interface CameraRigModifierContext {
+  /** Player render position this frame (the interpolated pose the rig itself reads). */
+  readonly playerPos: Readonly<Vec3>;
+  /** The rig's CURRENT smoothed camera position — i.e. where the lens is right now, before
+   * this frame's damping step. Shake/clamp offsets are not included (they never feed back). */
+  readonly camPos: Readonly<Vec3>;
+  readonly speed: number;
+  readonly tier: number;
+  readonly dt: number;
+}
+
+export interface CameraRigModifierResult {
+  /** Added to the death beat's pitch offset (deg; + = higher / more top-down). */
+  readonly pitchOffsetDeg: number;
+  /** Added to the death beat's pull-back (m; − = closer to the car). */
+  readonly distOffset: number;
+}
+
+export type CameraRigModifier = (ctx: CameraRigModifierContext) => CameraRigModifierResult;
+
+let rigModifier: CameraRigModifier | null = null;
+
+// Reused ctx (hot path: no per-frame allocation, same discipline as rigInput below). Declared
+// with mutable fields; structurally assignable to the readonly CameraRigModifierContext.
+const modifierCtx: {
+  playerPos: Readonly<Vec3>;
+  camPos: Readonly<Vec3>;
+  speed: number;
+  tier: number;
+  dt: number;
+} = { playerPos: { x: 0, y: 0, z: 0 }, camPos: { x: 0, y: 0, z: 0 }, speed: 0, tier: 0, dt: 0 };
+
+/** Register (or clear, with null) the per-frame framing modifier. Only ever called by the
+ * dev-gated camera lab — production never registers one, so the rig math is unchanged. */
+export function setCameraRigModifier(fn: CameraRigModifier | null): void {
+  rigModifier = fn;
+}
+
+/** Test/debug: the currently registered modifier (null = today's stock rig). */
+export function getCameraRigModifier(): CameraRigModifier | null {
+  return rigModifier;
+}
+
 // --- live rig ----------------------------------------------------------------------------
 // Smoothed follow position persisted across frames (the lerp state, shake-free). Separate
 // from camera.position so the shake offset never feeds back into the next frame's lerp.
@@ -413,6 +468,18 @@ export function resetCameraRig(): void {
   rigInitialized = false;
   setDeathPullback(false); // clears deathPullbackActive + cause + beat clock in one place
   resetShake();
+}
+
+/**
+ * Drop the latched FOV base so the next rest frame re-captures `camera.fov`. The kick is always
+ * applied as base + kick, and the base is latched ONCE (lazily, on the first un-kicked frame) —
+ * which means any EXTERNAL change to the lens (a camera-preset apply, fx/cameraLab.ts) would
+ * otherwise be stomped straight back to the stale base on the very next frame. Every path that
+ * writes `camera.fov` from outside this module must call this. Never called in production (the
+ * shipped FOV is set once, at Canvas creation, from CAMERA.fov).
+ */
+export function resetBaseFov(): void {
+  baseFov = null;
 }
 
 /**
@@ -468,14 +535,31 @@ export function updateCameraRig(camera: PerspectiveCamera, dt: number): void {
     rigInitialized = true;
   }
 
+  // Phase 33: an optional lab modifier composes ADDITIVELY on top of the beat's framing (never
+  // replaces it — a death beat during a canyon must still read as the beat). Called exactly once
+  // per frame, after the cold-start snap so `camPos` is always a real lens position. Null in
+  // production, in which case these are `beat.*` verbatim.
+  let pullback = beat.pullback;
+  let pitchOffsetDeg = beat.pitchOffsetDeg;
+  if (rigModifier !== null) {
+    modifierCtx.playerPos = pos;
+    modifierCtx.camPos = smoothedCamPos;
+    modifierCtx.speed = speed;
+    modifierCtx.tier = tier;
+    modifierCtx.dt = dt;
+    const mod = rigModifier(modifierCtx);
+    pullback += mod.distOffset;
+    pitchOffsetDeg += mod.pitchOffsetDeg;
+  }
+
   rigInput.playerPos = pos;
   rigInput.velocity = state.velocity;
   rigInput.speed = speed;
   rigInput.tier = tier;
   rigInput.dt = dt;
-  rigInput.pullback = beat.pullback;
+  rigInput.pullback = pullback;
   rigInput.yawOffsetDeg = beat.yawOffsetDeg;
-  rigInput.pitchOffsetDeg = beat.pitchOffsetDeg;
+  rigInput.pitchOffsetDeg = pitchOffsetDeg;
   // currentCamPos already aliases smoothedCamPos (stable module ref).
   const frame = computeCameraFrame(rigInput);
   smoothedCamPos.x = frame.desiredCamPos.x;

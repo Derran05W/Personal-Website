@@ -52,6 +52,12 @@ import {
 import { occlusionFader } from '../world/toronto/occlusionFade';
 import { worldRef } from '../world/worldRef';
 import { getReducedShake } from '../state/store';
+import { applyCameraPreset, getCameraPreset } from '../fx/cameraLab';
+import { liveCamera } from '../fx/cameraRef';
+import { getClipIndexSize } from '../world/toronto/cameraClipIndex';
+import { readCameraClipStats, resetCameraClipStats, type CameraClipStats } from '../world/toronto/cameraClipStats';
+import { cameraVantages, type CameraVantage } from '../world/toronto/cameraVantages';
+import { startCameraLabDrive, type CameraLabDriveReport } from '../ai/cameraLabDrive';
 
 // Phase 7 traffic verification: exactly-once event proof. The civHit/civWrecked emitter
 // payloads are empty, so scripted checks can't scrape them from the DOM — count them here
@@ -576,6 +582,39 @@ declare global {
        * occlusion raycast + fade (A.5) is live — the tight §5.3 camera setback makes a dramatic
        * see-through screenshot geometrically impossible, so this is the headless proof. */
       occlusionMinOpacity: () => number;
+      /** Phase 33 camera lab: apply candidate rig `id` ('A'…'E', config/camera.ts's
+       * CAMERA_PRESETS) live — writes yaw/pitch/baseDist into the runtime CAMERA block, pushes the
+       * preset's FOV onto the live camera, and arms preset D's spring arm. False for an unknown
+       * id. Nothing here is persisted: a reload returns to the shipped rig. */
+      setCameraPreset: (id: string) => boolean;
+      /** Phase 33 camera lab: the preset last applied ('A' before any switch — preset A IS the
+       * shipped CAMERA block). */
+      getCameraPreset: () => string;
+      /** Phase 33 camera lab: the clip counters since the last reset (frames sampled, camera-eye-
+       * inside-a-building frames, near-plane-clipping frames, boresight-occluder frames/sum/max,
+       * and frames the polygon camera clamp acted on). Compare RATES (counter ÷ frames), never raw
+       * counts — headless frame rates vary run to run. */
+      cameraClipStats: () => CameraClipStats;
+      /** Phase 33 camera lab: zero the clip counters (call before a measured drive). */
+      resetCameraClipStats: () => void;
+      /** Phase 33 camera lab: how many building volumes the clip index holds. A scripted battery
+       * MUST assert this is > 0 before trusting a run of zeroes — an empty index (world not
+       * mounted yet, or a source rename) reads exactly like a perfectly clean camera. */
+      cameraClipIndexSize: () => number;
+      /** Phase 33 camera lab: the standard vantage battery's anchors ({id,x,z}[]), derived from
+       * the live street table — every point is a real road-centreline crossing, so a teleported
+       * car lands on asphalt. */
+      cameraVantages: () => readonly CameraVantage[];
+      /** Phase 33 camera lab: run the scripted lab drive (ai/cameraLabDrive.ts) — a seeded
+       * downtown cruise of the player's own car (default 60 s, seed 1) that resets the clip
+       * counters, drives, and resolves with `{stats, waypoints, seconds, seed, heatAtEnd,
+       * tierAtEnd, framesObserved}`. The car is TELEPORTED to the drive's own deterministic
+       * downtown start first, so `seed` alone fixes the whole path: two drives at the same seed
+       * replay the same `waypoints` sequence, which is the battery's reproducibility gate. No heat
+       * is granted and no pursuit roster is filled (`tierAtEnd > 0` means the run picked stars up
+       * organically and its numbers are contaminated — the tier zoom moves the camera). Idempotent
+       * while already running, like runChaosBench. */
+      startCameraLabDrive: (opts?: { seconds?: number; seed?: number }) => Promise<CameraLabDriveReport>;
     };
   }
 }
@@ -733,4 +772,15 @@ window.__smashy = {
   setReducedShake: (value) => getGameState().setReducedShake(value),
   getReducedShake,
   occlusionMinOpacity: () => occlusionFader.minOpacity(),
+  // Phase 33 camera lab. The live PerspectiveCamera is reached through fx/cameraRef's module ref
+  // (playerRef/spawnPoseRef idiom) — world/toronto/TorontoScene.tsx's DEV-only clip-sampling pass
+  // publishes it every frame, so it is populated from the first painted frame onward; a null ref
+  // still applies the config side of a preset (only the lens change needs the instance).
+  setCameraPreset: (id) => applyCameraPreset(id, liveCamera.current),
+  getCameraPreset: () => getCameraPreset(),
+  cameraClipStats: () => readCameraClipStats(),
+  resetCameraClipStats: () => resetCameraClipStats(),
+  cameraClipIndexSize: () => getClipIndexSize(),
+  cameraVantages: () => cameraVantages(),
+  startCameraLabDrive: (opts) => startCameraLabDrive(opts),
 };

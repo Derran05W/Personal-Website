@@ -152,6 +152,79 @@ hard cores (see "Model economy" in the part file).
 - [x] **Phase 31 — Transit on real TTC routes (buses + streetcars) + player pack cars** — 2026-07-19: 15 verified TTC routes data-driven (schema-gated, endpoint tokens, zero literals) on the UNFORKED P19 streetcar controller (8 bus incl. 97 full-spine + 7 streetcar; rooftop route boards after a camera-law catch; TTC credits w/ disclaimer; route-derived bus stops); player cars: pipeline `-player` GLB variants w/ REAL wheel nodes (mirrored-name + baked-transform pitfalls solved by geometry; bus→hubcap fallback), rustySedan→rusty car-a DEFAULT + 4 more swaps, monster in-house, garage auto-flows, wheel-spin+damage-tint proven, bundle-leak caught (shell −3.4 KB); THE GATE CHAIN — 3 real defects found live & fixed: civilian head-on deadlock latent since P29 (direction-offset lane chains, 505→976 nodes, jam test ×2 90-97% movement), bus wrong-way return legs (closed-loop routes + pathMode:'loop', 106/106 direction checks), transit lockstep co-location (startFracs spread); P27 empty-map spine-cruise invariant RETIRED (live city: heat→swarm boxing is the game) → replacement invariants proven; 2,623 tests (see phase-31-notes.md)
 - [!] **Phase 32 — The flip: WORLD_SOURCE=toronto default, legacy retirement, launch gates re-run** — 2026-07-19: **TORONTO IS THE SHIPPED GAME.** WORLD_SOURCE='toronto' (toggle/bridge/devPanel plumbing removed), legacy de-imported w/ marker-diff bundle proof (game chunk −44 KB, heap baseline 215→169 MB; source+tests stay pending user-approved excision), downtown Yonge spawn (drift-guarded, exclusion-checked), chaos bench FIXED (was silently broken on Toronto) + GREEN ×3 tiers (77-85 calls, all budgets beaten), credits finalized (pending badge gone, dated permission entry + attribution placeholder), graphViz wrong-graph fix; flip-QA on true default boot: full ★-ladder, 5-min soak flat heap, 0 errors; 2,624 tests, smoke 31/31 ×2; **PART 8 COMPLETE** (see phase-32-notes.md). AWAITING USER: Lighthouse ×4, phone test, content/Vercel/launch approval, real-GPU look, pack attribution details, BUSTED-radius call, legacy-excision approval
 
+**IMMERSION OVERHAUL (user directive 2026-07-26, governs Parts 9–16):** two headline
+problems: (1) the camera phases through buildings / weird perspectives — fix via camera
+angle and/or building size; the "Camera bearing: FIXED" lock is **UNLOCKED for user
+re-decision** at the Phase 33 USER GATE. (2) Far more Toronto detail & life (everything
+except pedestrians), object-overlap "flashing" (z-fighting) eliminated, and the map
+edge becomes a barrier or auto-kill. Master plan + arc rationale:
+`.planning/immersion-overhaul-overview.md`; freely-licensed pack survey (all-CC0
+top-8 incl. the Quaternius Downtown City MegaKit already at repo root):
+`.planning/asset-pack-research.md`. Process: Fable 5 orchestrates at max effort;
+implementation subagents default to **Opus 5** (user 2026-07-26 — supersedes the
+Part-8 "prefer Sonnet" model economy); one phase per session, protocol unchanged.
+Cross-cutting laws (overview §rules): camera decision cascades (no camera-dependent
+pins until Phase 34 lands); ground-stack layering ladder is law after Phase 39; the
+global placement arbiter is law after Phase 40; tri-budget raises are deliberate and
+re-pinned, never silent.
+
+### Part 9 — Camera, Scale & World Edge (`.planning/part-9-camera-world-edge.md`)
+- [!] **Phase 33 — Camera lab: candidate rigs, clip instrumentation, USER GATE decision** — 2026-07-26: lab shipped ALL dev-gated (5 live-swap presets w/ FOV-into-config, prod bit-for-bit unchanged — chunk-grep-proven), clip instrumentation (2,383-AABB index + 9 counters incl. mid-session boresight metric), deterministic 12-leg scripted drive (waypoint-boxed after time-boxing proved non-comparable) + 35-still/10-drive battery + contact sheet; measured: A rests INSIDE a wall 100% at fold-corridor + 2.7% eye-inside driving, C buries the car behind rooftops, D's spring arm self-defeats (pull-in lowers the eye — probe-the-base-rig fix + insight for P36), E zero eye-inside across every run, B clean except one 7.4% wedge draw (its corridor margin is ~0 wu vs E's ~1); corridor-airspace law discovered (eye must stay inside the street's airspace: hr ≤ ~14.8 wu); 2,753 tests, 0 errors. AWAITING USER: **pick the rig — recommendation E (45/58/26/FOV 38), runner-up B** (see phase-33-notes.md)
+- [ ] **Phase 34 — Camera adoption: new §5.3 law, clamp rework, visible-face re-derivation**
+- [ ] **Phase 35 — Height re-grade under the new camera + the one true eye-line constant**
+- [ ] **Phase 36 — Occlusion v2: dithered fade for batched/instanced geometry + camera anti-clip**
+- [ ] **Phase 37 — World edge: diegetic barriers + universal out-of-bounds auto-WRECKED**
+- [ ] **Phase 38 — Camera-debt sweep: re-evaluate crowns/skyline/wayfinding/see-through, evidence reel**
+
+### Part 10 — Placement Integrity & Anti-Flicker (`.planning/part-10-placement-integrity.md`)
+- [ ] **Phase 39 — Z-fight audit + the ground-stack ladder (one ordered layering spec, migrated)**
+- [ ] **Phase 40 — Global placement arbiter: one claim index for ALL placers + overlap invariant tests**
+- [ ] **Phase 41 — Surface & shimmer pass: seams, mipmap/aniso policy, thin-geometry distance behavior**
+- [ ] **Phase 42 — Flicker hunt: auto-vantage sweep harness + two-frame flicker detector, fix stragglers**
+
+### Part 11 — Civic-Heart Landmarks (`.planning/part-11-civic-heart-landmarks.md`)
+- [ ] **Phase 43 — CN Tower v2: geometry (arched base, fluted shaft, real pod massing)**
+- [ ] **Phase 44 — CN Tower v2: lighting & night program (LED ring show, beacon) + wayfinding role**
+- [ ] **Phase 45 — Rogers Centre v2 + rail-lands block: dome detail, jumbotron glow, Ripley's, Roundhouse**
+- [ ] **Phase 46 — Union Station v2 + Front Street: colonnade, clock, GO shed + Royal York chateau roof**
+- [ ] **Phase 47 — City Hall twins + Nathan Phillips Square + Old City Hall + Osgoode Hall**
+- [ ] **Phase 48 — Financial-district crown pass: six bank silhouettes/materials + Hockey Hall of Fame**
+
+### Part 12 — Yonge Street & Culture Landmarks (`.planning/part-12-yonge-culture-landmarks.md`)
+- [ ] **Phase 49 — Eaton Centre v2 glass galleria + Dundas (Sankofa) Square screen canyon v2**
+- [ ] **Phase 50 — Yonge neon canyon: Massey Hall, Elgin/Winter Garden, marquees, blade signs, Sam's v2**
+- [ ] **Phase 51 — East downtown: Gooderham Flatiron port, St Lawrence Market, Berczy fountain**
+- [ ] **Phase 52 — U of T & Discovery District: Convocation Hall, University College, Robarts, legislature**
+- [ ] **Phase 53 — Bloor edge: ROM crystal, Yorkville dressing, Honest Ed's nostalgia corner**
+- [ ] **Phase 54 — North York centre: Mel Lastman Square v2, arts centre, Empress Walk, twins detail**
+
+### Part 13 — Waterfront & Infrastructure (`.planning/part-13-waterfront-infrastructure.md`)
+- [ ] **Phase 55 — Gardiner Expressway: elevated deck structure (columns + colliders, bents, rails)**
+- [ ] **Phase 56 — Gardiner integration: underpass dressing/lighting, ramp stubs, audio zone**
+- [ ] **Phase 57 — Rail corridor: berm/viaduct, street bridges, GO trains, signals, graffiti underpasses**
+- [ ] **Phase 58 — Harbourfront: ferry terminal, animated ferries/boats, Redpath ship, Sugar Beach/HTO v2**
+- [ ] **Phase 59 — Horizon fix: Toronto Islands + airport beacon + off-map skyline silhouette ring**
+
+### Part 14 — Streets That Read Toronto (`.planning/part-14-toronto-streets.md`)
+- [ ] **Phase 60 — Streetcar overhead wires + poles + track inlays on all 7 streetcar routes**
+- [ ] **Phase 61 — TTC station entrances + signage on Line 1 + subway grates + Line 5 at Eglinton**
+- [ ] **Phase 62 — Street furniture v2: TO bins, bike share, newspaper boxes, patios, rooftop dressing**
+- [ ] **Phase 63 — Venue expansion east+west: ~20 new researched places, claim-engine dressed**
+- [ ] **Phase 64 — Kensington & Chinatown deep pass: stalls, hanging signs, murals, garden car**
+- [ ] **Phase 65 — District identity pass: per-district palette/signage/prop mixes**
+
+### Part 15 — Motion & Ambient Life (`.planning/part-15-motion-ambient-life.md`)
+- [ ] **Phase 66 — Traffic v2: taxi/delivery/food-truck variety, intersection behavior polish**
+- [ ] **Phase 67 — Ambient motion: flags, steam vents, cranes, window-light schedules, planes**
+- [ ] **Phase 68 — Wildlife: raccoon port + trash mini-events, gulls, squirrels (non-human only)**
+- [ ] **Phase 69 — Sound of the city: district ambience beds, streetcar bell, TTC chime homage**
+
+### Part 16 — Pack Expansion & Final Polish (`.planning/part-16-pack-polish-qa.md`)
+- [ ] **Phase 70 — New asset pack ingestion (MegaKit + Kenney kits per research doc) + credits**
+- [ ] **Phase 71 — Material/texture v2: facade variety, weathering, per-district palettes**
+- [ ] **Phase 72 — Perf recertification: LOD/culling as needed, all-tier benches, mobile re-run**
+- [ ] **Phase 73 — Final QA: full-map drive harness, flicker re-run, all launch gates, docs/handoff**
+
 ---
 
 ## Locked decisions — do not relitigate
@@ -226,16 +299,24 @@ already makes.
 ### Renderer decisions — RESOLVED (spec Addendum A)
 - True 3D, low-poly flat-shaded, Smashy Road-style. Buildings are extruded boxes with
   flat/vertex colours — no photo textures anywhere. Tri budgets: CN Tower ≤ 600,
-  Rogers ≤ 500, filler box ≤ 12.
-- **Camera bearing: FIXED** — answered 2026-07-17 from `game/config/camera.ts`
-  (yaw 45°, pitch 50°, no player rotation control; sole exception is the death-beat's
-  8° yaw drift). Addendum A.2's fixed-bearing branch applies: exactly two faces of every
-  box are ever visible; author CROWN/FASCIA decals on those two faces only; the decal
-  test is "decal face lies in the camera-visible half-space". Pin the exact face pair
-  when Phase 21's map→world axis mapping lands.
+  Rogers ≤ 500, filler box ≤ 12 — **budgets rise deliberately in Parts 11–12** (e.g.
+  CN v2 ≤ 2,500) per the overview's tri-budget addendum; re-pin, never silently.
+- **Camera bearing: UNLOCKED 2026-07-26** (was: FIXED, answered 2026-07-17 — yaw 45°,
+  pitch 50°, no player rotation control; sole exception the death-beat's 8° yaw drift).
+  The user's immersion directive re-opens angle/pitch/distance/FOV; **Phase 33's USER
+  GATE picks the new rig, Phase 34 re-pins it as law** — until then the 45/50 values
+  stand and no new camera-dependent pins may be authored. The fixed-bearing MODEL
+  itself survives (no player rotation control): exactly two faces of every box are ever
+  visible; CROWN/FASCIA decals go on those two faces only; the face pair is
+  **re-derived in Phase 34** (currently south+east). CAUTION: the "~13.8/15 wu visible
+  ceiling" cited across P19–P25.7 notes is STALE (derived from baseDist 18; the feel
+  pass shipped 24 → eye 18.4–26 wu). Phase 35 replaces it with a config-derived
+  constant; do not cite the old wall.
 - Logo decals: quads from the 32×32 pixel atlas, nearest-neighbour, mipmaps OFF.
 - Occlusion: any mesh intersecting the camera→car ray fades to alpha ≤ 0.4 within
-  150 ms (Phase 25 test; mandatory for the financial district and CN Tower).
+  150 ms (Phase 25 test; mandatory for the financial district and CN Tower). Phase 36
+  extends participation to batched/instanced geometry (dither path) — today only ~18
+  named/hero meshes fade; the pack streetwall cannot.
 
 ---
 
@@ -340,6 +421,8 @@ Score = Σ heat events + 5 × tier per second while ≥ ★1.
 | Map research runner (needs `ANTHROPIC_API_KEY`) | `tools/research/run_researchers.py` (out: `tools/research/out/`) |
 | map-researcher subagent contract | `.claude/agents/map-researcher.md` |
 | Part files (phase scopes, this roadmap's detail) | `.planning/part-*.md` |
+| Immersion overhaul master plan (Parts 9–16 arc + cross-cutting rules) | `.planning/immersion-overhaul-overview.md` |
+| Asset-pack licence survey (feeds Phase 70) | `.planning/asset-pack-research.md` |
 | Session-authored phase plans | `.planning/phases/phase-NN-plan.md` |
 | Session handoff notes | `.planning/phases/phase-NN-notes.md` |
 | Templates | `.planning/templates/` |
