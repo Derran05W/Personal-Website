@@ -148,6 +148,52 @@ export const CAMERA = {
   },
 } as const;
 
+// --- THE ONE TRUE EYE LINE (Phase 35) ---------------------------------------------------------
+// Every "how tall may a building be before the camera phases through it?" question in the codebase
+// resolves HERE, and nowhere else. Phases 19-25.7 all cited a "~13.8/15 wu camera wall" — that
+// number was derived from the long-dead baseDist 18 of the TDD rig, survived two retunes by being
+// copied between comments rather than computed, and was still being quoted (placesLayer.ts, the
+// notes) after the feel pass had already moved the eye to 20+ wu. It is now DELETED, not corrected:
+// the two constants below are computed from the CAMERA leaves above, so a rig change moves them and
+// no comment can go stale again.
+//
+// WHAT THEY MEAN. The eye rides a sphere of radius `dist` around the car at absolute pitch θ, so
+// its height above the car's ground plane is dist·sin(θ) — nothing more subtle than that. EYE_MIN
+// is the RESTING height (parked, ★0: the lowest the eye ever sits in normal play, since both halves
+// of the framing ramp only ever ADD distance and pitch); EYE_MAX is the top of that envelope
+// (top speed, ★5). Together they bracket the band that ordinary geometry must stay out of.
+//
+// HOW THE WORLD USES THEM (the eye-line law, pinned in world/toronto/heightLaw.test.ts): ordinary
+// streetwall/filler stays BELOW EYE_MIN, so the eye clears its roofline at every point in the
+// envelope; only a counted, listed intentional-tall set (the three tower districts' filler, the
+// backdrop-tower row, the named landmark towers, the heroes) is allowed to cross. Crossing is not
+// forbidden — it is the skyline — it just makes a mesh an occluder, which is why that list is
+// Phase 36's occlusion work order rather than a bug list. config/cityPackScale.ts enforces the same
+// bound on pack building scale (STREETWALL_MAX_HEIGHT_WU) so an art-scale change can't smuggle a
+// 24 wu facade into the streetwall the way brown-building did before this phase.
+//
+// WHAT THEY ARE NOT:
+//  • NOT the death-beat envelope. The cinematic offsets (esp. BUSTED's -22° pitch, which LOWERS the
+//    eye toward an arrest angle) drop below EYE_MIN by design. Those are documented, measured
+//    excursions on a 1-2 s scripted beat, covered by Phase 36's anti-clip — the streetwall law is
+//    about normal play and deliberately does not try to also be the beat's law.
+//  • NOT rig E's 13.78 wu HORIZONTAL RADIUS (dist·cos θ, the corridor-airspace quantity in
+//    camera.law.test.ts). The coincidence that the stale wall number and the corridor radius are
+//    both "13.8" is exactly how the stale doctrine survived so long. Different axis, different law.
+const DEG2RAD = Math.PI / 180;
+
+/** Resting camera-eye height above the car (wu): parked, ★0 — the LOWEST eye in normal play, and
+ * therefore the ceiling ordinary streetwall must stay under. 26·sin58° = 22.05. */
+export const CAMERA_EYE_MIN_WU = CAMERA.baseDist * Math.sin(CAMERA.pitchDeg * DEG2RAD);
+
+/** Top of the normal-play eye envelope (wu): top speed at ★5, i.e. both halves of the framing ramp
+ * saturated — distance (baseDist + speedZoom + 5·tierZoom) at pitch (pitchDeg + speedPitchDeg +
+ * 5·tierPitchDeg). 37.5·sin69.5° = 35.13. Anything between EYE_MIN and this is inside the band the
+ * eye sweeps as the player gets fast and hot. */
+export const CAMERA_EYE_MAX_WU =
+  (CAMERA.baseDist + CAMERA.speedZoom + 5 * CAMERA.tierZoom) *
+  Math.sin((CAMERA.pitchDeg + CAMERA.speedPitchDeg + 5 * CAMERA.tierPitchDeg) * DEG2RAD);
+
 // --- Phase 33 camera lab: candidate rigs (kept for re-comparison, NOT re-applied on boot) ------
 // The Part-9 user directive re-opened the "Camera bearing: FIXED" lock: the camera phased through
 // buildings (pack streetwall facades ≈ 19.4 wu vs the old rig's resting eye of 24·sin50° =

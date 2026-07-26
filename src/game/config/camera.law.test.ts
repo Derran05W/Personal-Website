@@ -16,7 +16,7 @@
 // camera, which is why it is stated as a constant here rather than derived from CAMERA: if the
 // street widens, this number changes and the rig gets headroom back.
 import { describe, expect, it } from 'vitest';
-import { CAMERA, CAMERA_PRESETS } from './camera';
+import { CAMERA, CAMERA_EYE_MAX_WU, CAMERA_EYE_MIN_WU, CAMERA_PRESETS } from './camera';
 import { STARTER_TOP_SPEED } from './vehicles';
 import { cameraDistance, cameraPitchOffsetDeg, sphericalOffset } from '../fx/cameraRig';
 
@@ -82,6 +82,51 @@ describe('§5.3 camera law — the shipped rig', () => {
       baseDist: CAMERA.baseDist,
       fov: CAMERA.fov,
     });
+  });
+});
+
+describe('§5.3 camera law — the eye line (Phase 35)', () => {
+  // The vertical half of the law. Where the corridor invariant below bounds the eye's HORIZONTAL
+  // radius (can the eye stay inside the street?), these bound its HEIGHT (does ordinary geometry
+  // clear it?). Both constants are computed in config/camera.ts from the CAMERA leaves; this block
+  // is what stops them from being quietly replaced by a literal — the failure the whole "~13.8 wu
+  // camera wall" doctrine was (a number that outlived the rig that produced it by two retunes).
+  it('EYE_MIN is the resting eye: baseDist·sin(pitch) = 22.05 wu', () => {
+    expect(CAMERA_EYE_MIN_WU).toBeCloseTo(CAMERA.baseDist * Math.sin((CAMERA.pitchDeg * Math.PI) / 180), 9);
+    expect(CAMERA_EYE_MIN_WU).toBeCloseTo(22.05, 2);
+  });
+
+  it('EYE_MIN is exactly what the production rig solves at rest, ★0', () => {
+    expect(envelope(0, 0).eye).toBeCloseTo(CAMERA_EYE_MIN_WU, 9);
+  });
+
+  // The anti-drift assertion the plan asks for: EYE_MAX is asserted through the COMPOSITION of the
+  // rig's own exported pure fns (cameraDistance + cameraPitchOffsetDeg + sphericalOffset) at the
+  // saturated end of the ramp, not by re-deriving the spherical formula. If a future ramp stops
+  // being monotonic in speed/tier, or grows a third term, the constant's closed form stops matching
+  // the rig and THIS fails — rather than the constant silently under-reporting the real envelope.
+  it('EYE_MAX is the rig\'s own solve at top speed, ★5 = 35.13 wu', () => {
+    expect(CAMERA_EYE_MAX_WU).toBeCloseTo(envelope(STARTER_TOP_SPEED, 5).eye, 9);
+    expect(CAMERA_EYE_MAX_WU).toBeCloseTo(35.13, 2);
+  });
+
+  it('brackets the whole normal-play envelope (every speed × tier sits inside)', () => {
+    for (const tier of TIERS) {
+      for (const speed of [0, STARTER_TOP_SPEED * 0.25, STARTER_TOP_SPEED * 0.5, STARTER_TOP_SPEED]) {
+        const eye = envelope(speed, tier).eye;
+        expect(eye, `★${tier} @ ${speed}`).toBeGreaterThanOrEqual(CAMERA_EYE_MIN_WU - 1e-9);
+        expect(eye, `★${tier} @ ${speed}`).toBeLessThanOrEqual(CAMERA_EYE_MAX_WU + 1e-9);
+      }
+    }
+  });
+
+  // Documented, deliberate: the death beat is NOT bounded by the eye line. BUSTED's -22° pitch is a
+  // low arrest angle, a low angle means a low eye, and Phase 36's anti-clip — not a height re-grade
+  // — is what keeps that 1-2 s scripted move out of the streetwall. Asserted (rather than merely
+  // commented) so nobody later "fixes" the law by widening it to cover the beat.
+  it('deliberately excludes the BUSTED beat, which dips below EYE_MIN by design', () => {
+    const busted = envelope(0, 2, CAMERA.cinematic.bustedPullback, CAMERA.cinematic.bustedPitchOffsetDeg);
+    expect(busted.eye).toBeLessThan(CAMERA_EYE_MIN_WU);
   });
 });
 

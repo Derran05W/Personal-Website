@@ -18,7 +18,10 @@ import {
   ROCK_BAND_POSTER_TARGET_HEIGHT_WU,
   BOX_TARGET_HEIGHT_WU,
   BUS_TARGET_LENGTH_WU,
+  STREETWALL_EYE_MARGIN_WU,
+  STREETWALL_MAX_HEIGHT_WU,
 } from './cityPackScale';
+import { CAMERA_EYE_MIN_WU } from './camera';
 
 describe('CAR_REF — cross-check against the physics collider (config/vehicles.ts)', () => {
   it('the physics collider is narrower/shorter than the visual envelope', () => {
@@ -55,7 +58,9 @@ describe('D9 computed examples pinned', () => {
     expect(bigBuilding.nativeDims.h * CITY_PACK_SCALE_OVERRIDES['big-building']).toBeCloseTo(16.3, 0);
   });
 
-  it('brown-building scale ~5.92', () => {
+  // The override map holds the FRONTAGE TARGET (~5.92); Phase 35's eye-line cap then binds on this
+  // one model, so the RESOLVED scale (what actually renders) is lower — see the eye-line block below.
+  it('brown-building frontage-target scale ~5.92 (pre-cap)', () => {
     expect(CITY_PACK_SCALE_OVERRIDES['brown-building']).toBeCloseTo(5.92, 1);
   });
 
@@ -219,5 +224,40 @@ describe('colliderHalfExtents — D10 pure function', () => {
 
   it('throws for an unknown id', () => {
     expect(() => colliderHalfExtents('not-a-real-id')).toThrow();
+  });
+});
+
+// Phase 35 — the eye-line cap on building scale. The world-side law (which classes may cross the
+// resting camera eye, and the enumerated crosser list) lives in world/toronto/heightLaw.test.ts;
+// what belongs HERE is the asset-scale mechanism that law depends on.
+describe('STREETWALL_MAX_HEIGHT_WU — the eye-line cap on pack building scale', () => {
+  it('is the resting camera eye less the clearance margin (derived, not a literal)', () => {
+    expect(STREETWALL_MAX_HEIGHT_WU).toBeCloseTo(CAMERA_EYE_MIN_WU - STREETWALL_EYE_MARGIN_WU, 9);
+    expect(STREETWALL_MAX_HEIGHT_WU).toBeCloseTo(21.05, 2);
+  });
+
+  it('binds on brown-building: 24.19 wu frontage target -> 21.05 wu resolved', () => {
+    const entry = CITY_PACK_MANIFEST.find((e) => e.id === 'brown-building')!;
+    // Uncapped, the frontage-target factor would have put it 2.1 wu ABOVE the resting eye — as
+    // ordinary streetwall, in 12 of 15 districts. That was the Phase 35 audit's one real violation.
+    expect(entry.nativeDims.h * CITY_PACK_SCALE_OVERRIDES['brown-building']).toBeCloseTo(24.19, 1);
+    expect(entry.nativeDims.h * resolveCityPackScale('brown-building')).toBeCloseTo(STREETWALL_MAX_HEIGHT_WU, 6);
+  });
+
+  it('is a no-op for every other building (the family, big-building, greenhouse pass through)', () => {
+    for (const entry of CITY_PACK_MANIFEST) {
+      if (entry.category !== 'building' && entry.category !== 'building-blank') continue;
+      if (entry.id === 'brown-building') continue;
+      const uncapped = CITY_PACK_SCALE_OVERRIDES[entry.id] ?? BUILDING_FAMILY_SCALE;
+      expect(resolveCityPackScale(entry.id), entry.id).toBeCloseTo(uncapped, 9);
+    }
+  });
+
+  it('leaves non-building categories entirely alone (a 500-unit-tall tree is not streetwall)', () => {
+    for (const entry of CITY_PACK_MANIFEST) {
+      if (entry.category === 'building' || entry.category === 'building-blank') continue;
+      const override = CITY_PACK_SCALE_OVERRIDES[entry.id];
+      if (override !== undefined) expect(resolveCityPackScale(entry.id), entry.id).toBe(override);
+    }
   });
 });

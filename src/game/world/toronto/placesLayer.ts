@@ -4,8 +4,9 @@
 // CLAIM real pack-building frontage slots (world/toronto/frontage.ts venueClaims) and are dressed by
 // world/toronto/venueDress.ts. What stays here is the handful of objects that were never plain
 // storefronts and can't ride a claimed facade:
-//   • Sam the Record Man's spinning rooftop discs — a LOW host box (a claimed 19.4 wu family facade
-//     would put the discs above the §5.3 camera wall; places.json itself says "NOT a building");
+//   • Sam the Record Man's spinning rooftop discs — a LOW host box (discs mounted on a claimed
+//     19.4 wu family facade would sit at ~25 wu, above the §5.3 eye line — config/camera.ts's
+//     CAMERA_EYE_MIN_WU — and leave the frame; places.json itself says "NOT a building");
 //   • the Apple-on-Eaton tag — a decal on the P24 named Eaton galleria (a named building, out of the
 //     frontage-claim seam);
 //   • the §6 district vibe props (Chinatown gate, rainbow crosswalk, Sugar Beach umbrellas, King
@@ -237,7 +238,7 @@ export function buildPlacesLayer(named: NamedBuildings = buildNamedBuildings()):
         placeId: a.id,
         brand: a.brand,
         cx: box.cx,
-        cy: 6, // low on the Queen St face — in the §5.3 camera's visible band
+        cy: 6, // low on the Queen St face — street-level, far under the §5.3 eye line (22.05 wu)
         cz: box.cz + box.hz + FACE_OFFSET,
         rotationY: 0,
         size: 7,
@@ -247,9 +248,13 @@ export function buildPlacesLayer(named: NamedBuildings = buildNamedBuildings()):
     }
 
     // discs — Sam the Record Man: a LOW rooftop host box + two neon discs above it (spun in-scene).
-    // Host kept low (~6 wu) so the discs above it sit in the §5.3 camera's visible band (the camera
-    // looks DOWN ~50° and can never frame anything above its own ~13.8 wu height — the documented
-    // "camera wall"; a true skyscraper-height sign would be geometrically invisible).
+    // Host kept low (hGame(6) → ~6 wu, discs topping out ~12 wu) so the whole sign sits well inside
+    // the frame under the shipped rig E: the camera looks DOWN 58° from an eye at
+    // CAMERA_EYE_MIN_WU (22.05 wu above the car, config/camera.ts), so signage mounted much higher
+    // than that leaves the frame upward and reads as roofline clutter at best. (This comment used to
+    // cite a "~13.8 wu camera wall" from the long-dead TDD baseDist-18 rig — Phase 35 replaced that
+    // stale doctrine with the derived constant; the hosting decision itself is unchanged and still
+    // correct, since 12 wu clears the eye line by a wide margin either way.)
     const { cx, cz } = boxCentre(st, a.side, along, HOST_HALF, HOST_HALF);
     const host: PlaceBox = { cx, cz, hx: HOST_HALF, hy: hGame(6) / 2, hz: HOST_HALF, color: DEFAULT_WALL };
     const roofY = host.hy * 2;
