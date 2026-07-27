@@ -27,6 +27,7 @@ import { getGameState, getReducedShake } from '../state/store';
 import { gameEvents } from '../state/events';
 import { playerVehicle } from '../vehicles/playerRef';
 import { cameraJitter } from './cameraJitterRef';
+import { devCamPoseRef, type DevCamPose } from './devCamPoseRef';
 
 export interface Vec3 {
   x: number;
@@ -583,6 +584,13 @@ const rigInput: {
 // lens even across many hits. Null until captured.
 let baseFov: number | null = null;
 
+// Phase 43 dev-cam pose override (fx/devCamPoseRef.ts) bookkeeping: the camera.fov value to
+// restore once the override releases. Captured lazily the first frame an active override
+// actually touches `fov` (so a position-only pose never disturbs it), and cleared the one
+// frame it's applied — idempotent, and irrelevant to `baseFov` above since the override
+// branch skips the FOV-kick block entirely while active (see updateCameraRig).
+let devCamFovRestore: number | null = null;
+
 /** Reset the follow state so the next frame snaps (run restart / vehicle respawn). */
 export function resetCameraRig(): void {
   rigInitialized = false;
@@ -725,6 +733,40 @@ export function updateCameraRig(camera: PerspectiveCamera, dt: number): void {
     jx = cameraJitter.x;
     jz = cameraJitter.z;
   }
+
+  // Phase 43 dev-cam pose override (fx/devCamPoseRef.ts): landmark-evidence instrument for
+  // off-rig silhouette/marketing shots the fixed rig geometrically cannot frame (Phase 38
+  // verdict). Unlike the jitter above — whose {0, 0} rest value is already a no-op in prod —
+  // a non-null pose is fully behavioral, so the read itself must be DEV-gated; a bare
+  // null-check is not enough. Everything above this point (lerp, clamp, anti-clip, shake/
+  // FOV-kick trauma decay) still ran normally this frame; only the final camera write below
+  // is replaced, so clearing the ref back to null snaps straight to the live rig's own pose.
+  let devPose: DevCamPose | null = null;
+  if (import.meta.env.DEV) {
+    devPose = devCamPoseRef.pose;
+  }
+  if (devPose) {
+    camera.position.set(devPose.ex, devPose.ey, devPose.ez);
+    camera.lookAt(devPose.tx, devPose.ty, devPose.tz);
+    if (devPose.fov !== undefined) {
+      if (devCamFovRestore === null) devCamFovRestore = camera.fov; // capture once, before the first override write
+      if (camera.fov !== devPose.fov) {
+        camera.fov = devPose.fov;
+        camera.updateProjectionMatrix();
+      }
+    }
+    return;
+  }
+  if (devCamFovRestore !== null) {
+    // Override just released (or never touched fov) — restore what it left behind once, then
+    // fall through so the FOV-kick block below resumes owning camera.fov as normal.
+    if (camera.fov !== devCamFovRestore) {
+      camera.fov = devCamFovRestore;
+      camera.updateProjectionMatrix();
+    }
+    devCamFovRestore = null;
+  }
+
   camera.position.set(smoothedCamPos.x + ox + jx, smoothedCamPos.y + oy, smoothedCamPos.z + oz + jz);
   camera.lookAt(frame.lookTarget.x + jx, frame.lookTarget.y, frame.lookTarget.z + jz);
 

@@ -183,6 +183,11 @@ shaft taper from 21 wu base → 6 wu below pod, hex/Y base with 3 splayed legs
 (bottom 8% of height), needle top 12%. Night mode: pod LED ring (it's lit
 red/white IRL — instant recognition).
 
+> **SUPERSEDED (leg band) 2026-07-27, Phase 43:** "bottom 8%" was a v1 guess. Researcher-verified:
+> the real legs merge into the closed shaft around the 100–150 m mark ≈ **0.18–0.27 × h**; v2
+> builds legs + parabolic arch voids to ≈ **0.22 × h** with the arch apex ≈ **0.14 × h** (both
+> pinned in `heroes.test.ts`). Pod/SkyPod fractions above re-verified and UNCHANGED.
+
 **Rogers Centre (30 wu, ⌀66 wu)** — ring base 15% h, dome cap, **4 nested roof-panel
 arcs with visible seams, closed position**, one panel drawn as the sliding section.
 Grey-white, never brand-coloured. Adjacent placement rule from v1 stands:
@@ -309,6 +314,12 @@ Smashy Road) or rotate with the car?
 - **CN Tower ≤ 600 tris:** hex-prism shaft in 3 taper segments, 2 squashed
   cylinder pods (main at 0.62 h, SkyPod at 0.81 h), cone+cylinder needle,
   3 wedge legs on the bottom 8%. Emissive ring on the main pod for night mode.
+  > **RE-PINNED 2026-07-27, Phase 43 (Part 11 tri-budget addendum):** CN Tower v2 ≤ **2,500**
+  > tris — arched base (three swept legs merging at ≈ 0.22 h, parabolic arch soffits apex
+  > ≈ 0.14 h; supersedes "bottom 8%"), fluted shaft (hex core + 3 fin ribs at the leg
+  > azimuths), real pod massing (radome / dark glass + glass-floor strip / recessed LED
+  > channel), SkyPod kept, stepped needle + tip beacon stub. Budget exported as
+  > `CN_TOWER_MAX_TRIS` in `heroes.ts`, pinned by `heroes.test.ts`.
 - **Rogers Centre ≤ 500 tris:** ring base (15% h) + lathed dome cap +
   4 roof-panel bands with visible seam edges, closed position.
 - **Bank towers = plain boxes** + crown decal. Their identity is colour +

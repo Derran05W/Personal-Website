@@ -6,9 +6,28 @@
 //
 // SINGLE SOURCE OF TRUTH: total heights come from data/toronto/building-specs.json via
 // hGame(real_h_m) — the same rule namedBuildings.ts follows. Nothing here hardcodes a height or a
-// footprint; the §5 proportion fractions (0.62/0.81·h pod centres, top-12% needle, bottom-8%
-// legs, ⌀66 dome) are the only literals, and each is asserted by heroes.test.ts against the band
-// the spec names.
+// footprint; the §5 proportion fractions (0.62/0.81·h pod centres, top-12% needle, 0.22·h legs,
+// ⌀66 dome) are the only literals, and each is asserted by heroes.test.ts against the band the
+// spec names.
+//
+// PHASE 43 (Part 11) — CN Tower v2. The v1 mesh was a generic 266-tri hex taper: it read as "a
+// tower", not as THE tower. v2 rebuilds it around the four features that actually make the
+// silhouette recognizable, all researcher-verified 2026-07-27:
+//   • an arched base — three legs at 120° splaying to the ⌀21 footprint, with the PARABOLIC ARCH
+//     negative space between them (its soffit modelled, because at the §5.3 camera's pitch the
+//     underside is what you actually see from the street);
+//   • legs that merge into the closed shaft at ~0.22·h (the real ones close at 100–150 m; v1's
+//     "bottom 8%" was wrong — spec §5's fraction is superseded, addendum recorded in the notes);
+//   • a FLUTED shaft: hexagonal core plus three thin fin ribs that are the legs' own continuation,
+//     running the full shaft and narrowing as they rise (Phase 44 lights those crest ridges, so
+//     each rib's crest is one coherent strip, never fragmented);
+//   • real pod massing — flared mushroom underside, white radome, dark glass band with the
+//     glass-floor line, and a RECESSED mechanical channel that holds the LED ring.
+// Tri budget rises 600 → 2,500 deliberately (overview tri-budget addendum, Part 11 rule 2).
+//
+// Orientation is camera law, not taste: the fixed rig always looks NW from the SE, so ONE leg
+// points exactly NW and the gap between the other two centres on the SE diagonal — the arch void
+// faces the camera in every street-level and drive-past frame.
 //
 // UNLIT-LITERAL, like every other Toronto surface (the P23/P24 "material verdict": a grazing
 // blue-hour sun crushes lit boxes to black, so the authored colour IS the on-screen colour). To
@@ -25,8 +44,13 @@ import { BufferGeometry, Color, Float32BufferAttribute } from 'three';
 import buildingSpecsJson from '../../../../data/toronto/building-specs.json';
 import { hGame } from './heightCurve';
 
-/** A.3 tri budgets — exported so the test and any future perf audit share one source. */
-export const CN_TOWER_MAX_TRIS = 600 as const;
+/**
+ * A.3 tri budgets — exported so the test and any future perf audit share one source.
+ * CN's rises 600 → 2,500 at Phase 43 (the overview's tri-budget addendum: budgets in Parts 11–12
+ * rise DELIBERATELY and get re-pinned, never silently). The actual mesh lands well under it —
+ * the headroom is Phase 44's (night program) and the segment counts below are the knob.
+ */
+export const CN_TOWER_MAX_TRIS = 2500 as const;
 export const ROGERS_MAX_TRIS = 500 as const;
 
 interface HeroSpecRow {
@@ -43,10 +67,19 @@ function heroSpec(id: string): HeroSpecRow {
 }
 
 // --- palette (unlit-literal; blue-hour-legible greys + glassy pods + the LED ring) -----------
-const CONCRETE = '#8f8c95'; // CN grey precast shaft/needle/legs
-const GLASS_POD = '#8098ad'; // CN observation + SkyPod glass
+// CN concrete is SLIPFORMED WEATHERED GREY — cool, never beige (researcher round 2026-07-27).
+const CONCRETE = '#8b9098'; // core shaft / needle / skirt
+const RIB_CONCRETE = '#99a0a8'; // the three fins: a shade lighter so the flutes read at distance
+const SOFFIT_CONCRETE = '#767b83'; // arch underside — darker, so the void reads as depth
+const GLASS_POD = '#8098ad'; // SkyPod glass
+const GLASS_DARK = '#4a5560'; // main pod's tinted observation band
+const GLASS_FLOOR = '#8fa3b4'; // the one lighter strip inside it = the glass-floor level
+const RADOME_WHITE = '#e8e6e2'; // pod's lower radome band
+const POD_CREAM = '#d8d4c9'; // cream tier bands between pod levels
+const MECH_GREY = '#7d838c'; // upper mechanical ring (the LED channel's housing)
 const RING_RED = '#ff4747'; // pod-ring LED (bright — reads as light on the unlit slice)
 const RING_WHITE = '#fff0f0';
+const BEACON_RED = '#ff5a4a'; // needle-tip aircraft beacon stub (Phase 44 lights it for real)
 const ROGERS_RING = '#9aa0ab'; // stadium outer ring base (grey precast)
 // Four nested roof-panel greys (visible seams between adjacent bands, §5) + the retractable panel.
 const DOME_BANDS = ['#c6c6cc', '#b6b6be', '#a6a6b0', '#9a9aa4'] as const;
@@ -119,6 +152,13 @@ interface RingOpts {
   readonly emissive?: boolean;
   /** Per-segment colour override (LED ring alternation, sliding-panel slice). */
   readonly colorAt?: (segment: number, sides: number) => string;
+  /**
+   * Azimuth of vertex 0 (radians). Phase 43: the CN hex core is rolled so that a FACET (not a
+   * corner) is centred on each of the three rib azimuths — the ribs then protrude at plane angles
+   * distinct from every core facet, which is the anti-z-fight rule from Phase 42. Default 0 keeps
+   * every pre-existing caller (Rogers) bit-for-bit unchanged: `i * step + 0 === i * step`.
+   */
+  readonly angleOffset?: number;
 }
 
 /**
@@ -136,8 +176,9 @@ function addPrismFrustum(
   opts: RingOpts = {},
 ): void {
   const step = (Math.PI * 2) / sides;
+  const offset = opts.angleOffset ?? 0;
   const ring = (radius: number, y: number, i: number): Vec3 => {
-    const ang = i * step;
+    const ang = i * step + offset;
     return [radius * Math.sin(ang), y, radius * Math.cos(ang)];
   };
   const colorOf = (i: number): string => opts.colorAt?.(i, sides) ?? hex;
@@ -164,35 +205,85 @@ function addPrismFrustum(
   }
 }
 
-/** A box in local XZ, yawed about Y and dropped at world (ox, oz). Local +Z is the "outward"
- * radial axis before yaw. Emits all six faces with correct outward normals (rotated locals). */
-function addYawBox(
-  acc: Accum,
-  local: { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number },
-  yaw: number,
-  ox: number,
-  oz: number,
-  hex: string,
-): void {
-  const cy = Math.cos(yaw);
-  const sy = Math.sin(yaw);
-  const tp = (x: number, y: number, z: number): Vec3 => [x * cy + z * sy + ox, y, -x * sy + z * cy + oz];
-  const { minX, maxX, minY, maxY, minZ, maxZ } = local;
-  // 8 corners
-  const p000 = tp(minX, minY, minZ);
-  const p100 = tp(maxX, minY, minZ);
-  const p110 = tp(maxX, maxY, minZ);
-  const p010 = tp(minX, maxY, minZ);
-  const p001 = tp(minX, minY, maxZ);
-  const p101 = tp(maxX, minY, maxZ);
-  const p111 = tp(maxX, maxY, maxZ);
-  const p011 = tp(minX, maxY, maxZ);
-  addQuad(acc, [p001, p101, p111, p011], hex); // +Z (outward)
-  addQuad(acc, [p100, p000, p010, p110], hex); // -Z
-  addQuad(acc, [p101, p100, p110, p111], hex); // +X
-  addQuad(acc, [p000, p001, p011, p010], hex); // -X
-  addQuad(acc, [p010, p011, p111, p110], hex); // +Y
-  addQuad(acc, [p000, p100, p101, p001], hex); // -Y
+/**
+ * One band of a lathed profile: the frustum from (y0, r0) to (y1, r1). y0 === y1 with r0 ≠ r1 is a
+ * legal, useful band — a flat annulus (an in/out STEP), which is how the pod's recessed LED
+ * channel gets its lips and the needle gets its stepped taper. Winding is addPrismFrustum's, so
+ * an inward step faces up and an outward step faces down, both correct without special-casing.
+ */
+interface LatheBand {
+  readonly y0: number;
+  readonly r0: number;
+  readonly y1: number;
+  readonly r1: number;
+  readonly hex: string;
+  readonly emissive?: boolean;
+  readonly colorAt?: (segment: number, sides: number) => string;
+  readonly capBottom?: boolean;
+  readonly capTop?: boolean;
+}
+
+/** Lathe a whole profile in one call. Consecutive bands share their edge ring exactly (each band's
+ * (y1, r1) is the next's (y0, r0)), so the surface is closed — no cracks, no coplanar overlaps. */
+function addLathe(acc: Accum, sides: number, bands: readonly LatheBand[], angleOffset = 0): void {
+  for (const b of bands) {
+    addPrismFrustum(acc, sides, b.y0, b.y1, b.r0, b.r1, b.hex, {
+      emissive: b.emissive,
+      colorAt: b.colorAt,
+      capBottom: b.capBottom,
+      capTop: b.capTop,
+      angleOffset,
+    });
+  }
+}
+
+/** One cross-section of a swept fin, in the fin's own (radial, lateral) frame at height y. */
+interface FinSection {
+  readonly y: number;
+  /** Ridge point — the crest's outermost edge; this is the strip Phase 44 lights. */
+  readonly apexR: number;
+  /** Shoulder radius + half-width where the crest chamfer meets the flanks. */
+  readonly crestR: number;
+  readonly crestHalfW: number;
+  /** Root radius + half-width — kept strictly INSIDE the core so the fin has no visible base seam. */
+  readonly rootR: number;
+  readonly rootHalfW: number;
+}
+
+/**
+ * Sweep a 5-point fin section (root-left → crest-left → ridge → crest-right → root-right) up a
+ * list of sections: four exposed faces per span (two flanks + two crest chamfers meeting at the
+ * ridge). This is ONE volume for the whole leg-and-rib run — the leg IS the rib's lower half, so
+ * there is no junction to hide and the ridge is a single unbroken strip from the ground to the pod.
+ */
+function addSweptFin(acc: Accum, azimuth: number, sections: readonly FinSection[], hex: string): void {
+  const ux = Math.sin(azimuth);
+  const uz = Math.cos(azimuth);
+  const tx = uz; // tangential = radial rotated −90° (u × t = +Y, so section order below is CW → −Y)
+  const tz = -ux;
+  const at = (radial: number, lateral: number, y: number): Vec3 => [
+    ux * radial + tx * lateral,
+    y,
+    uz * radial + tz * lateral,
+  ];
+  const rings = sections.map((s): Vec3[] => [
+    at(s.rootR, s.rootHalfW, s.y),
+    at(s.crestR, s.crestHalfW, s.y),
+    at(s.apexR, 0, s.y),
+    at(s.crestR, -s.crestHalfW, s.y),
+    at(s.rootR, -s.rootHalfW, s.y),
+  ]);
+  for (let i = 0; i + 1 < rings.length; i++) {
+    const lo = rings[i];
+    const hi = rings[i + 1];
+    for (let k = 0; k + 1 < lo.length; k++) addQuad(acc, [lo[k], hi[k], hi[k + 1], lo[k + 1]], hex);
+  }
+  // End caps (fans). Both are hidden by construction — the bottom one is a down-facing face at the
+  // ground plane and the top one terminates inside the pod's flare — but they close the solid.
+  const first = rings[0];
+  const last = rings[rings.length - 1];
+  for (let k = 1; k + 1 < first.length; k++) addTri(acc, first[0], first[k], first[k + 1], hex);
+  for (let k = 1; k + 1 < last.length; k++) addTri(acc, last[0], last[k + 1], last[k], hex);
 }
 
 function toGeometry(acc: Accum): BufferGeometry {
@@ -219,7 +310,22 @@ export interface CnTowerMeta {
   readonly skyPodCenterY: number;
   readonly needleMinY: number;
   readonly needleMaxY: number;
+  /** Where the three legs have fully merged into the closed shaft (0.22·h — researcher-verified). */
   readonly legTopY: number;
+  /**
+   * Phase 43 additions.
+   * `ringChannel` is the RECESSED mechanical channel the LED ring lives in — its radius is
+   * strictly inside the lip bands above and below it, which is what makes the ring read as a
+   * channel rather than a painted stripe. ringMinY/ringMaxY are the same band (kept for the
+   * pre-existing consumers/tests); Phase 44's night program takes the radius too.
+   */
+  readonly ringChannel: { readonly minY: number; readonly maxY: number; readonly radius: number };
+  /** Apex of the needle-tip beacon stub — where Phase 44 hangs the aircraft-warning light. */
+  readonly beaconTipY: number;
+  /** Highest point of the parabolic arch soffit between two legs (the void's ceiling). */
+  readonly archApexY: number;
+  /** Azimuths (radians, atan2-style about +Z toward +X) of the three legs/fins. One points NW. */
+  readonly ribAzimuths: readonly number[];
   /** Base-cylinder collider hint (radius / half-height / centre-y) for the scene. */
   readonly collider: { readonly radius: number; readonly halfHeight: number; readonly centerY: number };
   /**
@@ -240,76 +346,327 @@ export interface CnTowerModel {
   readonly meta: CnTowerMeta;
 }
 
-/** CN Tower: 3-segment hex taper shaft (⌀21→⌀6) + thin upper shaft, a squashed observation pod at
- * 0.62·h wrapped by an emissive red/white LED ring, a SkyPod at 0.81·h, a cone+cylinder needle in
- * the top 12%, and 3 splayed buttress legs in the bottom 8%. ≤ 600 tris (test-pinned). */
+// --- CN Tower v2 geometry laws (Phase 43) ------------------------------------------------------
+
+/**
+ * HEX ROLL — the core hexagon is turned 15° so a FACET CENTRE, never a corner, sits on each rib
+ * azimuth. Rolled by 15° the facet centres land at 45/105/165/225/285/345°, which contains all
+ * three ribs (120° apart), so ONE offset serves every fin. Each fin's flanks then cross their own
+ * facet at 90° instead of grazing two facets at a shallow angle — the Phase 42 anti-z-fight rule
+ * applied at the source rather than patched afterwards.
+ */
+const HEX_ROLL = Math.PI / 12;
+const HEX_SIDES = 6;
+
+/**
+ * COMPASS — DERIVED, not guessed. projection.ts's mapToWorld is explicit: map-y (south) maps to
+ * +Z, so **map north = −Z and map east = +X**; namedBuildings.ts pins every decal face SOUTH (+Z)
+ * and EAST (+X) precisely because the fixed rig sits at +X/+Z of the car (fx/cameraRig.ts:
+ * offset.x = d·cosθ·sin45, offset.z = d·cosθ·cos45, both positive). The lens therefore looks
+ * NORTH-WEST, i.e. toward (−X, −Z). In the azimuth frame this file's sweeper and prism use
+ * ([sin az, y, cos az] — az measured from +Z toward +X) that direction is 225°: ONE leg takes it,
+ * the other two sit ±120° away, and the gap between THOSE two centres on 45° — the SE diagonal,
+ * straight down the boresight. The arch void faces the camera in every street-level frame.
+ */
+const CN_NW_AZIMUTH = (5 * Math.PI) / 4;
+const CN_RIB_AZIMUTHS: readonly number[] = [
+  CN_NW_AZIMUTH - (2 * Math.PI) / 3, // 105°
+  CN_NW_AZIMUTH, //                     225° — the NW leg, on the far side from the lens
+  CN_NW_AZIMUTH + (2 * Math.PI) / 3, // 345°
+];
+
+/**
+ * Boundary radius of a regular hexagon of circumradius `circumR`, rolled by `roll`, at azimuth
+ * `az`. The arch skirt is sampled every 15° and needs to meet the 6-sided shaft EXACTLY at
+ * legTopY: sampling the hexagon's own outline (rather than a circle) makes the two rings coincide
+ * to float precision, so the junction is a shared edge instead of a 0.9 wu lip.
+ */
+function hexRadiusAt(circumR: number, az: number, roll: number): number {
+  const step = Math.PI / 3;
+  const d = (((az - roll) % step) + step) % step; // [0, 60°)
+  return (circumR * Math.cos(Math.PI / 6)) / Math.cos(d - Math.PI / 6);
+}
+
+/** Absolute angular distance between two azimuths, wrapped into [0, π]. */
+function angularDistance(a: number, b: number): number {
+  const tau = Math.PI * 2;
+  const d = (((a - b) % tau) + tau) % tau;
+  return d > Math.PI ? tau - d : d;
+}
+
+/**
+ * CN Tower v2 (Phase 43). Bottom to top, all of it the researcher-verified read:
+ *  • THREE LEGS at 120° — one aimed NW so the arch void between the other two faces the fixed SE
+ *    camera — swept as single fins that never stop: the leg IS the lower half of the shaft rib, so
+ *    each crest is one unbroken ridge from the ground to the pod (Phase 44 lights those ridges);
+ *  • a set-back hexagonal TRUNK you see through the openings, closed above by a flared SKIRT whose
+ *    bottom edge is a sampled PARABOLA (apex 0.14·h) with its SOFFIT modelled in a darker grey —
+ *    at the §5.3 camera's 58° pitch the underside is what you actually see from the street;
+ *  • the legs merge into the closed shaft at 0.22·h (the real ones close at 100–150 m; §5's
+ *    "bottom 8%" is superseded), above which the hex core tapers ⌀14 → ⌀6 in five bands with the
+ *    three fins narrowing as they rise;
+ *  • the main POD at 0.62·h with real massing — mushroom flare, white radome, dark glass band
+ *    carrying the glass-floor strip, and an upper mechanical ring whose RECESSED channel (radius
+ *    strictly inside the lips above and below) holds the emissive red/white LED ring;
+ *  • the SkyPod bulge at 0.81·h on the thinner upper shaft, and a needle 0.88·h → h with four
+ *    subtle diameter steps capped by the aircraft-beacon stub.
+ * ONE merged non-indexed geometry (one draw call), ≤ 2,500 tris — both test-pinned.
+ */
 export function buildCnTowerGeometry(): CnTowerModel {
   const s = heroSpec('cn-tower');
   const h = hGame(s.real_h_m);
-  const baseR = s.footprint_wu / 2; // 10.5 (⌀21)
-  const belowPodR = 3; // ⌀6 below the pod
+  const baseR = s.footprint_wu / 2; // 10.5 (⌀21) — the leg splay's envelope AND the collider radius
 
+  // --- §5 proportions (the only literals; each asserted by heroes.test.ts) --------------------
   const podCenterY = 0.62 * h;
   const skyPodCenterY = 0.81 * h;
-  const needleMinY = 0.88 * h; // top 12%
-  const legTopY = 0.077 * h; // bottom ~8%
+  const needleMinY = 0.88 * h;
+  const legTopY = 0.22 * h; // legs fully merged into the closed shaft
+  const archApexY = 0.14 * h; // ceiling of the parabolic void between two legs
 
-  const podHalfH = 3.6;
-  const podR = 7.2;
-  const podBottomY = podCenterY - podHalfH;
-  const podTopY = podCenterY + podHalfH;
+  // The pod is deliberately ASYMMETRIC about its centre — the mushroom flare hangs 4.4 wu below,
+  // the roof rises 2.6 above — which is what keeps the LED channel (up in the mechanical ring)
+  // inside the ±2%·h window the spec pins around 0.62·h.
+  const podBottomY = podCenterY - 4.4;
+  const podTopY = podCenterY + 2.6;
+  const podR = 7.2; // the glass band's radius (⌀14.4)
+
+  // --- radius laws ---------------------------------------------------------------------------
+  const SHAFT_BASE_R = 7; // ⌀14 where the legs have merged
+  const SHAFT_TOP_R = 3; // ⌀6 just below the pod
+  const NEEDLE_BASE_R = 2; // the upper shaft's top, where the needle stands on it
+  const TRUNK_GROUND_R = 4.4; // the set-back core seen THROUGH the arches
+  const SKIRT_GROUND_R = 9.8; // the arch springing, hugging each leg
+  const FIN_DEPTH_MERGE = 2; // rib crest beyond the core radius at legTopY
+  const FIN_DEPTH_TIP = 0.5; // …and just below the pod
+  const LEG_GROUND_R = baseR - 0.2; // 10.3 — inside the collider, footprint-derived
+
+  const shaftR = (y: number): number =>
+    SHAFT_BASE_R + ((SHAFT_TOP_R - SHAFT_BASE_R) * (y - legTopY)) / (podBottomY - legTopY);
+  const trunkR = (y: number): number =>
+    TRUNK_GROUND_R + (SHAFT_BASE_R - TRUNK_GROUND_R) * Math.pow(Math.min(1, y / legTopY), 1.3);
+  /** The concrete core's circumradius at any height — trunk below the merge, shaft above it. */
+  const coreR = (y: number): number => (y <= legTopY ? trunkR(y) : shaftR(y));
+  const skirtR = (y: number): number =>
+    SHAFT_BASE_R + (SKIRT_GROUND_R - SHAFT_BASE_R) * Math.pow(Math.max(0, 1 - y / legTopY), 0.75);
+  const upperShaftR = (y: number): number =>
+    SHAFT_TOP_R + ((NEEDLE_BASE_R - SHAFT_TOP_R) * (y - podBottomY)) / (needleMinY - podBottomY);
 
   const acc = createAccum();
 
-  // Shaft: three taper segments from the base (⌀21) to ⌀6 just below the pod (the "3 taper
-  // segments" §5 names). Radii lerp linearly base→belowPod across the three equal Y spans.
-  const shaftTopY = podBottomY;
-  const radiusAt = (y: number): number => baseR + (belowPodR - baseR) * (y / shaftTopY);
-  for (let i = 0; i < 3; i++) {
-    const yA = (shaftTopY * i) / 3;
-    const yB = (shaftTopY * (i + 1)) / 3;
-    addPrismFrustum(acc, 6, yA, yB, radiusAt(yA), radiusAt(yB), CONCRETE, { capBottom: i === 0 });
+  // --- the three legs-and-ribs (one swept fin each, ground → under the pod) --------------------
+  // Sections are sampled tight near the ground (where the splay curves hardest) and then on the
+  // shaft's own band boundaries, so every taper ring has a fin ring at exactly the same height —
+  // which is what lets the rib-presence test compare radial extents within one thin band.
+  const SHAFT_BANDS = 5;
+  const shaftBandY = Array.from(
+    { length: SHAFT_BANDS + 1 },
+    (_, i) => legTopY + ((podBottomY - legTopY) * i) / SHAFT_BANDS,
+  );
+  const FIN_TOP_Y = podBottomY + 1; // terminates inside the pod's flare — no visible junction
+  const finSection = (y: number): FinSection => {
+    const core = coreR(y);
+    const apothem = core * Math.cos(Math.PI / 6);
+    const apexR =
+      y <= legTopY
+        ? SHAFT_BASE_R +
+          FIN_DEPTH_MERGE +
+          (LEG_GROUND_R - SHAFT_BASE_R - FIN_DEPTH_MERGE) * Math.pow(1 - y / legTopY, 1.5)
+        : core +
+          FIN_DEPTH_MERGE +
+          ((FIN_DEPTH_TIP - FIN_DEPTH_MERGE) * (y - legTopY)) / (FIN_TOP_Y - legTopY);
+    const halfW =
+      y <= legTopY
+        ? 1.95 - 0.1 * (y / legTopY)
+        : 1.85 - (1.1 * (y - legTopY)) / (FIN_TOP_Y - legTopY);
+    return {
+      y,
+      apexR,
+      crestR: apexR - 0.18 * (apexR - apothem),
+      crestHalfW: 0.72 * halfW,
+      // Roots sit strictly INSIDE the hexagonal core at every height (checked against the apothem,
+      // not the circumradius), so the fin's open back is buried and there is no flush base seam.
+      rootR: Math.max(0.4, apothem - 0.8),
+      rootHalfW: halfW,
+    };
+  };
+  const finHeights = [0, 1.8, 3.6, 5.6, 7.8, 10.2, archApexY, (archApexY + legTopY) / 2, ...shaftBandY, FIN_TOP_Y];
+  const finSections = finHeights.map(finSection);
+  for (const az of CN_RIB_AZIMUTHS) addSweptFin(acc, az, finSections, RIB_CONCRETE);
+
+  // --- trunk: the set-back hex core seen through the arch voids --------------------------------
+  // It stops 3 wu above the arch apex, strictly inside the skirt (⌀12.6 vs ⌀15.8) — a trunk that
+  // ran all the way to legTopY would pinch against the skirt to zero thickness there, which is the
+  // near-coplanar pair Phase 42 hunts. Enclosed, not flush: the Chinatown-gate lesson.
+  const trunkTopY = archApexY + 3;
+  const TRUNK_BANDS = 4;
+  for (let i = 0; i < TRUNK_BANDS; i++) {
+    const yA = (trunkTopY * i) / TRUNK_BANDS;
+    const yB = (trunkTopY * (i + 1)) / TRUNK_BANDS;
+    addPrismFrustum(acc, HEX_SIDES, yA, yB, trunkR(yA), trunkR(yB), CONCRETE, {
+      capBottom: i === 0,
+      angleOffset: HEX_ROLL,
+    });
   }
-  // Thin upper shaft, pod → needle (continues past both pods, slight continued taper).
-  addPrismFrustum(acc, 6, podBottomY, needleMinY, belowPodR, 2.2, CONCRETE);
 
-  // Main observation pod — a squashed 16-gon cylinder centred at 0.62·h.
-  addPrismFrustum(acc, 16, podBottomY, podTopY, podR, podR, GLASS_POD, { capBottom: true, capTop: true });
-
-  // Emissive LED pod ring — a bright red/white band around the pod's waist (alternating segments).
-  const ringMinY = podCenterY - 1.3;
-  const ringMaxY = podCenterY + 1.3;
-  addPrismFrustum(acc, 16, ringMinY, ringMaxY, podR + 0.35, podR + 0.35, RING_RED, {
-    emissive: true,
-    colorAt: (i) => (i % 2 === 0 ? RING_RED : RING_WHITE),
-  });
-
-  // SkyPod — a smaller squashed 12-gon cylinder at 0.81·h.
-  const skyHalfH = 2;
-  const skyR = 4.6;
-  addPrismFrustum(acc, 12, skyPodCenterY - skyHalfH, skyPodCenterY + skyHalfH, skyR, skyR, GLASS_POD, {
-    capBottom: true,
-    capTop: true,
-  });
-
-  // Needle — cylinder + cone occupying the top 12% (bottom at 0.88·h, apex at h).
-  const needleCylTopY = needleMinY + (h - needleMinY) * 0.45;
-  addPrismFrustum(acc, 8, needleMinY, needleCylTopY, 1.5, 1.2, CONCRETE, { capBottom: true });
-  addPrismFrustum(acc, 8, needleCylTopY, h, 1.2, 0, CONCRETE);
-
-  // Three splayed buttress legs on the bottom 8% (Y-legs, at 120°).
-  for (let k = 0; k < 3; k++) {
-    const yaw = (k * Math.PI * 2) / 3;
-    addYawBox(acc, { minX: -2.6, maxX: 2.6, minY: 0, maxY: legTopY, minZ: 2, maxZ: 9.5 }, yaw, 0, 0, CONCRETE);
+  // --- arch skirt + soffit ----------------------------------------------------------------------
+  // ONE azimuth-sampled shell from the parabola up to legTopY. 24 samples = every 15°, which lands
+  // exactly on all three rib azimuths AND all six hex corners, so the skirt's top ring IS the
+  // shaft's bottom ring. The bottom edge is the arch: apex over each gap centre, dropping to the
+  // ground at each leg (where the leg covers it anyway) — a 4-segment-per-side parabola sample.
+  const SKIRT_SAMPLES = 24;
+  const SKIRT_BANDS = 4;
+  const SOFFIT_RISE = 0.5; // the vault slopes up as it runs inward — reads as depth, not a shelf
+  const gapCenters = CN_RIB_AZIMUTHS.map((az) => az + Math.PI / 3);
+  const azAt = (k: number): number => (k * Math.PI * 2) / SKIRT_SAMPLES;
+  const archY = (az: number): number => {
+    let d = Math.PI;
+    for (const g of gapCenters) d = Math.min(d, angularDistance(az, g));
+    const t = d / (Math.PI / 3);
+    return archApexY * Math.max(0, 1 - t * t);
+  };
+  const skirtPoint = (az: number, y: number): Vec3 => {
+    const r = hexRadiusAt(skirtR(y), az, HEX_ROLL);
+    return [r * Math.sin(az), y, r * Math.cos(az)];
+  };
+  const soffitInner = (az: number, y: number): Vec3 => {
+    const r = hexRadiusAt(trunkR(y), az, HEX_ROLL) - 0.35; // buried inside the trunk
+    return [r * Math.sin(az), y, r * Math.cos(az)];
+  };
+  for (let k = 0; k < SKIRT_SAMPLES; k++) {
+    const a0 = azAt(k);
+    const a1 = azAt(k + 1);
+    const s0 = archY(a0);
+    const s1 = archY(a1);
+    for (let b = 0; b < SKIRT_BANDS; b++) {
+      const f0 = b / SKIRT_BANDS;
+      const f1 = (b + 1) / SKIRT_BANDS;
+      addQuad(
+        acc,
+        [
+          skirtPoint(a0, s0 + (legTopY - s0) * f0),
+          skirtPoint(a1, s1 + (legTopY - s1) * f0),
+          skirtPoint(a1, s1 + (legTopY - s1) * f1),
+          skirtPoint(a0, s0 + (legTopY - s0) * f1),
+        ],
+        CONCRETE,
+      );
+    }
+    // The soffit: the down-facing underside closing skirt → trunk along the parabola. Darker, so
+    // the void reads as depth rather than as another grey wall.
+    addQuad(
+      acc,
+      [skirtPoint(a0, s0), soffitInner(a0, s0 + SOFFIT_RISE), soffitInner(a1, s1 + SOFFIT_RISE), skirtPoint(a1, s1)],
+      SOFFIT_CONCRETE,
+    );
   }
 
-  // Shaft camera-volume hints (see CnTowerMeta.shaftColliders): the same three taper spans as the
-  // mesh, each box sized to the span's widest (bottom) radius, first span starting where the base
-  // collider hint stops covering for it.
-  const shaftColliders = Array.from({ length: 3 }, (_, i) => {
-    const yA = Math.max((shaftTopY * i) / 3, legTopY);
-    const yB = (shaftTopY * (i + 1)) / 3;
-    return { radius: radiusAt(yA), halfHeight: (yB - yA) / 2, centerY: (yA + yB) / 2 };
+  // --- shaft: hex core, ⌀14 → ⌀6, five taper bands ---------------------------------------------
+  for (let i = 0; i < SHAFT_BANDS; i++) {
+    const yA = shaftBandY[i];
+    const yB = shaftBandY[i + 1];
+    addPrismFrustum(acc, HEX_SIDES, yA, yB, shaftR(yA), shaftR(yB), CONCRETE, { angleOffset: HEX_ROLL });
+  }
+
+  // --- upper shaft: pod → needle, split on the two pods so its taper is exact at each junction ---
+  const skyPodBottomY = skyPodCenterY - 2.4;
+  const skyPodTopY = skyPodCenterY + 2.1;
+  const upperCuts = [podBottomY, podTopY, skyPodBottomY, skyPodTopY, needleMinY];
+  for (let i = 0; i + 1 < upperCuts.length; i++) {
+    const yA = upperCuts[i];
+    const yB = upperCuts[i + 1];
+    addPrismFrustum(acc, HEX_SIDES, yA, yB, upperShaftR(yA), upperShaftR(yB), CONCRETE, {
+      angleOffset: HEX_ROLL,
+      // Capped at the top so the needle (which stands inside the cap's apothem) closes the tube.
+      capTop: i + 2 === upperCuts.length,
+    });
+  }
+
+  // --- main pod: a lathed profile, flare → radome → glass → recessed LED channel → roof ---------
+  const POD_SIDES = 16;
+  const RING_R = 6.7; // the channel floor
+  const LIP_R = 7.15; // the mechanical ring's lips, above and below it
+  const ringMinY = podCenterY + 0.9;
+  const ringMaxY = podCenterY + 1.7;
+  addLathe(acc, POD_SIDES, [
+    // Mushroom underside. Starts INSIDE the shaft (2.35 < the hex's 2.60 apothem there) so the
+    // flare has no annular crack around the concrete it hangs from.
+    { y0: podBottomY, r0: 2.35, y1: podCenterY - 3.2, r1: 5, hex: CONCRETE },
+    { y0: podCenterY - 3.2, r0: 5, y1: podCenterY - 2.2, r1: 7, hex: CONCRETE },
+    { y0: podCenterY - 2.2, r0: 7, y1: podCenterY - 1.9, r1: 7.3, hex: RADOME_WHITE },
+    { y0: podCenterY - 1.9, r0: 7.3, y1: podCenterY - 1.1, r1: 7.3, hex: RADOME_WHITE },
+    { y0: podCenterY - 1.1, r0: 7.3, y1: podCenterY - 0.95, r1: podR, hex: POD_CREAM },
+    { y0: podCenterY - 0.95, r0: podR, y1: podCenterY - 0.55, r1: podR, hex: GLASS_DARK },
+    // The glass floor, one level below the LookOut — the single lighter strip in the dark band.
+    { y0: podCenterY - 0.55, r0: podR, y1: podCenterY - 0.2, r1: podR, hex: GLASS_FLOOR },
+    { y0: podCenterY - 0.2, r0: podR, y1: podCenterY + 0.55, r1: podR, hex: GLASS_DARK },
+    { y0: podCenterY + 0.55, r0: podR, y1: podCenterY + 0.75, r1: LIP_R, hex: POD_CREAM },
+    { y0: podCenterY + 0.75, r0: LIP_R, y1: ringMinY, r1: LIP_R, hex: MECH_GREY },
+    // Step IN (a flat annulus — the lower lip's top face, which winds up-facing on its own).
+    { y0: ringMinY, r0: LIP_R, y1: ringMinY, r1: RING_R, hex: MECH_GREY },
+    // THE LED CHANNEL: emissive red/white texels, sheltered 0.45 wu inside both lips. Bright
+    // colour IS light on this unlit slice — the same trick v1's ring used, now recessed so Phase
+    // 44 has a real channel to program.
+    {
+      y0: ringMinY,
+      r0: RING_R,
+      y1: ringMaxY,
+      r1: RING_R,
+      hex: RING_RED,
+      emissive: true,
+      colorAt: (i) => (i % 2 === 0 ? RING_RED : RING_WHITE),
+    },
+    // Step OUT (the upper lip's underside — winds down-facing).
+    { y0: ringMaxY, r0: RING_R, y1: ringMaxY, r1: LIP_R, hex: MECH_GREY },
+    { y0: ringMaxY, r0: LIP_R, y1: podCenterY + 2.2, r1: LIP_R, hex: MECH_GREY },
+    { y0: podCenterY + 2.2, r0: LIP_R, y1: podCenterY + 2.45, r1: 6.9, hex: MECH_GREY },
+    // Flat roof deck, closing onto the shaft: its inner edge stops inside the hex's apothem so the
+    // shaft carries on through a hole rather than being capped over by the pod.
+    { y0: podCenterY + 2.45, r0: 6.9, y1: podTopY, r1: 2.3, hex: MECH_GREY },
+  ]);
+
+  // --- SkyPod: the 12-gon bulge, re-proportioned for the thinner upper shaft --------------------
+  addLathe(acc, 12, [
+    { y0: skyPodBottomY, r0: 1.9, y1: skyPodCenterY - 1.5, r1: 4.3, hex: CONCRETE },
+    { y0: skyPodCenterY - 1.5, r0: 4.3, y1: skyPodCenterY - 1.2, r1: 4.6, hex: POD_CREAM },
+    { y0: skyPodCenterY - 1.2, r0: 4.6, y1: skyPodCenterY + 0.9, r1: 4.6, hex: GLASS_POD },
+    { y0: skyPodCenterY + 0.9, r0: 4.6, y1: skyPodCenterY + 1.2, r1: 4.5, hex: POD_CREAM },
+    { y0: skyPodCenterY + 1.2, r0: 4.5, y1: skyPodCenterY + 1.7, r1: 4.2, hex: MECH_GREY },
+    { y0: skyPodCenterY + 1.7, r0: 4.2, y1: skyPodTopY, r1: 1.7, hex: MECH_GREY },
+  ]);
+
+  // --- needle: four SUBTLE diameter steps + the beacon stub ------------------------------------
+  // Research: the real mast's sections are not readable at distance, so the steps are flat annulus
+  // bands of 0.16-0.24 wu rather than the chunky collars a "stepped taper" invites.
+  // Cuts are FRACTIONS of the needle's own span, so a spec height change moves them in proportion
+  // instead of drifting (the P27 literal-drift class).
+  const nAt = (t: number): number => needleMinY + (h - needleMinY) * t;
+  const nCuts = [0, 0.19, 0.38, 0.57, 0.76, 0.88].map(nAt);
+  const beaconTipY = h;
+  addLathe(acc, 8, [
+    { y0: nCuts[0], r0: 1.6, y1: nCuts[1], r1: 1.52, hex: CONCRETE },
+    { y0: nCuts[1], r0: 1.52, y1: nCuts[1], r1: 1.28, hex: CONCRETE },
+    { y0: nCuts[1], r0: 1.28, y1: nCuts[2], r1: 1.2, hex: CONCRETE },
+    { y0: nCuts[2], r0: 1.2, y1: nCuts[2], r1: 0.98, hex: CONCRETE },
+    { y0: nCuts[2], r0: 0.98, y1: nCuts[3], r1: 0.9, hex: CONCRETE },
+    { y0: nCuts[3], r0: 0.9, y1: nCuts[3], r1: 0.7, hex: CONCRETE },
+    { y0: nCuts[3], r0: 0.7, y1: nCuts[4], r1: 0.62, hex: CONCRETE },
+    { y0: nCuts[4], r0: 0.62, y1: nCuts[4], r1: 0.46, hex: CONCRETE },
+    { y0: nCuts[4], r0: 0.46, y1: nCuts[5], r1: 0.4, hex: CONCRETE },
+    // Beacon stub: a distinct little housing that steps back OUT at the very top (Phase 44 lights
+    // it for real; the colour already reads as the aircraft-warning red).
+    { y0: nCuts[5], r0: 0.4, y1: nCuts[5], r1: 0.66, hex: BEACON_RED },
+    { y0: nCuts[5], r0: 0.66, y1: nAt(0.96), r1: 0.62, hex: BEACON_RED },
+    { y0: nAt(0.96), r0: 0.62, y1: beaconTipY, r1: 0.24, hex: BEACON_RED, capTop: true },
+  ]);
+
+  // Shaft camera-volume hints (see CnTowerMeta.shaftColliders): the mesh's own five taper bands,
+  // each box sized to its band's widest extent — which since Phase 43 is the FIN CREST, not the
+  // core, so the P36 see-through cover keeps covering the ribs too.
+  const shaftColliders = Array.from({ length: SHAFT_BANDS }, (_, i) => {
+    const yA = shaftBandY[i];
+    const yB = shaftBandY[i + 1];
+    return { radius: finSection(yA).apexR, halfHeight: (yB - yA) / 2, centerY: (yA + yB) / 2 };
   });
 
   return {
@@ -327,7 +684,13 @@ export function buildCnTowerGeometry(): CnTowerModel {
       needleMinY,
       needleMaxY: h,
       legTopY,
-      collider: { radius: 10.5, halfHeight: legTopY / 2 + 0.2, centerY: legTopY / 2 + 0.2 },
+      ringChannel: { minY: ringMinY, maxY: ringMaxY, radius: RING_R },
+      beaconTipY,
+      archApexY,
+      ribAzimuths: CN_RIB_AZIMUTHS,
+      // Same collider CLASS as v1 (one base cylinder over the leg zone, same formula shape) — only
+      // its height follows the new legTopY. Radius is the JSON footprint, not a re-typed 10.5.
+      collider: { radius: baseR, halfHeight: legTopY / 2 + 0.2, centerY: legTopY / 2 + 0.2 },
       shaftColliders,
     },
   };

@@ -69,6 +69,7 @@ import { flickerVantages, type FlickerVantage } from '../world/toronto/flickerVa
 import { startCameraLabDrive, type CameraLabDriveReport } from '../ai/cameraLabDrive';
 import { decalPolygonOffset } from '../fx/decalPolygonOffsetRef';
 import { cameraJitter } from '../fx/cameraJitterRef';
+import { devCamPoseRef, type DevCamPose } from '../fx/devCamPoseRef';
 import { isWorldFrozen, setWorldFrozen } from './simClock';
 
 // Phase 7 traffic verification: exactly-once event proof. The civHit/civWrecked emitter
@@ -398,6 +399,15 @@ export function setCameraJitter(x: number, z: number): void {
   cameraJitter.z = z;
 }
 
+/** Phase 43 landmark-evidence instrument: set (or clear, with `null`) a full camera pose that
+ * OVERRIDES the fixed rig's own final write outright — for off-rig silhouette/marketing shots
+ * the shipped rig geometrically cannot frame (the Phase 38 camera-debt sweep's verdict; see
+ * fx/devCamPoseRef.ts). The rig keeps computing its normal pose every frame underneath, so
+ * clearing back to `null` snaps straight back to the live rig framing. */
+export function setDevCamPose(pose: DevCamPose | null): void {
+  devCamPoseRef.pose = pose;
+}
+
 declare global {
   interface Window {
     __smashy?: {
@@ -710,6 +720,11 @@ declare global {
        * to the eye AND the look target (pure translation — the view direction is unchanged, only
        * the rasterization grid moves). `(0, 0)` = shipped framing. See fx/cameraJitterRef.ts. */
       setCameraJitter: (x: number, z: number) => void;
+      /** Phase 43 landmark-evidence instrument: full camera pose override (eye + look target +
+       * optional FOV) for off-rig silhouette/marketing shots the fixed rig cannot frame (Phase 38
+       * verdict). `null` releases the override and snaps back to the live rig pose. See
+       * fx/devCamPoseRef.ts. */
+      setDevCamPose: (pose: DevCamPose | null) => void;
       /** Phase 42 sweep toggles: mount/unmount the civilian-traffic and TTC-transit layers
        * (core/devToggles.ts documents why a placement sweep runs without moving agents). Off
        * really unmounts — `trafficCount()` drops to 0 and `torontoTransitSlots()` empties. */
@@ -895,6 +910,7 @@ window.__smashy = {
   setFreezeWorld,
   getFreezeWorld: () => isWorldFrozen(),
   setCameraJitter,
+  setDevCamPose,
   setCivTraffic: (value) => setDevToggle('civTraffic', value),
   setTransit: (value) => setDevToggle('transit', value),
 };
