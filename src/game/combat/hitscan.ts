@@ -167,7 +167,8 @@ export interface RoundParams {
   readonly dmgPerHit: number;
   readonly impulsePerHit: number;
   readonly propForceProxyN: number;
-  /** performance.now() at fire time — the tracer fades by age. */
+  /** Fire time in ms — core/simClock.ts's simNowMs() on the live path (Phase 42), which the tracer
+   * fades by age against. Injected rather than sampled here so the tests pin exact ages. */
   readonly nowMs: number;
 }
 

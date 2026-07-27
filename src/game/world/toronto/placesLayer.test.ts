@@ -107,6 +107,15 @@ describe('buildPlacesLayer — vibe props', () => {
     expect(layer.gate.clearance).toBeGreaterThanOrEqual(6);
   });
 
+  it('gate post tops end strictly INSIDE the lintel volume (never coplanar with its top)', () => {
+    // Phase 42 flicker-sweep regression: postTopY === lintel.y1 made the posts' +Y caps
+    // exactly coplanar with the lintel top where they overlap — a full-rate z-fight
+    // (cam-kensington). Strict inequalities keep the caps enclosed by the lintel's opaque
+    // faces, where no camera can see them.
+    expect(layer.gate.postTopY).toBeGreaterThan(layer.gate.lintel.y0);
+    expect(layer.gate.postTopY).toBeLessThan(layer.gate.lintel.y1);
+  });
+
   it("Sam the Record Man has two rooftop discs above the host box's roof", () => {
     expect(layer.discs.discs.length).toBe(2);
     const roofY = layer.discs.host.hy * 2;

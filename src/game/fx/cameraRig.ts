@@ -26,6 +26,7 @@ import { STARTER_TOP_SPEED } from '../config/vehicles';
 import { getGameState, getReducedShake } from '../state/store';
 import { gameEvents } from '../state/events';
 import { playerVehicle } from '../vehicles/playerRef';
+import { cameraJitter } from './cameraJitterRef';
 
 export interface Vec3 {
   x: number;
@@ -711,8 +712,21 @@ export function updateCameraRig(camera: PerspectiveCamera, dt: number): void {
   const ox = suppress ? 0 : shake.x;
   const oy = suppress ? 0 : shake.y;
   const oz = suppress ? 0 : shake.z;
-  camera.position.set(smoothedCamPos.x + ox, smoothedCamPos.y + oy, smoothedCamPos.z + oz);
-  camera.lookAt(frame.lookTarget.x, frame.lookTarget.y, frame.lookTarget.z);
+  // Phase 42 flicker-detector jitter (fx/cameraJitterRef.ts): a sub-wu ground-plane offset added
+  // to the eye AND the look target, i.e. a PURE TRANSLATION — the view direction is bit-identical
+  // between a jittered and an un-jittered frame, so the only thing that changes is where the
+  // rasterization grid falls, which is precisely the toggle the detector measures. Applied here,
+  // OUTSIDE the lerp state (exactly like shake above), so it can never feed back into next frame's
+  // damping or into the clamp/anti-clip solves. DEV-only read: `import.meta.env.DEV` folds to
+  // `false` in production and the pair collapses to the literal 0s this line already added.
+  let jx = 0;
+  let jz = 0;
+  if (import.meta.env.DEV) {
+    jx = cameraJitter.x;
+    jz = cameraJitter.z;
+  }
+  camera.position.set(smoothedCamPos.x + ox + jx, smoothedCamPos.y + oy, smoothedCamPos.z + oz + jz);
+  camera.lookAt(frame.lookTarget.x + jx, frame.lookTarget.y, frame.lookTarget.z + jz);
 
   // FOV kick: capture the rest-state base once (only when nothing is applied, so we never
   // latch a kicked value as the base), then hold camera.fov at base + kick, touching

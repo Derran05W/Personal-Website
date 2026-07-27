@@ -103,6 +103,7 @@ import { torontoStreetlightEmitters } from '../../powergrid/lightPool';
 import { GROUND_STACK, WALL_STACK } from '../../config/layering';
 import { resolveAnisotropy } from '../../config/surfaces';
 import { useDevToggle } from '../../core/devToggles';
+import { isWorldFrozen } from '../../core/simClock';
 import { preloadCityPack } from '../../assets/cityPack';
 import { CityPackPreview } from './cityPack/CityPackPreview';
 import { CityDress } from './cityPack/CityDress';
@@ -1265,6 +1266,14 @@ export function TorontoScene() {
   useFrame((state, delta) => {
     const model = playerVehicle.current;
     if (!model) return;
+    // Phase 42 (core/simClock.ts): while the world is frozen this pass HOLDS — the faded key set,
+    // every fade level and the 150 ms hysteresis timers stay exactly where the freeze caught them.
+    // Skipping is the latch: nothing here mutates unless it runs. Two reasons it must not run: the
+    // detector's camera jitter would re-run the boresight segments and could flip a grazing key's
+    // occluded state mid-capture (a fade transition reads as flicker, and it isn't one), and the
+    // hysteresis clock is wall-clock (`nowMs` below), so it would keep counting down through a
+    // multi-second freeze even though no frame in between was ever painted.
+    if (isWorldFrozen()) return;
     const nowMs = performance.now();
     const car = model.readState().pose.position;
     const cam = state.camera;

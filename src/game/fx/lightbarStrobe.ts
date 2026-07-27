@@ -29,9 +29,11 @@ export interface LightbarPhase {
 const DARK: LightbarPhase = { red: 0, blue: 0 };
 
 /**
- * Pure strobe evaluator. `tSec` is any monotonic clock (the live callers pass
- * `performance.now() / 1000`, matching the code this replaces); `instanceIndex` staggers a
- * fleet so units don't blink in lockstep (mirrors the old `i * 0.13`).
+ * Pure strobe evaluator. `tSec` is any monotonic clock (the live callers pass core/simClock.ts's
+ * `simNowMs() / 1000` — wall clock minus any frozen spans since Phase 42, and plain
+ * `performance.now() / 1000` in every non-frozen frame, which is what the code this replaced
+ * used); `instanceIndex` staggers a fleet so units don't blink in lockstep (mirrors the old
+ * `i * 0.13`).
  */
 export function lightbarPhase(
   tSec: number,

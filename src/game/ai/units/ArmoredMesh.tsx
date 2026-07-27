@@ -34,6 +34,7 @@ import {
 import { ENEMY_UNITS, SPAWN, VEHICLE_TUNING } from '../../config';
 import { hpLostFraction, tintDamageColor } from '../../fx/damageStates';
 import { lightbarPhase } from '../../fx/lightbarStrobe';
+import { simNowMs } from '../../core/simClock';
 import { PaletteCell } from '../../world/archetypes';
 import { addBox, createBuilder, toBufferGeometry } from '../../world/geometry/kit';
 import { getCityMaterial } from '../../world/palette';
@@ -267,7 +268,9 @@ export function ArmoredMesh() {
     const blueBar = blueBarRef.current;
     if (mesh === null || blueBar === null) return;
     const slots = unitsRef.current?.slots;
-    const t = performance.now() / 1000;
+    // Phase 42: simNowMs, not performance.now — same reason as PoliceMesh's identical line (the
+    // strobe paints, so the freeze must reach it). Inert outside a dev freeze.
+    const t = simNowMs() / 1000;
     const emissiveAttr = mesh.geometry.getAttribute('aEmissiveOn') as InstancedBufferAttribute;
     const blueEmissiveAttr = blueBar.geometry.getAttribute('aEmissiveOn') as InstancedBufferAttribute;
 

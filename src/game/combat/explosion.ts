@@ -27,6 +27,7 @@ import { CollisionGroup, EXPLOSION, TANK } from '../config';
 import { getEntity, type EntityEntry } from '../world/registry';
 import { swapFromExternalHit } from '../world/propDynamics';
 import { pushFxBurst } from '../fx/particleFeed';
+import { simNowMs } from '../core/simClock';
 import { applyEntityDamage, applyPlayerDamage } from './damage';
 import { pushExplosion } from './explosionFeed';
 import type { Vec3 } from './turret';
@@ -211,7 +212,10 @@ export function detonate(deps: DetonateDeps, point: Vec3): void {
   // one, existing since Phase 12) PLUS a physical ember/dust particle burst (Phase 16) from
   // fx/particles.ts's pool — two independent consumers of the same detonation, same split
   // combat/hitscan.ts uses for its tracer hit-spark quad vs. its impactSparks burst.
-  pushExplosion({ x: point.x, y: point.y, z: point.z, radiusM: blast.radius, t: performance.now() });
+  // `t` is stamped off core/simClock.ts's simNowMs (Phase 42), the SAME clock fx/Explosions.tsx
+  // ages the FX with — a writer/reader mismatch would make every age wrong by the total frozen
+  // span. Outside a dev freeze it is performance.now() exactly.
+  pushExplosion({ x: point.x, y: point.y, z: point.z, radiusM: blast.radius, t: simNowMs() });
   pushFxBurst('explosion', point.x, point.y, point.z, {
     intensity: blast.radius / EXPLOSION.particleNominalRadiusM,
   });

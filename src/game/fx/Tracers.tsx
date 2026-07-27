@@ -61,6 +61,7 @@ import {
 } from 'three';
 import { TRACER } from '../config';
 import { readTracers } from '../combat/tracerFeed';
+import { simNowMs } from '../core/simClock';
 
 // Must match combat/tracerFeed.ts's private ring-buffer CAP — see file header above.
 const POOL_CAP = 64;
@@ -168,7 +169,9 @@ export function Tracers() {
 
     const positions = lineGeometry.getAttribute('position') as BufferAttribute;
     const colors = lineGeometry.getAttribute('color') as BufferAttribute;
-    const now = performance.now();
+    // Phase 42: simNowMs, not performance.now — beams/flashes/sparks all fade by AGE (a frozen
+    // world must hold them mid-fade). ai/units/gunTruck.ts stamps `shot.t` off the same clock.
+    const now = simNowMs();
     const camQuat = state.camera.quaternion; // shared by every billboard this frame
 
     for (let i = 0; i < POOL_CAP; i += 1) {

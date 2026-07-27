@@ -65,6 +65,7 @@ import {
 } from 'three';
 import { EXPLOSION, SKID } from '../config';
 import { readExplosions, type ExplosionRecord } from '../combat/explosionFeed';
+import { simNowMs } from '../core/simClock';
 import { addShake, armFovKick } from './cameraRig';
 import { decalPolygonOffset } from './decalPolygonOffsetRef';
 
@@ -285,7 +286,10 @@ export function Explosions() {
     }
     prevLengthRef.current = count;
 
-    const now = performance.now();
+    // Phase 42: simNowMs, not performance.now — every quad below fades by AGE, so a blast would
+    // keep dying through a frozen capture pair. The feed side (combat/explosion.ts's pushExplosion)
+    // stamps `blast.t` off the same clock; both sides must agree or the ages go negative/huge.
+    const now = simNowMs();
     const camQuat = state.camera.quaternion;
     let scorchMatrixDirty = false;
     let scorchColorDirty = false;

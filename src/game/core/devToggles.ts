@@ -70,6 +70,16 @@ export interface DevToggles {
    * (world/toronto/infill.ts). Toggle off ≈ the Phase 25.6-27 city minus every Phase 28 addition
    * (frontage/furniture/venue layers untouched). */
   packInfill: boolean;
+  /** Phase 42 sweep toggles (default ON): the two MOVING-AGENT layers — civilian traffic
+   * (world/toronto/TorontoTraffic.tsx) and TTC transit, buses + streetcars together
+   * (world/toronto/TorontoTransit.tsx). The flicker sweep turns both off for its runs: their poses
+   * depend on how long the run has been going, so a vantage revisited on a second run frames
+   * different cars and the "two identical sweeps" determinism gate becomes unreachable — and they
+   * are traffic, not PLACEMENT, which is what the sweep audits. Everything static (parked cars,
+   * frontage, furniture, infill, lamps) stays IN. Gated at the mount in game/index.tsx, so flipping
+   * either off genuinely tears the pool down (trafficCount → 0) rather than just hiding meshes. */
+  civTraffic: boolean;
+  transit: boolean;
 }
 
 const toggles: DevToggles = {
@@ -87,6 +97,8 @@ const toggles: DevToggles = {
   packLightCycling: true,
   venueDress: true,
   packInfill: true,
+  civTraffic: true,
+  transit: true,
 };
 const listeners = new Set<() => void>();
 

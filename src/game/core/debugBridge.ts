@@ -65,8 +65,11 @@ import {
 import { fadeTargetCount } from '../world/toronto/occlusionTargets';
 import { getAntiClipPullM } from '../world/toronto/cameraAntiClip';
 import { cameraVantages, type CameraVantage } from '../world/toronto/cameraVantages';
+import { flickerVantages, type FlickerVantage } from '../world/toronto/flickerVantages';
 import { startCameraLabDrive, type CameraLabDriveReport } from '../ai/cameraLabDrive';
 import { decalPolygonOffset } from '../fx/decalPolygonOffsetRef';
+import { cameraJitter } from '../fx/cameraJitterRef';
+import { isWorldFrozen, setWorldFrozen } from './simClock';
 
 // Phase 7 traffic verification: exactly-once event proof. The civHit/civWrecked emitter
 // payloads are empty, so scripted checks can't scrape them from the DOM — count them here
@@ -378,6 +381,23 @@ export function setPolygonOffsetDecals(on: boolean): void {
   decalPolygonOffset.current = on;
 }
 
+// Phase 42 flicker harness: the freeze switch + the camera-jitter nudge, the two controls the
+// two-frame detector drives between captures. Both mirror a core/devPanel.tsx "Flicker (P42)"
+// control so a human and the scripted sweep exercise identical code (the polygonOffsetDecals
+// precedent above). See core/simClock.ts's header for what "frozen" covers and why one clock
+// wrapper is the whole mechanism, and fx/cameraJitterRef.ts for why the nudge is a pure
+// translation.
+export function setFreezeWorld(frozen: boolean): void {
+  setWorldFrozen(frozen);
+}
+
+/** Sub-wu ground-plane camera offset (world units), applied to the eye AND the look target on the
+ * next frame the rig runs. `(0, 0)` restores the shipped framing. */
+export function setCameraJitter(x: number, z: number): void {
+  cameraJitter.x = x;
+  cameraJitter.z = z;
+}
+
 declare global {
   interface Window {
     __smashy?: {
@@ -671,6 +691,30 @@ declare global {
        * `polygonOffset` on/off — the scripted mirror of the devPanel "FX" folder's
        * `polygonOffsetDecals` toggle (see fx/decalPolygonOffsetRef.ts's doc comment). */
       setPolygonOffsetDecals: (on: boolean) => void;
+      /** Phase 42 flicker-sweep harness: the full auto-vantage lattice
+       * ({id,x,z,source}[] — world/toronto/flickerVantages.ts) the sweep script teleports the
+       * car to. Composed from a 120 wu polygon lattice (road-snapped), one pose per district,
+       * the pinned Phase 39-41 money-shot evidence anchors, and cameraVantages()'s own anchors —
+       * see the module header for the exact composition + dedupe rule. */
+      flickerVantages: () => readonly FlickerVantage[];
+      /** Phase 42 flicker detector: freeze/unfreeze ALL world motion — the physics step plus every
+       * delta/elapsed-driven animation in the scene (one clock governor; core/simClock.ts's header
+       * has the mechanism) plus the wall-clock painted stragglers that were migrated onto the same
+       * sim clock. Rendering keeps running, so the canvas still paints and can be screenshotted.
+       * The detector's totality gate: two captures 500 ms apart while frozen must differ by ZERO
+       * pixels. Idempotent; leaves the world frozen until explicitly released. */
+      setFreezeWorld: (frozen: boolean) => void;
+      /** Phase 42: whether the world is currently frozen. */
+      getFreezeWorld: () => boolean;
+      /** Phase 42 flicker detector: sub-wu camera nudge in world units on the ground plane, added
+       * to the eye AND the look target (pure translation — the view direction is unchanged, only
+       * the rasterization grid moves). `(0, 0)` = shipped framing. See fx/cameraJitterRef.ts. */
+      setCameraJitter: (x: number, z: number) => void;
+      /** Phase 42 sweep toggles: mount/unmount the civilian-traffic and TTC-transit layers
+       * (core/devToggles.ts documents why a placement sweep runs without moving agents). Off
+       * really unmounts — `trafficCount()` drops to 0 and `torontoTransitSlots()` empties. */
+      setCivTraffic: (value: boolean) => void;
+      setTransit: (value: boolean) => void;
     };
   }
 }
@@ -847,4 +891,10 @@ window.__smashy = {
   cameraVantages: () => cameraVantages(),
   startCameraLabDrive: (opts) => startCameraLabDrive(opts),
   setPolygonOffsetDecals,
+  flickerVantages: () => flickerVantages(),
+  setFreezeWorld,
+  getFreezeWorld: () => isWorldFrozen(),
+  setCameraJitter,
+  setCivTraffic: (value) => setDevToggle('civTraffic', value),
+  setTransit: (value) => setDevToggle('transit', value),
 };

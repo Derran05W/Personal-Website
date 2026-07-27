@@ -7,7 +7,9 @@ export interface ExplosionRecord {
   readonly y: number;
   readonly z: number;
   readonly radiusM: number;
-  /** performance.now() at detonation — FX fades by age. */
+  /** core/simClock.ts's simNowMs() at detonation — FX fades by age. Phase 42: that clock (wall
+   * clock minus frozen spans) rather than performance.now(), so a blast holds mid-fade while a dev
+   * freezes the world; fx/Explosions.tsx reads ages off the same clock. */
   readonly t: number;
 }
 

@@ -19,6 +19,7 @@
     "check:shell": "node scripts/check-shell-size.mjs",
     "check:prerender": "node scripts/check-prerender.mjs",
     "bench:chaos": "node scripts/bench-chaos.mjs",
+    "flicker": "node scripts/flicker-sweep.mjs",
     "assets:pack": "node scripts/city-pack.mjs"
   },
   "pnpm": {

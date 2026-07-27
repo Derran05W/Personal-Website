@@ -27,6 +27,7 @@ import { gameEvents } from '../../state/events';
 import { getEntity, registerEntity, unregisterEntity } from '../../world/registry';
 import { createRng, type Rng } from '../../world/rng';
 import { playerVehicle } from '../../vehicles/playerRef';
+import { simNowMs } from '../../core/simClock';
 import type { VehicleInputs } from '../../vehicles/IVehicleModel';
 import { PursuitVehicle } from '../pursuitVehicle';
 import { createStandoffBrain, initialStuckState, pursueSteer, type StandoffBrain, type StuckState } from '../aiSteering';
@@ -312,7 +313,10 @@ class GunTruckUnit implements UnitHandle, PursuitStepUnit {
         dmgPerHit: GUN_TRUCK.burst.dmgPerHit,
         impulsePerHit: GUN_TRUCK.burst.impulsePerHit,
         propForceProxyN: GUN_TRUCK.burst.propForceProxyN,
-        nowMs: performance.now(),
+        // The tracer's fire timestamp — core/simClock.ts's simNowMs (Phase 42), the same clock
+        // fx/Tracers.tsx ages beams/sparks with. Not a gameplay clock: the burst schedule itself
+        // runs on the physics step, which is paused while frozen anyway.
+        nowMs: simNowMs(),
       },
     );
   }

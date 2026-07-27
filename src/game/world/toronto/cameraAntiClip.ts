@@ -37,6 +37,7 @@
 import { CAMERA } from '../../config/camera';
 import { pointInsideAny } from './cameraClipIndex';
 import { playerVehicle } from '../../vehicles/playerRef';
+import { isWorldFrozen, simNowMs } from '../../core/simClock';
 import type { CameraPosConstraint, Vec3 } from '../../fx/cameraRig';
 
 /** Below this boresight length (m) there is no meaningful direction to pull along — the eye is
@@ -137,8 +138,9 @@ export function createAntiClipState(): AntiClipState {
  * likewise left alone by the zero-pull branch, so the ramp base doesn't collapse on the double
  * call and re-ramp from 0 on the next frame.
  *
- * `nowMs` is injected (the live path passes performance.now()) so the tests step the rate cap at
- * exact frame boundaries instead of racing a real clock.
+ * `nowMs` is injected (the live path passes core/simClock.ts's simNowMs() — wall clock minus any
+ * frozen spans, Phase 42) so the tests step the rate cap at exact frame boundaries instead of
+ * racing a real clock.
  */
 export function applyAntiClip(
   eye: Vec3,
@@ -213,11 +215,20 @@ function insideLive(x: number, y: number, z: number): boolean {
  * re-register of the same fn — the same discipline as that file's clampCameraPos.
  */
 export const antiClipCameraPos: CameraPosConstraint = (pos: Vec3): void => {
+  // Phase 42 (core/simClock.ts): HOLD while the world is frozen — the pull the guard had applied is
+  // already folded into the rig's lerp state (which a 0 delta leaves untouched), so doing nothing
+  // is what keeps the eye exactly where the freeze caught it. Running would be actively wrong: the
+  // solve is unchanged frame to frame at a standstill, so the ramp would keep GROWING the pull and
+  // walk the camera down the boresight through a capture pair — a whole-frame change, not flicker.
+  if (isWorldFrozen()) return;
   const model = playerVehicle.current;
   if (!model) {
     livePullM = 0;
     return;
   }
   const car = model.readState().pose.position; // interpolated pose — same source the rig follows
-  livePullM = applyAntiClip(pos, car, insideLive, liveState, performance.now(), CAMERA.antiClip);
+  // simNowMs (not performance.now): frozen spans are subtracted out, so the first frame after a
+  // release sees ONE frame's dt in the rate cap instead of the whole freeze, and the ramp resumes
+  // from where it was rather than being handed a free unlimited step.
+  livePullM = applyAntiClip(pos, car, insideLive, liveState, simNowMs(), CAMERA.antiClip);
 };

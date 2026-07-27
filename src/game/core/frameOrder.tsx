@@ -31,6 +31,7 @@ import { useBeforePhysicsStep, useAfterPhysicsStep } from '@react-three/rapier';
 import type { PerspectiveCamera } from 'three';
 import { updateCameraRig } from '../fx/cameraRig';
 import { hasExternalRenderOwner } from './renderOwner';
+import { publishSimClock } from './simClock';
 
 /**
  * useFrame priority scheme for the game's render loop.
@@ -99,6 +100,13 @@ export function EventDrainSystem(): null {
  */
 export function CameraFxSystem(): null {
   useFrame((state, delta) => {
+    // Phase 42: publish the ONE clock R3F derives every frame's delta from, so core/simClock.ts's
+    // freeze governor has something to wrap (that module's header explains why wrapping one
+    // getDelta freezes the whole scene). This system is the right publisher because it is mounted
+    // for the game's entire lifetime — TorontoScene, the other candidate, is keyed per run and
+    // would drop the handle across a retry. DEV-only: nothing in a production build can freeze the
+    // world, so the branch (and the import's use) folds away.
+    if (import.meta.env.DEV) publishSimClock(state.clock);
     updateCameraRig(state.camera as PerspectiveCamera, delta);
     // Phase 16+: FX + positional audio hook in here (before the render).
     if (!hasExternalRenderOwner()) {

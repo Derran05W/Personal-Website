@@ -13,7 +13,7 @@
 // deterministic 60 Hz step the frame order assumes, `interpolate` smooths render frames
 // between physics steps (TDD §7).
 
-import { lazy, Suspense, useEffect, useMemo, type CSSProperties } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useSyncExternalStore, type CSSProperties } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Physics } from '@react-three/rapier';
 import { useProgress } from '@react-three/drei';
@@ -78,6 +78,11 @@ import { buildStreets } from './world/toronto/streets';
 // components below (Minimap, GraphViz) that CONSUME these are what actually get stripped
 // from prod.
 import { useDevToggle } from './core/devToggles';
+// Phase 42 freeze seam (core/simClock.ts) — same "dependency-free, prod-inert, safe to import from
+// a shipped file" property as devToggles above: `isWorldFrozen()` is permanently false in a
+// production build (nothing there can write it), so the <Physics paused> composition below is
+// literally `machine !== 'PLAYING'` again.
+import { isWorldFrozen, subscribeWorldFrozen } from './core/simClock';
 
 // Dev-only overlays, code-split so leva / r3f-perf never enter a production chunk. The
 // `import.meta.env.DEV ? … : null` guard is a compile-time constant in prod builds
@@ -174,6 +179,14 @@ export default function Game() {
   const graphVizOn = useDevToggle('graphViz');
   const aimVizOn = useDevToggle('aimViz');
   const squadVizOn = useDevToggle('squadViz');
+  // Phase 42 sweep toggles: the flicker sweep runs with both moving-agent layers unmounted (see
+  // core/devToggles.ts for why). Always true in prod, exactly like the viz toggles above.
+  const civTrafficOn = useDevToggle('civTraffic');
+  const transitOn = useDevToggle('transit');
+  // Phase 42 freeze switch. Subscribed (rather than read once) because core/simClock.ts's flag is
+  // flipped from OUTSIDE React — the debug bridge / leva panel — and the <Physics paused> prop
+  // below has to actually re-render when it flips; `machine` changes alone would not carry it.
+  const worldFrozen = useSyncExternalStore(subscribeWorldFrozen, isWorldFrozen);
   // Phase 32: the dev-only graph visualizer now draws the ACTUAL shipped road graph (Toronto's),
   // not a `world` prop from a generator that no longer runs. Pure/seed-independent, so an empty
   // deps array is correct (same memoization TorontoTraffic.tsx uses for its own copy).
@@ -290,7 +303,11 @@ export default function Game() {
         {/* Asset-load suspense seam: future <useLoader> children suspend here while the
             DOM progress overlay (below) shows drei useProgress. */}
         <Suspense fallback={null}>
-          <Physics timeStep={1 / 60} interpolate paused={machine !== 'PLAYING'}>
+          {/* Phase 42 belt-and-suspenders: the clock governor already starves Rapier's
+              accumulator (a 0 delta accumulates no steps), but composing the freeze into `paused`
+              means the harness can state "no physics stepped between the two captures" without
+              reasoning about an accumulator at all. `worldFrozen` is always false in prod. */}
+          <Physics timeStep={1 / 60} interpolate paused={machine !== 'PLAYING' || worldFrozen}>
             {/* Frame-order scaffolding (TDD §6). AiSystem / EventDrainSystem must live
                 inside <Physics> — their hooks read the Rapier context. */}
             <AiSystem />
@@ -313,11 +330,14 @@ export default function Game() {
                 they mount, don't assume) and the ambient heli trio (grid-independent
                 searchlight — the money shot reads over dark-district ground tints). */}
             <TorontoScene key={`toronto-${worldKey}`} />
-            <TorontoTraffic key={`toronto-traffic-${worldKey}`} />
+            {/* Phase 42: `civTraffic`/`transit` gate these two MOUNTS (not just their meshes) so a
+                sweep run really has no moving agents — the pools, controllers and bodies all go
+                with them. Both toggles are permanently true outside dev. */}
+            {civTrafficOn ? <TorontoTraffic key={`toronto-traffic-${worldKey}`} /> : null}
             {/* Phase 31 (Part-8 D1-D5): TTC-homage transit — buses + streetcars on real
                 route numbers/streets, wreckable, tier-scaled roster. Same key convention as
                 every other seed-scoped Toronto mount. */}
-            <TorontoTransit key={`toronto-transit-${worldKey}`} />
+            {transitOn ? <TorontoTransit key={`toronto-transit-${worldKey}`} /> : null}
             <DamageSystem key={`damage-${worldKey}`} />
             <PropDynamics key={`props-${worldKey}`} source={onImpact} />
             <HeatScoreSystem />

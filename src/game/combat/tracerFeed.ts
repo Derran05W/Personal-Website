@@ -14,7 +14,9 @@ export interface TracerShot {
   readonly z1: number;
   /** True when the round struck something (spark at x1), false = flew to max range. */
   readonly hit: boolean;
-  /** performance.now() at fire time — FX fades by age. */
+  /** core/simClock.ts's simNowMs() at fire time — FX fades by age. Phase 42: that clock (wall
+   * clock minus frozen spans) rather than performance.now(), so the fade holds while a dev freezes
+   * the world for the flicker detector; fx/Tracers.tsx reads ages off the same clock. */
   readonly t: number;
 }
 

@@ -283,7 +283,13 @@ export function buildPlacesLayer(named: NamedBuildings = buildNamedBuildings()):
   // Chinatown red gate spanning Spadina at Dundas — posts straddle the ribbon, lintel above with
   // ≥6 wu drive-under clearance. Colliderless (never a ceiling the car can hit).
   const gateZ = c('dundas');
-  const gatePostTopY = 8.5;
+  const gateLintelTopY = 8.5;
+  // Post tops end INSIDE the lintel volume (clearance 6.5 < 8.0 < lintel top 8.5), fully
+  // enclosed by the lintel's opaque top/side faces. Was an exact tie (postTopY === lintel.y1
+  // === 8.5): the posts' dark-red +Y caps sat coplanar with the lintel's bright top face and
+  // z-fought across the post cross-section — the Phase 42 flicker sweep's one confirmed
+  // z-fight (cam-kensington, full-rate winner swap, triage in phase-42-notes.md).
+  const gatePostTopY = 8.0;
   const gateClearance = 6.5; // ≥6 wu drive-under (§6 / plan): the lintel bottom sits here
   const gate: GateProp = {
     posts: [
@@ -292,7 +298,7 @@ export function buildPlacesLayer(named: NamedBuildings = buildNamedBuildings()):
     ],
     postThick: 1.4,
     postTopY: gatePostTopY,
-    lintel: { minX: spadina.ribbon.minX - 3, maxX: spadina.ribbon.maxX + 3, y0: gateClearance, y1: gatePostTopY, z: gateZ },
+    lintel: { minX: spadina.ribbon.minX - 3, maxX: spadina.ribbon.maxX + 3, y0: gateClearance, y1: gateLintelTopY, z: gateZ },
     clearance: gateClearance,
   };
 

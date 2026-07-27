@@ -30,8 +30,12 @@ import {
   setForcedHeliTier,
   heliSlotsSummary,
   setPolygonOffsetDecals,
+  setCameraJitter,
+  setFreezeWorld,
 } from './debugBridge';
 import { decalPolygonOffset } from '../fx/decalPolygonOffsetRef';
+import { cameraJitter } from '../fx/cameraJitterRef';
+import { isWorldFrozen } from './simClock';
 import { startChaosBench } from '../ai/chaosBench';
 import { ARCHETYPES } from '../world/archetypes';
 import { DISTRICT_COUNT, setDistrictColor } from '../world/instancing';
@@ -880,6 +884,50 @@ export default function DevPanel() {
         onChange: (value: boolean) => setPolygonOffsetDecals(value),
       },
       note: { value: 'A/B vs the ground-stack ladder — skid + scorch decals only', disabled: true },
+    }),
+    [],
+  );
+
+  // --- Flicker (P42): the two-frame detector's own controls ------------------------------------
+  // `freezeWorld` stops ALL world motion — physics + every delta/elapsed-driven animation via the
+  // clock governor, plus the painted wall-clock stragglers that moved onto the same sim clock
+  // (core/simClock.ts's header). Rendering keeps going, so the frozen frame still paints and can
+  // be compared pixel-for-pixel against the next one. `jitter x/z` is the sub-wu nudge the detector
+  // alternates between captures (fx/cameraJitterRef.ts) — pure translation, so only the
+  // rasterization grid moves. `civTraffic`/`transit` unmount the moving-agent layers a placement
+  // sweep must not photograph (core/devToggles.ts). Every control writes through the same
+  // core/debugBridge.ts entry points scripts/flicker-sweep.mjs drives, so a human at this panel and
+  // the headless sweep can never diverge.
+  useControls(
+    'Flicker (P42)',
+    () => ({
+      freezeWorld: {
+        value: isWorldFrozen(),
+        onChange: (value: boolean) => setFreezeWorld(value),
+      },
+      'jitter x (wu)': {
+        value: cameraJitter.x,
+        min: -1,
+        max: 1,
+        step: 0.01,
+        onChange: (value: number) => setCameraJitter(value, cameraJitter.z),
+      },
+      'jitter z (wu)': {
+        value: cameraJitter.z,
+        min: -1,
+        max: 1,
+        step: 0.01,
+        onChange: (value: number) => setCameraJitter(cameraJitter.x, value),
+      },
+      civTraffic: {
+        value: getDevToggles().civTraffic,
+        onChange: (value: boolean) => setDevToggle('civTraffic', value),
+      },
+      transit: {
+        value: getDevToggles().transit,
+        onChange: (value: boolean) => setDevToggle('transit', value),
+      },
+      note: { value: 'freeze = physics + every animation clock; jitter = pure translation', disabled: true },
     }),
     [],
   );
