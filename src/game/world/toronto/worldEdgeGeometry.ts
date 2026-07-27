@@ -25,8 +25,11 @@ import { buildStreets } from './streets';
 import { buildWorldEdge } from './worldEdge';
 
 // --- colours (module-local, unlit-literal: the authored hex IS the on-screen colour) ----------
-/** Hoarding panel body: a dark plywood/teal construction board. */
-const HOARDING_BODY_COLOR = '#22322f';
+/** Hoarding panel body: a dark plywood/teal construction board. Phase 38 reel verdict: the
+ * original '#22322f' was near-black at blue hour — the panel read ONLY via its orange stripe
+ * (P37's flagged readability question). Doubled luminance, same teal family: the body now reads
+ * as a wall tone against both the void and the NY dirt apron while staying nighttime-dark. */
+const HOARDING_BODY_COLOR = '#446158';
 /** Hoarding panel top stripe: hazard orange, reads as a construction-site band from a distance. */
 const HOARDING_STRIPE_COLOR = '#e2680f';
 /** Concrete jersey barrier. */

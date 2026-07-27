@@ -400,6 +400,10 @@ function fillBlock(
         occupied.add(tileIndex(col + dc, row + dr));
       }
     }
+    // [P38 annotation — LEGACY WORLD, de-imported since the Phase 32 flip. The camera
+    // numbers below describe the DEAD pre-P34 rig (baseDist 18/24 era); the shipped rig-E
+    // law lives in config/camera.ts (CAMERA_EYE_MIN/MAX_WU). Kept verbatim as history
+    // until the user-approved legacy excision.]
     // Street-front height cap (same zoning rationale as the tower rule above): the fixed
     // follow camera sits ~12.6-14.8 m up and ~13.8 m laterally from the car, i.e. INSIDE
     // the first building row along every road — so road-adjacent smalls draw from only the
