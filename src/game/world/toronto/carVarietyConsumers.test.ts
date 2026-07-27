@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildFurniture } from './furniture';
-import { buildFrontage } from './frontage';
-import { buildInfill } from './infill';
+import { composeWorld } from './composeWorld';
 import { CIVILIAN_CAR_MODELS, NEUTRAL_BODY_SUFFIX, neutralVehicleModelId } from '../../config/carVariety';
 import { getCityPackModel } from '../../assets/cityPackManifest';
 
@@ -15,7 +13,8 @@ function baseOf(neutralId: string): string {
 }
 
 describe('carVariety consumers — street-parked cars (D4/D5)', () => {
-  const furniture = buildFurniture(416);
+  const world416 = composeWorld(416);
+  const furniture = world416.furniture;
 
   it('every parked car carries a NEUTRAL civilian variant id + a valid tint', () => {
     expect(furniture.parked.items.length).toBeGreaterThan(0);
@@ -30,9 +29,9 @@ describe('carVariety consumers — street-parked cars (D4/D5)', () => {
   });
 
   it('is deterministic in the seed', () => {
-    const again = buildFurniture(416);
+    const again = composeWorld(416).furniture;
     expect(again.parked.items).toEqual(furniture.parked.items);
-    const other = buildFurniture(9417);
+    const other = composeWorld(9417).furniture;
     expect(other.parked.items).not.toEqual(furniture.parked.items);
   });
 
@@ -46,9 +45,7 @@ describe('carVariety consumers — street-parked cars (D4/D5)', () => {
 
 describe('carVariety consumers — parking-lot cars (D4/D5)', () => {
   it('every lot car carries a NEUTRAL civilian variant id + a valid tint', () => {
-    const frontage = buildFrontage(416);
-    const infill = buildInfill(416, frontage);
-    const lotCars = infill.fixed.filter((f) => f.id.includes('-car-'));
+    const lotCars = composeWorld(416).infill.fixed.filter((f) => f.id.includes('-car-'));
     expect(lotCars.length).toBeGreaterThan(0);
     for (const car of lotCars) {
       expect(car.modelId.endsWith(NEUTRAL_BODY_SUFFIX), car.modelId).toBe(true);

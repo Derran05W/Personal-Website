@@ -40,19 +40,19 @@ import {
   type TorontoTierParams,
 } from '../../config/torontoDress';
 import { TORONTO_DISTRICTS, type DistrictDensity, type DistrictId, type TorontoDistrictDef } from '../../config/torontoDistricts';
-import { ROAD_CLASSES } from '../../config/torontoMap';
+import { ROAD_CLASSES, SIDEWALK } from '../../config/torontoMap';
 import { getCityPackModel } from '../../assets/cityPackManifest';
 import { neutralVehicleModelId } from '../../config/carVariety';
 import { createCarVarietySequencer } from '../../vehicles/carVariety';
 import { createRng, type Rng } from '../rng';
-import { buildDistricts, districtAt, type ResolvedDistrict } from './districts';
-import { buildNamedBuildings } from './namedBuildings';
-import { buildPlacesLayer } from './placesLayer';
+import { aabbAround, createClaimIndex, footprintHalfExtents, overlaps, type Aabb, type ClaimIndex } from './claimIndex';
+import { districtAt, type ResolvedDistrict } from './districts';
 import { PLAYABLE_POLYGON, pointInPolygon } from './polygon';
 import { mapToWorld, type MapPoint } from './projection';
-import { listIntersections, type Intersection } from './roadGraph';
-import { buildStreets, type MapRect, type Street } from './streets';
+import { type Intersection } from './roadGraph';
+import { type MapRect, type Street } from './streets';
 import { busRouteStreetCoverage, isOnBusRoute } from './transitRoutes';
+import { BLOCKING_QUERY, EXCLUSION_ZONE_KINDS, type PlacementContext } from './worldContext';
 
 // --- output shapes -----------------------------------------------------------------------
 
@@ -146,16 +146,70 @@ function orderByDistrict<T extends { districtId: DistrictId }>(items: readonly T
   return { items: sorted, ranges };
 }
 
+// --- Phase 40: the placement-arbiter gate ---------------------------------------------------
+
+/**
+ * The claim footprint of one furniture item, through the SAME rotation rule composeWorld uses when
+ * it registers the accepted placements (claimIndex.footprintHalfExtents: exact for axis-aligned
+ * yaws, circumscribed square for the seeded spins). Two documented "claim the trunk, not the
+ * canopy" exceptions:
+ *   • `tree` — TREE_ROW.trunkHalfWidthWu, matching the D12 trunk-collider convention. The canopy
+ *     box would claim ~3 wu of sidewalk the player drives straight through.
+ *   • `traffic-light` — TRAFFIC_LIGHT.postHalfWidthWu, because the model's width is the ARM
+ *     reaching over the roadway at 3.78 wu, not anything standing on the corner.
+ */
+function furnitureFootprint(modelId: string, p: MapPoint, rotationY: number): Aabb {
+  const base =
+    modelId === 'tree'
+      ? { hx: TREE_ROW.trunkHalfWidthWu, hz: TREE_ROW.trunkHalfWidthWu }
+      : modelId === 'traffic-light'
+        ? { hx: TRAFFIC_LIGHT.postHalfWidthWu, hz: TRAFFIC_LIGHT.postHalfWidthWu }
+        : colliderHalfExtents(modelId);
+  const rotated = footprintHalfExtents(base.hx, base.hz, rotationY);
+  return aabbAround(p.x, p.y, rotated.hx, rotated.hz);
+}
+
+/**
+ * Furniture's view of the arbiter: `taken(fp)` is true when the footprint interior-overlaps
+ * ANYTHING already on the map. Two sources, both bucket-indexed:
+ *   1. `ctx.index` — every earlier layer (named boxes, the world-edge ring, the frontage
+ *      streetwall + corner fills + backdrop towers, venue dressing props/queues, and the whole
+ *      infill layer: back lots, parking/construction fixtures + cars, laneway clutter, deep
+ *      scatter). Gaps 1, 2 and 5 of the Phase-40 audit close here, all at once.
+ *   2. `own` — a LOCAL claim index this layer fills as it goes, so furniture also stops standing
+ *      inside its own placements (a hydrant in a tree, a bench in a bus shelter). Same bucket
+ *      machinery, discarded when the build ends; composeWorld registers the final output into the
+ *      global index for the layers after this one.
+ */
+interface FurnitureArbiter {
+  taken(fp: Aabb): boolean;
+  claim(id: string, fp: Aabb): void;
+}
+
+function createFurnitureArbiter(ctx: PlacementContext): FurnitureArbiter {
+  const own: ClaimIndex = createClaimIndex();
+  let ordinal = 0;
+  return {
+    taken: (fp) => ctx.index.overlapsAny(fp, BLOCKING_QUERY) || own.overlapsAny(fp),
+    claim: (id, fp) => {
+      own.register({ id: `${id}:${ordinal++}`, kind: 'furniture', source: 'furniture', aabb: fp });
+    },
+  };
+}
+
 // --- geometry helpers --------------------------------------------------------------------
 
-/** Squared point-to-rect distance is enough for a >0 clearance test; avoids a sqrt per check. */
-function pointRectDistSq(p: MapPoint, r: MapRect): number {
+/** Squared point-to-rect distance is enough for a >0 clearance test; avoids a sqrt per check.
+ * Phase 40: the rects now arrive from the claim index as world-XZ `Aabb`s (minZ/maxZ) rather than
+ * map-space `MapRect`s (minY/maxY) — same numbers, one rename, since mapToWorld is the identity
+ * swap. */
+function pointRectDistSq(p: MapPoint, r: Aabb): number {
   const dx = Math.max(r.minX - p.x, 0, p.x - r.maxX);
-  const dz = Math.max(r.minY - p.y, 0, p.y - r.maxY);
+  const dz = Math.max(r.minZ - p.y, 0, p.y - r.maxZ);
   return dx * dx + dz * dz;
 }
 
-function tooCloseToExclusion(p: MapPoint, exclusions: readonly MapRect[], marginWu: number): boolean {
+function tooCloseToExclusion(p: MapPoint, exclusions: readonly Aabb[], marginWu: number): boolean {
   const m2 = marginWu * marginWu;
   return exclusions.some((r) => pointRectDistSq(p, r) < m2);
 }
@@ -374,7 +428,7 @@ function faceRoadRotationYFromCentre(p: MapPoint, centre: MapPoint): number {
 function buildPowerBoxes(
   intersections: readonly Intersection[],
   districts: readonly ResolvedDistrict[],
-  exclusions: readonly MapRect[],
+  exclusions: readonly Aabb[],
   rng: Rng,
 ): readonly FurniturePlacement[] {
   const out: FurniturePlacement[] = [];
@@ -421,13 +475,23 @@ function buildRow(
   streets: readonly Street[],
   intersectionsByStreet: ReadonlyMap<string, readonly StreetCrossing[]>,
   districts: readonly ResolvedDistrict[],
-  exclusions: readonly MapRect[],
+  exclusions: readonly Aabb[],
   allRibbons: readonly MapRect[],
+  arbiter: FurnitureArbiter,
   rng: Rng,
   densityScalar: number,
 ): readonly FurniturePlacement[] {
   const halfWidth = (s: Street): number => s.width / 2;
   const out: FurniturePlacement[] = [];
+  // This row's own accepted footprints — self-gating so two stops of the SAME row can't share
+  // ground. Cross-category gating goes through the arbiter, which the orchestrator loads with each
+  // category's FINAL (post-thin) placements.
+  const rowKept: Aabb[] = [];
+  // Phase 40 (zone law): ribbons as world-XZ Aabbs, for the FOOTPRINT-vs-roadway check below. The
+  // point-in-ribbon check at the candidate stage can't see a wide item (a spun trash can is a
+  // ~1.1 wu square) whose CENTRE sits on the sidewalk near a cross street while its footprint
+  // pokes into that street's asphalt — the invariant sweep's seed-7/-1337 catches.
+  const ribbonAabbs: readonly Aabb[] = allRibbons.map((r) => ({ minX: r.minX, maxX: r.maxX, minZ: r.minY, maxZ: r.maxY }));
   const effectiveSpacing = spec.spacingWu / densityScalar;
 
   for (const street of streets) {
@@ -449,6 +513,17 @@ function buildRow(
         if (!spec.eligible(street, district, along)) continue;
         if (tooCloseToExclusion(p, exclusions, 1)) continue;
         const rotationY = spec.rotation === 'spin' ? seededSpin(streetRng) : faceRoadRotationY(street, side);
+        // Phase 40 (gaps 1/2/5): footprint-vs-footprint against everything already placed — the
+        // frontage streetwall, the infill layer, venue dressing props — plus this row's own items.
+        // The point-margin `tooCloseToExclusion` gate above is UNCHANGED and still runs first;
+        // this is purely additive.
+        const fp = furnitureFootprint(spec.modelId, p, rotationY);
+        // No row item's FOOTPRINT may reach any roadway — own-street clearance already holds by
+        // the perpendicular offset, so this only ever fires near a cross street's ribbon.
+        if (ribbonAabbs.some((r) => overlaps(fp, r))) continue;
+        if (arbiter.taken(fp)) continue;
+        if (rowKept.some((r) => overlaps(fp, r))) continue;
+        rowKept.push(fp);
         out.push(toWorldPlacement(spec.modelId, p, rotationY, district.id));
       }
     }
@@ -462,10 +537,12 @@ function buildManholes(
   streets: readonly Street[],
   intersectionsByStreet: ReadonlyMap<string, readonly StreetCrossing[]>,
   districts: readonly ResolvedDistrict[],
+  arbiter: FurnitureArbiter,
   rng: Rng,
   densityScalar: number,
 ): readonly FurniturePlacement[] {
   const out: FurniturePlacement[] = [];
+  const kept: Aabb[] = [];
   const eligible = new Set<string>(MANHOLE_ROW.eligibleClasses);
   const effectiveSpacing = MANHOLE_ROW.spacingWu / densityScalar;
 
@@ -481,11 +558,16 @@ function buildManholes(
       side = side === 1 ? -1 : 1; // alternate sides of the centreline
       const district = districtAt(p, districts);
       if (!district) continue;
+      const rotationY = seededSpin(streetRng);
+      const fp = furnitureFootprint('manhole-cover', p, rotationY);
+      if (arbiter.taken(fp)) continue;
+      if (kept.some((r) => overlaps(fp, r))) continue;
+      kept.push(fp);
       // Phase 39: manholes are the audited on-asphalt coplanar case — the model is only
       // ~0.018 wu tall, so placed at y=0 its TOP face landed essentially ON the road ribbon's
       // own surface (GROUND_STACK.roadSurface, 0.020) and every cover z-fought the asphalt it
       // sat in. SURFACE_ANCHOR.road floors it one full ground separation above the ribbon.
-      out.push(toWorldPlacement('manhole-cover', p, seededSpin(streetRng), district.id, SURFACE_ANCHOR.road));
+      out.push(toWorldPlacement('manhole-cover', p, rotationY, district.id, SURFACE_ANCHOR.road));
     }
   }
   return thinToCap(out, MANHOLE_ROW.capMapWide);
@@ -497,12 +579,14 @@ function buildParked(
   streets: readonly Street[],
   intersectionsByStreet: ReadonlyMap<string, readonly StreetCrossing[]>,
   districts: readonly ResolvedDistrict[],
-  exclusions: readonly MapRect[],
+  exclusions: readonly Aabb[],
+  arbiter: FurnitureArbiter,
   rng: Rng,
   densityScalar: number,
   cap: number,
 ): readonly ParkedVehicle[] {
   const out: ParkedVehicle[] = [];
+  const kept: Aabb[] = [];
   const eligible = new Set<string>(PARKED.eligibleClasses);
   const densityFactor: Record<DistrictDensity, number> = { dense: 0, medium: 0.5, sparse: 1 };
   // Phase 29 (D4): one carVariety sequencer for the whole parked layer (its own rng fork, so the
@@ -531,13 +615,21 @@ function buildParked(
         if (district && !tooCloseToExclusion(p, exclusions, 1.5)) {
           const v = variety.next();
           const rotationY = faceRoadRotationY(street, side) + Math.PI / 2; // parallel-parked: long axis along the street
-          out.push({
-            modelId: neutralVehicleModelId(v.modelId),
-            position: withY(mapToWorld(p), 0),
-            rotationY,
-            districtId: district.id,
-            tint: v.colorHex,
-          });
+          const modelId = neutralVehicleModelId(v.modelId);
+          const fp = furnitureFootprint(modelId, p, rotationY);
+          // The car-variety draw stays UNCONDITIONAL (it advances the sequencer once per parking
+          // slot regardless of the outcome) so an arbiter rejection can never re-shuffle which
+          // model/colour every later car gets.
+          if (!arbiter.taken(fp) && !kept.some((r) => overlaps(fp, r))) {
+            kept.push(fp);
+            out.push({
+              modelId,
+              position: withY(mapToWorld(p), 0),
+              rotationY,
+              districtId: district.id,
+              tint: v.colorHex,
+            });
+          }
         }
         along += spacing;
       }
@@ -576,15 +668,25 @@ function dropOnRibbon<T extends { readonly position: readonly [number, number, n
  * omits it gets byte-identical pre-tier output. `dressDensityScalar` widens/narrows every
  * row-spacing category's effective spacing (trees/hydrants/benches/trash-cans/bus-stops/manholes/
  * parked); intersection-rule furniture (masts/stop-signs/power-boxes) is untouched.
- * `parkedCarKeepFraction` scales the parked-vehicle hard cap. */
-export function buildFurniture(seed: number, tierParams: TorontoTierParams = TORONTO_TIER_IDENTITY): FurnitureLayout {
+ * `parkedCarKeepFraction` scales the parked-vehicle hard cap.
+ *
+ * `ctx` (Phase 40) is REQUIRED: furniture is the last seed-dependent layer in the composition and
+ * its output depends on what every earlier layer already put on the ground, so there is no honest
+ * standalone form of it. `world/toronto/composeWorld.ts` is the one caller in the game; tests go
+ * through `composeWorld(seed).furniture` for exactly the same reason (a defaulted, half-empty
+ * context would silently describe a city that never ships). */
+export function buildFurniture(
+  seed: number,
+  ctx: PlacementContext,
+  tierParams: TorontoTierParams = TORONTO_TIER_IDENTITY,
+): FurnitureLayout {
   const base = createRng(seed).fork('toronto-furniture-v1');
-  const { streets } = buildStreets();
-  const intersections = listIntersections(streets);
-  const districts = buildDistricts();
-  const named = buildNamedBuildings();
-  const places = buildPlacesLayer(named);
-  const exclusions: readonly MapRect[] = [...named.exclusions, ...places.exclusions];
+  const { streets, intersections, districts } = ctx;
+  // Phase 40: the point-margin exclusion ZONES (named ∪ places ∪ parks). Parks joining this set
+  // IS the audit's gap 3 — furniture used to compose named ∪ places by hand and silently omit
+  // parks.exclusions, so generic street trees landed inside park rects that already have their
+  // own tree rings, both merging into the same 'tree' BatchedMesh.
+  const exclusions: readonly Aabb[] = ctx.index.rects({ kinds: EXCLUSION_ZONE_KINDS });
   const allRibbons: readonly MapRect[] = streets.map((s) => s.ribbon);
 
   const intersectionsByStreet = new Map<string, readonly StreetCrossing[]>(
@@ -596,8 +698,71 @@ export function buildFurniture(seed: number, tierParams: TorontoTierParams = TOR
   // intersection-rule categories built above/below this) divides its base spacingWu by this.
   const densityScalar = DRESS_DENSITY_SCALAR * tierParams.dressDensityScalar;
 
+  // Phase 40: categories are now built, ribbon-filtered and CLAIMED one at a time, in the same
+  // declaration order as before, so each one rejects against the ones already standing. Claiming
+  // happens AFTER dropOnRibbon + thinToCap, i.e. only what actually ships occupies ground.
+  const arbiter = createFurnitureArbiter(ctx);
+  const claimAll = (items: readonly FurniturePlacement[] | readonly ParkedVehicle[], label: string): void => {
+    for (const item of items as readonly FurniturePlacement[]) {
+      arbiter.claim(label, furnitureFootprint(item.modelId, { x: item.position[0], y: item.position[2] }, item.rotationY));
+    }
+  };
+
+  // INTERSECTION-RULE furniture (masts / stop signs / power boxes) CLAIMS but is not GATED. Its
+  // positions are pinned to intersection corners inside the sidewalk band, it is already
+  // ribbon-filtered, and each category carries gameplay identity that a silent geometric drop
+  // would damage: the masts are lampClock's signal heads AND the LightPool's emitter source, and
+  // the power boxes are Toronto's 74 transformers — the district blackout chain needs every
+  // district to keep at least one.
   const { trafficLights: trafficLightsRaw, stopSigns: stopSignsRaw } = buildTrafficLightsAndStopSigns(intersections, districts);
+  const trafficLights = dropOnRibbon(trafficLightsRaw, allRibbons);
+  claimAll(trafficLights, 'mast');
+  const stopSigns = orderByDistrict(dropOnRibbon(stopSignsRaw, allRibbons));
+  claimAll(stopSigns.items, 'stop-sign');
   const powerBoxesRaw = buildPowerBoxes(intersections, districts, exclusions, base.fork('power-box'));
+  const powerBoxes = orderByDistrict(dropOnRibbon(powerBoxesRaw, allRibbons));
+  claimAll(powerBoxes.items, 'power-box');
+
+  // BUS STOPS CLAIM FIRST among the spacing rows — the same "authored outranks fungible" rule
+  // that put venueDress ahead of this whole layer in composeWorld. Shelters are route-DERIVED
+  // (Phase 31: they exist only where a real TTC route rides the street), carry the transit read
+  // of the city, and have the largest footprint of any row item (~3.5 × 2.3 wu) — built last
+  // they lost 30 of their 50-cap to benches and bins that had already grabbed the sidewalk.
+  // rng-neutral: every row draws from its own named fork, so the move shifts no other row's rolls.
+  const busStopEligible = new Set<string>(BUS_STOP_ROW.eligibleClasses);
+  // Phase 31 (Part-8 D5): bus stops are now ROUTE-derived — eligible only where an actual bus
+  // route rides this street AND at this along-street position (data/toronto/transit-routes.json
+  // via world/toronto/transitRoutes.ts's resolver). A street of an eligible CLASS with no route
+  // on it (e.g. University, Bathurst south of Bloor) no longer grows stops.
+  const busCoverage = busRouteStreetCoverage();
+  // The shelter is the ONE row item too deep for SIDEWALK_ROW.facadeOffsetWu: at 2.4 wu its
+  // ~1.14 wu half-depth reached 3.54 wu — 0.5 wu past the 3 wu sidewalk band, INSIDE the flush
+  // streetwall facade (the arbiter's band census: 774 of 917 blocked samples were the facade
+  // itself, which is why the old layer shipped 30 of its 50 shelters embedded in building faces).
+  // So its offset is DERIVED, not picked: back panel flush at the facade plane. Flush touching is
+  // legal by the arbiter's interior-overlap predicate — touching never counts.
+  const busStopRowOffsetWu = SIDEWALK.widthWu - colliderHalfExtents('bus-stop').hz;
+  const busStopsRaw = buildRow(
+    {
+      modelId: 'bus-stop',
+      spacingWu: BUS_STOP_ROW.spacingWu,
+      capMapWide: BUS_STOP_ROW.capMapWide,
+      rowOffsetWu: busStopRowOffsetWu,
+      cornerClearanceWu: 6,
+      eligible: (street, _district, along) => busStopEligible.has(street.cls) && isOnBusRoute(street.id, along, busCoverage),
+      rotation: 'faceRoad',
+    },
+    streets,
+    intersectionsByStreet,
+    districts,
+    exclusions,
+    allRibbons,
+    arbiter,
+    base.fork('bus-stop'),
+    densityScalar,
+  );
+  const busStops = orderByDistrict(dropOnRibbon(busStopsRaw, allRibbons));
+  claimAll(busStops.items, 'bus-stop');
 
   const treesRaw = buildRow(
     {
@@ -614,9 +779,12 @@ export function buildFurniture(seed: number, tierParams: TorontoTierParams = TOR
     districts,
     exclusions,
     allRibbons,
+    arbiter,
     base.fork('tree'),
     densityScalar,
   );
+  const trees = orderByDistrict(dropOnRibbon(treesRaw, allRibbons));
+  claimAll(trees.items, 'tree');
 
   const hydrantsRaw = buildRow(
     {
@@ -633,9 +801,12 @@ export function buildFurniture(seed: number, tierParams: TorontoTierParams = TOR
     districts,
     exclusions,
     allRibbons,
+    arbiter,
     base.fork('hydrant'),
     densityScalar,
   );
+  const hydrants = orderByDistrict(dropOnRibbon(hydrantsRaw, allRibbons));
+  claimAll(hydrants.items, 'hydrant');
 
   const benchesRaw = buildRow(
     {
@@ -652,9 +823,12 @@ export function buildFurniture(seed: number, tierParams: TorontoTierParams = TOR
     districts,
     exclusions,
     allRibbons,
+    arbiter,
     base.fork('bench'),
     densityScalar,
   );
+  const benches = orderByDistrict(dropOnRibbon(benchesRaw, allRibbons));
+  claimAll(benches.items, 'bench');
 
   const trashCansRaw = buildRow(
     {
@@ -671,41 +845,22 @@ export function buildFurniture(seed: number, tierParams: TorontoTierParams = TOR
     districts,
     exclusions,
     allRibbons,
+    arbiter,
     base.fork('trash-can'),
     densityScalar,
   );
+  const trashCans = orderByDistrict(dropOnRibbon(trashCansRaw, allRibbons));
+  claimAll(trashCans.items, 'trash-can');
 
-  const busStopEligible = new Set<string>(BUS_STOP_ROW.eligibleClasses);
-  // Phase 31 (Part-8 D5): bus stops are now ROUTE-derived — eligible only where an actual bus
-  // route rides this street AND at this along-street position (data/toronto/transit-routes.json
-  // via world/toronto/transitRoutes.ts's resolver). A street of an eligible CLASS with no route
-  // on it (e.g. University, Bathurst south of Bloor) no longer grows stops.
-  const busCoverage = busRouteStreetCoverage();
-  const busStopsRaw = buildRow(
-    {
-      modelId: 'bus-stop',
-      spacingWu: BUS_STOP_ROW.spacingWu,
-      capMapWide: BUS_STOP_ROW.capMapWide,
-      rowOffsetWu: SIDEWALK_ROW.facadeOffsetWu,
-      cornerClearanceWu: 6,
-      eligible: (street, _district, along) => busStopEligible.has(street.cls) && isOnBusRoute(street.id, along, busCoverage),
-      rotation: 'faceRoad',
-    },
-    streets,
-    intersectionsByStreet,
-    districts,
-    exclusions,
-    allRibbons,
-    base.fork('bus-stop'),
-    densityScalar,
-  );
-
-  const manholesRaw = buildManholes(streets, intersectionsByStreet, districts, base.fork('manhole'), densityScalar);
+  const manholesRaw = buildManholes(streets, intersectionsByStreet, districts, arbiter, base.fork('manhole'), densityScalar);
+  const manholes = orderByDistrict(manholesRaw);
+  claimAll(manholes.items, 'manhole');
   // Phase 25.8 (D8): the parked-vehicle hard cap scales with the SAME QUALITY_TIERS field the
   // legacy world's cityInstances.ts thinning already uses (parkedCarKeepFraction) — a new
   // consumer of an existing tier field, not a new concept. Never below 1.
   const parkedCap = Math.max(1, Math.round(PARKED.cap * tierParams.parkedCarKeepFraction));
-  const parkedRaw = buildParked(streets, intersectionsByStreet, districts, exclusions, base.fork('parked'), densityScalar, parkedCap);
+  const parkedRaw = buildParked(streets, intersectionsByStreet, districts, exclusions, arbiter, base.fork('parked'), densityScalar, parkedCap);
+  const parked = orderByDistrict(parkedRaw);
 
   const treeScale = resolveCityPackScale('tree');
   const treeNativeH = getCityPackModel('tree').nativeDims.h;
@@ -719,21 +874,11 @@ export function buildFurniture(seed: number, tierParams: TorontoTierParams = TOR
     parkedBody: PARKED.body,
   };
 
-  // Phase 25.8 (D10): enforce the no-furniture-on-ribbon invariant map-wide (manholes + parked are
-  // the on-road exemptions). The row categories are already ribbon-safe via buildRow's own gate, so
-  // this is a no-op for them and the real fix for the intersection-rule categories (masts / stop-
-  // signs / power boxes) that clamp onto a boundary ribbon (the 25.6 Bloor residual).
-  const trafficLights = dropOnRibbon(trafficLightsRaw, allRibbons);
-  const stopSigns = orderByDistrict(dropOnRibbon(stopSignsRaw, allRibbons));
-  const powerBoxes = orderByDistrict(dropOnRibbon(powerBoxesRaw, allRibbons));
-  const trees = orderByDistrict(dropOnRibbon(treesRaw, allRibbons));
-  const hydrants = orderByDistrict(dropOnRibbon(hydrantsRaw, allRibbons));
-  const benches = orderByDistrict(dropOnRibbon(benchesRaw, allRibbons));
-  const trashCans = orderByDistrict(dropOnRibbon(trashCansRaw, allRibbons));
-  const busStops = orderByDistrict(dropOnRibbon(busStopsRaw, allRibbons));
-  const manholes = orderByDistrict(manholesRaw);
-  const parked = orderByDistrict(parkedRaw);
-
+  // Phase 25.8 (D10): the no-furniture-on-ribbon invariant is enforced map-wide by the
+  // `dropOnRibbon` filters interleaved above (manholes + parked are the on-road exemptions). The
+  // row categories are already ribbon-safe via buildRow's own gate, so it is a no-op for them and
+  // the real fix for the intersection-rule categories (masts / stop-signs / power boxes) that
+  // clamp onto a boundary ribbon (the 25.6 Bloor residual).
   return {
     trafficLights,
     stopSigns,

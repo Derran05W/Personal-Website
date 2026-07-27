@@ -11,11 +11,8 @@ import { describe, expect, it } from 'vitest';
 import { TORONTO_DISTRICTS } from '../../config/torontoDistricts';
 import { PROPS } from '../../config';
 import { POWER_BOX } from '../../config/torontoDress';
-import { buildFrontage } from './frontage';
-import { buildFurniture } from './furniture';
-import { buildInfill } from './infill';
-import { buildNamedBuildings, HERO_LOTS } from './namedBuildings';
-import { buildPlacesLayer } from './placesLayer';
+import { composeWorld } from './composeWorld';
+import { HERO_LOTS } from './namedBuildings';
 import { buildDistricts, torontoDistrictIndex, torontoDistrictIndexAt, TORONTO_DISTRICT_COUNT } from './districts';
 import {
   torontoBuildingEntry,
@@ -53,11 +50,7 @@ describe('TORONTO_DISTRICT_COUNT / torontoDistrictIndex', () => {
 });
 
 describe.each(SEEDS)('registry coverage per layer — seed %d', (seed) => {
-  const frontage = buildFrontage(seed);
-  const furniture = buildFurniture(seed);
-  const infill = buildInfill(seed, frontage);
-  const named = buildNamedBuildings();
-  const places = buildPlacesLayer(named);
+  const { frontage, furniture, infill, named, places } = composeWorld(seed);
 
   it('frontage slots + cornerFills + infill.fixed → one building entry each, valid districtId', () => {
     const items = [...frontage.slots, ...frontage.cornerFills, ...infill.fixed];

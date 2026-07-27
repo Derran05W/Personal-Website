@@ -8,7 +8,8 @@
 // to fix, back again.
 import { describe, expect, it } from 'vitest';
 import { fixedItemFadeKey } from './fadeKeys';
-import { buildClipIndexEntries, frontageFadeKey, infillFadeKey } from '../cameraClipIndex';
+import { frontageFadeKey, infillFadeKey } from '../cameraClipIndex';
+import { composeWorld } from '../composeWorld';
 
 const box = { position: [10, 0, 20] as const, hx: 3, hy: 4, hz: 5 };
 
@@ -31,30 +32,38 @@ describe('fixedItemFadeKey', () => {
 });
 
 describe('agreement with the clip index (the single-sourcing rule)', () => {
-  it('mints exactly the keys buildClipIndexEntries puts on the same items', () => {
+  it('mints exactly the keys the arbiter registered on the same items', () => {
     const slots = [
       { ...box, slotId: 'yonge:p:1' },
       { ...box, slotId: 'corner:king:n:9' },
     ];
     const fixed = [
       { ...box, id: 'backlot:king:n:4' },
-      { ...box, id: 'lot-3-car-7' }, // filtered OUT of the index — must be null here too
+      { ...box, id: 'lot-3-car-7' }, // NOT a building claim — must be null here too
     ];
-    const entries = buildClipIndexEntries({
-      groundedBuildings: slots,
-      centredBoxes: [],
-      infillFixed: fixed,
-      namedBoxes: [],
-      heroBases: [],
-    });
-    const indexKeys = entries.map((e) => e.fadeKey);
-    // The index emits one entry per slot plus ONE for the back-lot item (the car is filtered).
-    expect(indexKeys).toEqual([
+    // Phase 40: the index side mints via composeWorld's registration, which calls exactly these two
+    // exported functions on exactly these item shapes. Asserting the derivation directly is now the
+    // honest form of the agreement test (the old shared `buildClipIndexEntries` walk is gone).
+    expect([...slots, ...fixed].map(fixedItemFadeKey)).toEqual([
       frontageFadeKey({ slotId: 'yonge:p:1' }),
       frontageFadeKey({ slotId: 'corner:king:n:9' }),
       infillFadeKey({ id: 'backlot:king:n:4' }),
+      null,
     ]);
-    // ...and the renderer-side derivation agrees item-for-item, including the null.
-    expect([...slots, ...fixed].map(fixedItemFadeKey)).toEqual([...indexKeys, null]);
+  });
+
+  it('every REAL frontage/corner/back-lot item the renderer keys is a key the clip index carries', () => {
+    const world = composeWorld(416);
+    const indexKeys = new Set(world.clipVolumes.map((v) => v.fadeKey).filter((k): k is string => k !== null));
+    const rendererItems = [
+      ...world.frontage.slots,
+      ...world.frontage.cornerFills,
+      ...world.infill.fixed,
+    ];
+    for (const item of rendererItems) {
+      const key = fixedItemFadeKey(item);
+      if (key === null) continue; // cars/fences/scatter: never faded, never indexed
+      expect(indexKeys.has(key), key).toBe(true);
+    }
   });
 });

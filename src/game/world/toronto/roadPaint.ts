@@ -27,7 +27,7 @@
 import { BufferGeometry, Color, Float32BufferAttribute } from 'three';
 import { CROSSWALK, ROAD_CLASSES, ROAD_COLORS, ROAD_EDGE, SIDEWALK } from '../../config/torontoMap';
 import { GROUND_STACK } from '../../config/layering';
-import { TRAFFIC_LIGHT_FULL_CLASSES } from '../../config/torontoDress';
+import { crosswalkBands } from './crosswalks';
 import type { Intersection } from './roadGraph';
 import type { Street } from './streets';
 
@@ -40,8 +40,6 @@ const CURB_TOP_Y = SIDEWALK.curbHeightWu; // flat top face height (0.12)
 const CURB_CHAMFER_WU = 0.7; // horizontal run of the sloped road-facing curb face (reads top-down)
 const CURB_CUT_SETBACK_WU = 1.0; // extra gap each side of a crossing box (room for the crosswalk)
 const MIN_SEGMENT_WU = 2; // drop slivers shorter than this (a raised nub reads as noise)
-
-const FULL_CLASSES = new Set<string>(TRAFFIC_LIGHT_FULL_CLASSES);
 
 interface Sink {
   readonly positions: number[];
@@ -291,19 +289,17 @@ export function buildRoadGeometry(streets: readonly Street[], intersections: rea
     }
   }
 
-  // Crosswalk zebras at signalized intersections (both classes full — spine/artery/major).
-  for (const it of intersections) {
-    if (!FULL_CLASSES.has(it.nsCls) || !FULL_CLASSES.has(it.ewCls)) continue;
-    const nsHalf = ROAD_CLASSES[it.nsCls] / 2; // box half-span along world X
-    const ewHalf = ROAD_CLASSES[it.ewCls] / 2; // box half-span along world Z
-    const gap = CROSSWALK.setbackWu;
-    const band = CROSSWALK.bandWu;
-    // North / south of the box: cross the NS street (span world X), band along world Z.
-    emitCrosswalk(sink, c, 'x', it.x - nsHalf, it.x + nsHalf, it.y - ewHalf - gap - band, it.y - ewHalf - gap);
-    emitCrosswalk(sink, c, 'x', it.x - nsHalf, it.x + nsHalf, it.y + ewHalf + gap, it.y + ewHalf + gap + band);
-    // East / west of the box: cross the EW street (span world Z), band along world X.
-    emitCrosswalk(sink, c, 'z', it.y - ewHalf, it.y + ewHalf, it.x + nsHalf + gap, it.x + nsHalf + gap + band);
-    emitCrosswalk(sink, c, 'z', it.y - ewHalf, it.y + ewHalf, it.x - nsHalf - gap - band, it.x - nsHalf - gap);
+  // Crosswalk zebras at signalized intersections (both classes full — spine/artery/major). The
+  // band RECTS come from world/toronto/crosswalks.ts (Phase 40): the placement arbiter registers
+  // the same rects as `crosswalkBand` zone claims so lane closures can't land on a live crossing,
+  // and a single derivation guarantees the paint and the gate describe the same geometry.
+  for (const band of crosswalkBands(intersections)) {
+    if (band.stripeAxis === 'x') {
+      // Crossing the NS street: stripes are laid across world X, band runs along world Z.
+      emitCrosswalk(sink, c, 'x', band.minX, band.maxX, band.minZ, band.maxZ);
+    } else {
+      emitCrosswalk(sink, c, 'z', band.minZ, band.maxZ, band.minX, band.maxX);
+    }
   }
 
   const g = new BufferGeometry();

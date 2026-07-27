@@ -1,17 +1,22 @@
-// Phase 33 camera lab — a static, building-class AABB index for camera clip queries.
+// Phase 33 camera lab — the camera's runtime clip-query machinery (point + segment tests over a
+// bucket grid of building-class AABBs). PROD-ACTIVE since Phase 36 (occlusion dither targeting +
+// the anti-clip guard).
 //
-// THROWAWAY BY DESIGN. This exists to answer two questions the camera decision needs objective
-// numbers for — "is the camera eye inside a building?" and "how much geometry sits between the
-// lens and the car?" — plus to feed preset D's canyon-aware spring arm. **Phase 40 replaces it**
-// with the global placement arbiter's one claim index (every placer registers there, not here);
-// when that lands, delete this module and re-point its two consumers (fx/cameraLab.ts, the
-// TorontoScene sampler) at the arbiter. Nothing else may grow a dependency on it.
+// PHASE 40 SPLIT THIS MODULE'S TWO HALVES APART. It used to ALSO assemble the index, walking a
+// hand-written `ClipIndexSources` bag of layout arrays; that walk is DELETED. The volumes now come
+// from the global placement arbiter — `claimIndex.buildingClipVolumes(index)` projects every
+// building-class CLAIM composeWorld registered — so the camera clips against exactly the geometry
+// the world placed, and a new building layer can no longer be added to the city while being
+// forgotten by the camera. What stays here is (a) the three FADE-KEY functions, which both the
+// index side (at registration) and the mesh side (CityDress) call so their keys agree, and (b) the
+// live index + its queries, untouched and Phase-36-pinned.
 //
-// SCOPE: BUILDING-CLASS VOLUMES ONLY — the things a camera can be inside of or lose the car
-// behind. Frontage streetwall + corner fills, backdrop/back-lot boxes, back-lot pack buildings,
-// named landmarks, and the two hero base cylinders (as AABBs). Explicitly NOT furniture, trees,
-// cones, parked cars, decor or laneway clutter: they are below the eye line by construction and
-// would triple the index for nothing.
+// SCOPE (unchanged): BUILDING-CLASS VOLUMES ONLY — the things a camera can be inside of or lose
+// the car behind. Frontage streetwall + corner fills, backdrop/back-lot boxes, back-lot pack
+// buildings, named landmarks, and the two hero base cylinders (as AABBs, appended by the scene
+// since they are derived from three geometry). Explicitly NOT furniture, trees, cones, parked
+// cars, decor or laneway clutter: they are below the eye line by construction and would triple the
+// index for nothing.
 //
 // Y CONVENTION (verified against the live collider mounts, not assumed): every pack/frontage/
 // infill placement carries a ground-anchored `position: [x, 0, z]` and its collider mounts at
@@ -51,69 +56,17 @@ export interface ClipEntry extends ClipAabb {
   readonly fadeKey: string | null;
 }
 
-// --- source shapes (structural — deliberately NOT importing the layout types) ------------------
-// Kept structural so this module stays free of frontage/infill/namedBuildings imports: it is a
-// throwaway, and Phase 40's arbiter should be able to delete it without unpicking a type web.
-
-/** A ground-anchored placement: `position` = [x, 0, z], solid volume y ∈ [0, 2·hy]. Matches
- * frontage.ts's PlacedBox/FrontageSlot and infill.ts's FixedInfillItem. `slotId` is optional here
- * only so the structural shape still admits a bare PlacedBox; every REAL frontage/corner-fill item
- * carries one (it is the Phase 25.7 seam) and it becomes the volume's fade key. */
-export interface GroundedBoxLike {
-  readonly position: readonly [number, number, number];
-  readonly hx: number;
-  readonly hy: number;
-  readonly hz: number;
-  readonly slotId?: string;
-}
-
-/** A centre-x/z extruded box with its floor at y=0 (frontage.ts's BackdropBox). */
-export interface CentredBoxLike {
-  readonly x: number;
-  readonly z: number;
-  readonly hx: number;
-  readonly hy: number;
-  readonly hz: number;
-}
-
-/** A named-building box (namedBuildings.ts's NamedBox: world centre cx/cz, floor at y=0). */
-export interface NamedBoxLike {
-  readonly cx: number;
-  readonly cz: number;
-  readonly hx: number;
-  readonly hy: number;
-  readonly hz: number;
-}
-
-/** A hero base cylinder (heroes.ts's `meta.collider` + its world lot centre), indexed as the
- * AABB that bounds it — the hero shafts above the base taper away from the eye line anyway. */
-export interface HeroBaseLike {
-  readonly x: number;
-  readonly z: number;
-  readonly radius: number;
-  readonly halfHeight: number;
-  readonly centerY: number;
-}
-
 /**
  * infill.ts's `fixed` list mixes real back-lot BUILDINGS with parking-lot cars, construction
  * fences, dumpsters and billboards. Its `id` prefix is the only discriminator the layout exposes
  * (`backlot:${street}:${side}:${n}` vs `${site}-car-${n}` / `-fence-` / `-dumpster` / `-billboard`
- * / `deep-scatter:*`), so that prefix is the filter — and it is asserted by this module's tests so
- * a rename in infill.ts fails loudly here instead of silently emptying the index.
+ * / `deep-scatter:*`), so that prefix is what the renderer side (cityPack/fadeKeys.ts) filters on
+ * to decide whether an infill item is dither-fadeable at all. composeWorld registers those items
+ * from their own typed group, so the arbiter no longer needs the prefix — but the RENDERER walks a
+ * merged, untyped `fixed` array and still does, and the drift guard in this module's tests keeps
+ * the two agreeing.
  */
 export const INFILL_BUILDING_ID_PREFIX = 'backlot:' as const;
-
-export interface ClipIndexSources {
-  /** Frontage streetwall slots + corner fills (both FrontageSlot-shaped). */
-  readonly groundedBuildings: readonly GroundedBoxLike[];
-  /** Backdrop towers + back-lot extruded boxes. */
-  readonly centredBoxes: readonly CentredBoxLike[];
-  /** infill.ts `fixed` items, unfiltered — the prefix filter is applied here. */
-  readonly infillFixed: readonly (GroundedBoxLike & { readonly id: string })[];
-  readonly namedBoxes: readonly NamedBoxLike[];
-  readonly heroBases: readonly HeroBaseLike[];
-}
 
 // --- fade keys (Phase 36) ----------------------------------------------------------------------
 // THE SINGLE-SOURCING RULE: the clip index (which decides WHAT the boresight hit) and the mesh side
@@ -149,80 +102,6 @@ export function infillFadeKey(item: { readonly id: string }): string {
  */
 export function backdropFadeKey(box: { readonly x: number; readonly z: number }): string {
   return `backdrop:${Math.round(box.x * 100)}:${Math.round(box.z * 100)}`;
-}
-
-/** Flatten every building-class source into one AABB list. Pure — the whole index build is this
- * plus the bucket grid, so tests exercise exactly what the scene populates.
- *
- * Fade-key-free view of `buildClipIndexEntries` (kept as the pre-Phase-36 shape so the Phase 33
- * lab's consumers and tests read exactly as before). */
-export function buildClipAabbs(sources: ClipIndexSources): ClipAabb[] {
-  return buildClipIndexEntries(sources).map((e) => ({
-    minX: e.minX,
-    maxX: e.maxX,
-    minY: e.minY,
-    maxY: e.maxY,
-    minZ: e.minZ,
-    maxZ: e.maxZ,
-  }));
-}
-
-/** Flatten every building-class source into one list of volumes WITH their fade identity — the
- * production index build (Phase 36). Named boxes and hero bases get `fadeKey: null`: they fade
- * through occlusionFade.ts's material-opacity path instead, and the dither pass skips them. */
-export function buildClipIndexEntries(sources: ClipIndexSources): ClipEntry[] {
-  const out: ClipEntry[] = [];
-  const pushGrounded = (b: GroundedBoxLike, fadeKey: string | null): void => {
-    out.push({
-      minX: b.position[0] - b.hx,
-      maxX: b.position[0] + b.hx,
-      minY: 0,
-      maxY: 2 * b.hy,
-      minZ: b.position[2] - b.hz,
-      maxZ: b.position[2] + b.hz,
-      fadeKey,
-    });
-  };
-  for (const b of sources.groundedBuildings) {
-    pushGrounded(b, b.slotId === undefined ? null : frontageFadeKey({ slotId: b.slotId }));
-  }
-  for (const b of sources.infillFixed) {
-    if (b.id.startsWith(INFILL_BUILDING_ID_PREFIX)) pushGrounded(b, infillFadeKey(b));
-  }
-  for (const b of sources.centredBoxes) {
-    out.push({
-      minX: b.x - b.hx,
-      maxX: b.x + b.hx,
-      minY: 0,
-      maxY: 2 * b.hy,
-      minZ: b.z - b.hz,
-      maxZ: b.z + b.hz,
-      fadeKey: backdropFadeKey(b),
-    });
-  }
-  for (const b of sources.namedBoxes) {
-    out.push({
-      minX: b.cx - b.hx,
-      maxX: b.cx + b.hx,
-      minY: 0,
-      maxY: 2 * b.hy,
-      minZ: b.cz - b.hz,
-      maxZ: b.cz + b.hz,
-      fadeKey: null,
-    });
-  }
-  for (const h of sources.heroBases) {
-    out.push({
-      minX: h.x - h.radius,
-      maxX: h.x + h.radius,
-      minY: Math.max(0, h.centerY - h.halfHeight),
-      maxY: h.centerY + h.halfHeight,
-      minZ: h.z - h.radius,
-      maxZ: h.z + h.radius,
-      fadeKey: null,
-    });
-  }
-  return out;
 }
 
 // --- the live index ---------------------------------------------------------------------------

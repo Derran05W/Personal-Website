@@ -1,12 +1,15 @@
-// Phase 33 camera lab — the static building AABB index: what goes IN it (the Y convention and the
-// building-class filter) and what comes OUT of it (point + segment queries, including the bucket
-// grid's obligation to count a multi-cell box exactly once).
+// Phase 33 camera lab — the camera clip index: what goes IN it (Phase 40: the placement arbiter's
+// building-class CLAIMS, projected by claimIndex.buildingClipVolumes) and what comes OUT of it
+// (point + segment queries, including the bucket grid's obligation to count a multi-cell box
+// exactly once).
+//
+// Phase 40 replaced this module's own `ClipIndexSources`/`buildClipIndexEntries` walk with that
+// projection, so the source-construction tests below now exercise the CLAIM SELECTOR instead. Every
+// query-behaviour test is unchanged (the runtime half is Phase-36-pinned and was not touched).
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   INFILL_BUILDING_ID_PREFIX,
   backdropFadeKey,
-  buildClipAabbs,
-  buildClipIndexEntries,
   clearClipIndex,
   eyeInsideAny,
   frontageFadeKey,
@@ -19,94 +22,94 @@ import {
   setClipIndex,
   type ClipAabb,
   type ClipEntry,
-  type ClipIndexSources,
 } from './cameraClipIndex';
-import { buildFrontage } from './frontage';
-import { buildInfill } from './infill';
-
-const EMPTY_SOURCES = {
-  groundedBuildings: [],
-  centredBoxes: [],
-  infillFixed: [],
-  namedBoxes: [],
-  heroBases: [],
-} as const;
+import { aabbAround, buildingClipVolumes, createClaimIndex, type ClaimInput } from './claimIndex';
+import { composeWorld } from './composeWorld';
 
 /** A unit-ish box centred at (x, z) with the map's ground-anchored convention. */
 function boxAt(x: number, z: number, hx = 5, hy = 10, hz = 5): ClipAabb {
   return { minX: x - hx, maxX: x + hx, minY: 0, maxY: 2 * hy, minZ: z - hz, maxZ: z + hz };
 }
 
+/** Project a handful of claims through the selector the scene uses. */
+function volumesOf(...claims: readonly ClaimInput[]): readonly ClipEntry[] {
+  const index = createClaimIndex();
+  index.registerAll(claims);
+  return buildingClipVolumes(index);
+}
+
+/** A ground-anchored building claim, the shape composeWorld registers frontage/back-lot items as. */
+function groundedClaim(
+  id: string,
+  kind: ClaimInput['kind'],
+  x: number,
+  z: number,
+  hx: number,
+  hy: number,
+  hz: number,
+  fadeKey: string | null,
+): ClaimInput {
+  return { id, kind, source: 'frontage', aabb: aabbAround(x, z, hx, hz), yRange: [0, 2 * hy], fadeKey };
+}
+
 afterEach(() => {
   clearClipIndex();
 });
 
-describe('buildClipAabbs — sources → volumes', () => {
-  it('a ground-anchored placement spans y ∈ [0, 2·hy] (the collider convention)', () => {
-    const [box] = buildClipAabbs({
-      ...EMPTY_SOURCES,
-      groundedBuildings: [{ position: [100, 0, 200], hx: 4, hy: 9, hz: 3 }],
-    });
-    expect(box).toEqual({ minX: 96, maxX: 104, minY: 0, maxY: 18, minZ: 197, maxZ: 203 });
+describe('buildingClipVolumes — claims → volumes (Phase 40 source)', () => {
+  it('a ground-anchored building claim spans y ∈ [0, 2·hy] (the collider convention)', () => {
+    const [box] = volumesOf(groundedClaim('a', 'frontageSlot', 100, 200, 4, 9, 3, 'frontage:a'));
+    expect(box).toEqual({ minX: 96, maxX: 104, minY: 0, maxY: 18, minZ: 197, maxZ: 203, fadeKey: 'frontage:a' });
   });
 
   it('a centred backdrop box uses x/z + the same floor-at-zero rule', () => {
-    const [box] = buildClipAabbs({
-      ...EMPTY_SOURCES,
-      centredBoxes: [{ x: -50, z: 25, hx: 6, hy: 12, hz: 8 }],
-    });
-    expect(box).toEqual({ minX: -56, maxX: -44, minY: 0, maxY: 24, minZ: 17, maxZ: 33 });
+    const [box] = volumesOf(groundedClaim('b', 'backdropBox', -50, 25, 6, 12, 8, 'backdrop:1'));
+    expect(box).toEqual({ minX: -56, maxX: -44, minY: 0, maxY: 24, minZ: 17, maxZ: 33, fadeKey: 'backdrop:1' });
   });
 
-  it('a named-building box maps cx/cz to world x/z', () => {
-    const [box] = buildClipAabbs({
-      ...EMPTY_SOURCES,
-      namedBoxes: [{ cx: 10, cz: 20, hx: 2, hy: 30, hz: 4 }],
+  it('a named-building claim carries a null fade key (it rides the material-opacity fader)', () => {
+    const [box] = volumesOf({
+      id: 'named:td:0',
+      kind: 'namedBuilding',
+      source: 'named',
+      aabb: aabbAround(10, 20, 2, 4),
+      yRange: [0, 60],
+      fadeKey: null,
     });
-    expect(box).toEqual({ minX: 8, maxX: 12, minY: 0, maxY: 60, minZ: 16, maxZ: 24 });
+    expect(box).toEqual({ minX: 8, maxX: 12, minY: 0, maxY: 60, minZ: 16, maxZ: 24, fadeKey: null });
   });
 
-  it('a hero base cylinder becomes its bounding AABB, floored at 0', () => {
-    const [box] = buildClipAabbs({
-      ...EMPTY_SOURCES,
-      heroBases: [{ x: 900, z: 3300, radius: 10.5, halfHeight: 3.5, centerY: 3.5 }],
-    });
-    expect(box).toEqual({ minX: 889.5, maxX: 910.5, minY: 0, maxY: 7, minZ: 3289.5, maxZ: 3310.5 });
-  });
-
-  it('keeps only back-lot BUILDINGS out of infill.fixed (cars/fences/scatter are not volumes a camera clips)', () => {
-    const boxes = buildClipAabbs({
-      ...EMPTY_SOURCES,
-      infillFixed: [
-        { id: `${INFILL_BUILDING_ID_PREFIX}king:hi:3`, position: [0, 0, 0], hx: 5, hy: 8, hz: 5 },
-        { id: 'lot-7-car-2', position: [20, 0, 0], hx: 1, hy: 0.7, hz: 2 },
-        { id: 'site-2-fence-1', position: [40, 0, 0], hx: 3, hy: 1, hz: 0.2 },
-        { id: 'site-2-dumpster', position: [60, 0, 0], hx: 1.5, hy: 1, hz: 1 },
-        { id: 'site-2-billboard', position: [80, 0, 0], hx: 3, hy: 4, hz: 0.3 },
-        { id: 'deep-scatter:greenhouse:4', position: [100, 0, 0], hx: 2, hy: 2, hz: 3 },
-      ],
-    });
+  it('keeps only BUILDING-class claims (cars/fences/furniture/decor are not volumes a camera clips)', () => {
+    const boxes = volumesOf(
+      groundedClaim('keep', 'backlotBuilding', 0, 0, 5, 8, 5, 'infill:backlot:x'),
+      { id: 'car', kind: 'lotCar', source: 'infill', aabb: aabbAround(20, 0, 1, 2) },
+      { id: 'fence', kind: 'lotFixture', source: 'infill', aabb: aabbAround(40, 0, 3, 0.2) },
+      { id: 'tree', kind: 'furniture', source: 'furniture', aabb: aabbAround(60, 0, 0.25, 0.25) },
+      { id: 'cone', kind: 'cone', source: 'infill', aabb: aabbAround(80, 0, 0.3, 0.3) },
+      { id: 'greenhouse', kind: 'scatterProp', source: 'infill', aabb: aabbAround(100, 0, 2, 3) },
+      { id: 'ribbon', kind: 'streetRibbon', source: 'streets', aabb: aabbAround(120, 0, 5, 5) },
+    );
     expect(boxes).toHaveLength(1);
     expect(boxes[0].maxX).toBe(5);
   });
 
-  it('concatenates every source class into one list', () => {
-    const boxes = buildClipAabbs({
-      groundedBuildings: [{ position: [0, 0, 0], hx: 1, hy: 1, hz: 1 }],
-      centredBoxes: [{ x: 10, z: 0, hx: 1, hy: 1, hz: 1 }],
-      infillFixed: [{ id: `${INFILL_BUILDING_ID_PREFIX}a`, position: [20, 0, 0], hx: 1, hy: 1, hz: 1 }],
-      namedBoxes: [{ cx: 30, cz: 0, hx: 1, hy: 1, hz: 1 }],
-      heroBases: [{ x: 40, z: 0, radius: 1, halfHeight: 1, centerY: 1 }],
-    });
+  it('emits every building class, in registration order', () => {
+    const boxes = volumesOf(
+      groundedClaim('s', 'frontageSlot', 0, 0, 1, 1, 1, 'frontage:s'),
+      groundedClaim('c', 'cornerFill', 10, 0, 1, 1, 1, 'frontage:c'),
+      groundedClaim('bd', 'backdropBox', 20, 0, 1, 1, 1, 'backdrop:2'),
+      groundedClaim('bl', 'backlotBuilding', 30, 0, 1, 1, 1, 'infill:bl'),
+      { id: 'n', kind: 'namedBuilding', source: 'named', aabb: aabbAround(40, 0, 1, 1), yRange: [0, 2], fadeKey: null },
+    );
     expect(boxes).toHaveLength(5);
+    expect(boxes.map((b) => b.minX)).toEqual([-1, 9, 19, 29, 39]);
   });
 
   it('DRIFT GUARD: the real infill layout still ids its back-lot buildings with the filtered prefix', () => {
-    const frontage = buildFrontage(416);
-    const infill = buildInfill(416, frontage);
+    const infill = composeWorld(416).infill;
     const backlot = infill.fixed.filter((f) => f.id.startsWith(INFILL_BUILDING_ID_PREFIX));
-    // If infill.ts ever renames the prefix, this fails loudly instead of silently emptying the
-    // camera clip index of every back-lot building.
+    // The RENDERER side (cityPack/fadeKeys.ts) still filters on this prefix, so a rename in
+    // infill.ts fails loudly here instead of silently un-fading every back-lot building.
     expect(backlot.length).toBeGreaterThan(0);
     expect(backlot.length).toBeLessThan(infill.fixed.length);
   });
@@ -241,63 +244,37 @@ describe('fade-key derivation (single-sourced: the index and the mesh side both 
   });
 });
 
-describe('buildClipIndexEntries — who is dither-fadeable', () => {
-  it('grounded frontage slots carry their slotId key; a bare PlacedBox (no slotId) carries none', () => {
-    const entries = buildClipIndexEntries({
-      ...EMPTY_SOURCES,
-      groundedBuildings: [
-        { position: [10, 0, 20], hx: 1, hy: 1, hz: 1, slotId: 'king:p:4' },
-        { position: [30, 0, 20], hx: 1, hy: 1, hz: 1 },
-      ],
-    });
+describe('buildingClipVolumes — who is dither-fadeable', () => {
+  it('frontage slots carry their slotId key; a building claim registered without one carries null', () => {
+    const entries = volumesOf(
+      groundedClaim('a', 'frontageSlot', 10, 20, 1, 1, 1, frontageFadeKey({ slotId: 'king:p:4' })),
+      { id: 'b', kind: 'frontageSlot', source: 'frontage', aabb: aabbAround(30, 20, 1, 1), yRange: [0, 2] },
+    );
     expect(entries.map((e) => e.fadeKey)).toEqual(['frontage:king:p:4', null]);
   });
 
-  it('back-lot infill buildings carry their id key (and the non-building classes stay filtered out)', () => {
-    const entries = buildClipIndexEntries({
-      ...EMPTY_SOURCES,
-      infillFixed: [
-        { id: `${INFILL_BUILDING_ID_PREFIX}king:hi:3`, position: [0, 0, 0], hx: 5, hy: 8, hz: 5 },
-        { id: 'lot-7-car-2', position: [20, 0, 0], hx: 1, hy: 0.7, hz: 2 },
-      ],
-    });
+  it('back-lot infill buildings carry their id key', () => {
+    const entries = volumesOf(
+      groundedClaim('a', 'backlotBuilding', 0, 0, 5, 8, 5, infillFadeKey({ id: `${INFILL_BUILDING_ID_PREFIX}king:hi:3` })),
+    );
     expect(entries.map((e) => e.fadeKey)).toEqual([`infill:${INFILL_BUILDING_ID_PREFIX}king:hi:3`]);
   });
 
-  it('centred boxes carry a backdrop key; NAMED boxes and HERO bases carry null (legacy fader)', () => {
-    const entries = buildClipIndexEntries({
-      ...EMPTY_SOURCES,
-      centredBoxes: [{ x: -50, z: 25, hx: 6, hy: 12, hz: 8 }],
-      namedBoxes: [{ cx: 10, cz: 20, hx: 2, hy: 30, hz: 4 }],
-      heroBases: [{ x: 900, z: 3300, radius: 10.5, halfHeight: 3.5, centerY: 3.5 }],
-    });
-    expect(entries.map((e) => e.fadeKey)).toEqual([backdropFadeKey({ x: -50, z: 25 }), null, null]);
+  it('backdrop boxes carry a backdrop key; NAMED boxes carry null (legacy material fader)', () => {
+    const entries = volumesOf(
+      groundedClaim('a', 'backdropBox', -50, 25, 6, 12, 8, backdropFadeKey({ x: -50, z: 25 })),
+      { id: 'n', kind: 'namedBuilding', source: 'named', aabb: aabbAround(10, 20, 2, 4), yRange: [0, 60], fadeKey: null },
+    );
+    expect(entries.map((e) => e.fadeKey)).toEqual([backdropFadeKey({ x: -50, z: 25 }), null]);
   });
 
-  it('buildClipAabbs stays the fade-key-free view (the Phase 33 consumers are untouched)', () => {
-    const sources: ClipIndexSources = {
-      ...EMPTY_SOURCES,
-      groundedBuildings: [{ position: [10, 0, 20], hx: 1, hy: 1, hz: 1, slotId: 'king:p:4' }],
-    };
-    expect(buildClipAabbs(sources)).toEqual([{ minX: 9, maxX: 11, minY: 0, maxY: 2, minZ: 19, maxZ: 21 }]);
-    // …and it is the same geometry the keyed build produces, box for box.
-    const keyed = buildClipIndexEntries(sources);
-    expect(buildClipAabbs(sources)[0].minX).toBe(keyed[0].minX);
-  });
-
-  it('DRIFT GUARD: every fade key on the REAL layout is unique (no two volumes share a writer)', () => {
-    const frontage = buildFrontage(416);
-    const infill = buildInfill(416, frontage);
-    const entries = buildClipIndexEntries({
-      groundedBuildings: [...frontage.slots, ...frontage.cornerFills],
-      centredBoxes: [...frontage.towerBoxes, ...infill.boxes],
-      infillFixed: infill.fixed,
-      namedBoxes: [],
-      heroBases: [],
-    });
-    const keys = entries.map((e) => e.fadeKey).filter((k): k is string => k !== null);
-    expect(keys.length).toBe(entries.length); // every one of these classes IS fadeable
+  it('DRIFT GUARD: every fade key on the REAL composed world is unique (no two volumes share a writer)', () => {
+    const world = composeWorld(416);
+    const keys = world.clipVolumes.map((e) => e.fadeKey).filter((k): k is string => k !== null);
     expect(new Set(keys).size).toBe(keys.length);
+    // Only the named boxes are un-keyed; every batched class IS fadeable.
+    const named = world.named.placements.reduce((n, p) => n + p.boxes.length, 0);
+    expect(world.clipVolumes.length - keys.length).toBe(named);
   });
 });
 

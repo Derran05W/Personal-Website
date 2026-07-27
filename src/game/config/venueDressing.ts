@@ -220,6 +220,14 @@ export const VENUE_QUEUE = {
   frontOffsetWu: 2.2,
   /** Extra length (wu) each end post sits beyond the first/last blob. */
   postExtraWu: 0.8,
+  /**
+   * Phase 40 — the two queue props' box dimensions (wu), moved here from
+   * cityPack/VenueDressLayer.tsx's inline `boxGeometry args`. The renderer builds its geometry
+   * from these AND the placement arbiter claims the same footprints, so a future resize can't
+   * make the visual and the claim disagree (the whole point of the arbiter).
+   */
+  postSizeWu: { w: 0.16, h: 1.2 } as const,
+  blobSizeWu: { w: 0.72, h: 1.02, d: 0.5 } as const,
 } as const;
 
 // --- fine-dining plaque (D7: Alo keeps the P26 "tiny plaque, no band" treatment) -----------------

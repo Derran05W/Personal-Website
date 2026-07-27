@@ -57,19 +57,16 @@ import { buildGroundTintRanges, darkenColorRange } from './groundTintBlackout';
 import { RegisteredCuboidCollider, RegisteredCylinderCollider } from '../landmarks/registeredCollider';
 import { torontoBuildingEntryAt } from './torontoColliders';
 import { getEntity, type EntityEntry } from '../registry';
-import { buildFrontage } from './frontage';
-import { buildInfill } from './infill';
-import { buildFurniture } from './furniture';
+import { composeWorld } from './composeWorld';
 import { buildRoadGeometry, buildSidewalkColliderBoxes } from './roadPaint';
-import { buildParks, type ParksLayout } from './parks';
+import { type ParksLayout } from './parks';
 import { GROUND_NOISE, buildNoiseField, sampleNoiseField } from './groundNoise';
 import { BARRIER, SIDEWALK } from '../../config/torontoMap';
 import { CityPackBatched } from './cityPack/CityPackBatched';
-import { HERO_LOTS, buildNamedBuildings, type CrownDecal, type NamedBox, type NamedPlacement } from './namedBuildings';
+import { HERO_LOTS, type CrownDecal, type NamedBox, type NamedPlacement } from './namedBuildings';
 import { buildCnTowerGeometry, buildRogersGeometry } from './heroes';
 import { FADE_MAX, needsTransparent, occlusionFader, occlusionRegistry } from './occlusionFade';
 import {
-  buildClipIndexEntries,
   clearClipIndex,
   eyeInsideAny,
   pointInsideAny,
@@ -85,17 +82,14 @@ import { recordClampFired, recordOcclusionHits, sampleCameraClip } from './camer
 import { liveCamera } from '../../fx/cameraRef';
 import { getLogoAtlas, logoCellUv } from './logoAtlas';
 import {
-  buildPlacesLayer,
   type DiscSign,
   type PlaceBox,
   type PlacesLayer as PlacesLayerData,
   type SankofaProp,
 } from './placesLayer';
-import { buildVenueDress } from './venueDress';
 import { createRng } from '../rng';
 import { createFoldTrigger, type FoldTrigger } from './tunnel';
 import { createOobTrigger, type OobTrigger } from './outOfBounds';
-import { buildWorldEdge } from './worldEdge';
 import { buildBarrierDressingGeometry, buildDeadEndColliders } from './worldEdgeGeometry';
 import { gameEvents } from '../../state/events';
 import { getGameState, useGameStore } from '../../state/store';
@@ -1059,10 +1053,35 @@ export function TorontoScene() {
   const groundNoiseTex = useMemo(() => makeGroundNoiseTexture(seed), [seed]);
   useEffect(() => () => groundNoiseTex.dispose(), [groundNoiseTex]);
 
-  // Phase 25.8 (D7): parks — the grass mesh + tree ring; the rects also gate the streetwall via the
-  // frontage exclusion set (buildFrontage calls buildParks() internally, so the same rects gap the
-  // frontage that the mesh fills — deterministic, seed-independent, no drift).
-  const parks = useMemo(() => buildParks(), []);
+  // Phase 25.8 (D8): the quality-tier dress scaling, captured ONCE at mount via a lazy useState
+  // initializer — NOT a reactive subscription, matching world/CityScape.tsx's
+  // parkedCarKeepFraction/sceneryKeepFraction precedent exactly (see that file's doc comment). A
+  // mid-run quality change must not thin buildings/furniture/colliders out from under a live run;
+  // the new tier applies on the next mount (new seed or new run — Phase 32: this scene is now
+  // always mounted, there is no toggle remount to also key off of).
+  const [tierParams] = useState(() => {
+    const tier = QUALITY_TIERS[useGameStore.getState().settings.quality];
+    return {
+      dressDensityScalar: tier.dressDensityScalar,
+      frontageOccupancyScalar: tier.frontageOccupancyScalar,
+      parkedCarKeepFraction: tier.parkedCarKeepFraction,
+      lampOverlay: tier.lampOverlay,
+    };
+  });
+
+  // PHASE 40 — THE ONE WORLD BUILD. `composeWorld` replaces the seven independent placement memos
+  // this component used to hold (parks / named / places / worldEdge / frontage / furniture /
+  // infill / venueDress): it builds the street skeleton once, threads ONE claim index through
+  // every layer in the declared order, and hands back the finished city plus the camera clip
+  // volumes projected straight off the claims it placed. Every consumer below reads from this.
+  //
+  // Dependencies are (seed, tierParams) exactly as before — tierParams is mount-captured and
+  // stable, so a re-render never rebuilds the city and a run restart reproduces it exactly.
+  const world = useMemo(() => composeWorld(seed, tierParams), [seed, tierParams]);
+  const { parks, named, places, worldEdge, frontage, furniture, infill, dress } = world;
+
+  // Phase 25.8 (D7): parks — the grass mesh + tree ring. The same rects gate the streetwall via
+  // the arbiter's `parkRect` zone claims, so the streetwall gaps exactly where the mesh fills.
   const parksGeometry = useMemo(() => buildParksGeometry(parks), [parks]);
   useEffect(() => () => parksGeometry.dispose(), [parksGeometry]);
   const parkTreePlacements = useMemo(
@@ -1070,12 +1089,10 @@ export function TorontoScene() {
     [parks],
   );
 
-  // Phase 37: the diegetic world-edge barrier ring (worldEdge.ts is itself module-memoized —
-  // this useMemo only stabilises the DERIVED arrays below across re-renders). Colliders +
-  // dead-end rows mount below (BARRIER_ENTRY); dressing renders as pack fence/cone runs
-  // (CityPackBatched) plus one merged procedural mesh (worldEdgeGeometry.ts's hoarding/jersey/
-  // rail-post boxes).
-  const worldEdge = useMemo(() => buildWorldEdge(), []);
+  // Phase 37: the diegetic world-edge barrier ring (from the composed world — worldEdge.ts is
+  // itself module-memoized). Colliders + dead-end rows mount below (BARRIER_ENTRY); dressing
+  // renders as pack fence/cone runs (CityPackBatched) plus one merged procedural mesh
+  // (worldEdgeGeometry.ts's hoarding/jersey/rail-post boxes).
   const deadEndColliders = useMemo(() => buildDeadEndColliders(), []);
   const barrierDressingGeometry = useMemo(() => buildBarrierDressingGeometry(), []);
   useEffect(() => () => barrierDressingGeometry.dispose(), [barrierDressingGeometry]);
@@ -1094,37 +1111,6 @@ export function TorontoScene() {
     [worldEdge],
   );
 
-  // Phase 24 named landmarks: street-referenced, seed-independent (pure function of the street
-  // table). Their footprints + the reserved hero lots feed the frontage engine as exclusions so
-  // pack filler never collides with a landmark or the P25 CN Tower / Rogers lots.
-  const named = useMemo(() => buildNamedBuildings(), []);
-  // Phase 26 places / nostalgia layer: street-referenced, seed-independent. Its storefront/Sam/
-  // Sankofa footprints join the named exclusions (frontage.ts + furniture.ts consume both).
-  const places = useMemo(() => buildPlacesLayer(named), [named]);
-
-  // Phase 25.8 (D8): the quality-tier dress scaling, captured ONCE at mount via a lazy useState
-  // initializer — NOT a reactive subscription, matching world/CityScape.tsx's
-  // parkedCarKeepFraction/sceneryKeepFraction precedent exactly (see that file's doc comment). A
-  // mid-run quality change must not thin buildings/furniture/colliders out from under a live run;
-  // the new tier applies on the next mount (new seed or new run — Phase 32: this scene is now
-  // always mounted, there is no toggle remount to also key off of).
-  const [tierParams] = useState(() => {
-    const tier = QUALITY_TIERS[useGameStore.getState().settings.quality];
-    return {
-      dressDensityScalar: tier.dressDensityScalar,
-      frontageOccupancyScalar: tier.frontageOccupancyScalar,
-      parkedCarKeepFraction: tier.parkedCarKeepFraction,
-      lampOverlay: tier.lampOverlay,
-    };
-  });
-
-  // Phase 25.6 re-dress: pack-building frontage (retires the box-lattice massing) + street
-  // furniture + parked cars. Both are pure/deterministic and read the SAME named+places exclusions
-  // internally, so a re-render never rebuilds them and the same seed reproduces the exact city.
-  // Phase 25.8 (D8): threaded with the mount-captured tierParams above (tierParams is stable
-  // across the component's lifetime, so this dependency never re-triggers a rebuild mid-run).
-  const frontage = useMemo(() => buildFrontage(seed, tierParams), [seed, tierParams]);
-  const furniture = useMemo(() => buildFurniture(seed, tierParams), [seed, tierParams]);
   // Phase 30 (T2 debt-2): the LightPool adapter — Toronto has no 'streetlight' archetype, so
   // its traffic-light masts stand in as the pool's emitter source (powergrid/lightPool.ts's
   // torontoStreetlightEmitters), keyed to the SAME 15-district grid powergrid/grid.ts already
@@ -1136,15 +1122,6 @@ export function TorontoScene() {
       ),
     [furniture],
   );
-  // Phase 28 infill: corner fill (frontage.cornerFills, built above) + back-lot/laneway/parking-
-  // lot/construction/lane-closure (world/toronto/infill.ts). Pure/deterministic, derived off the
-  // already-built frontage layout (its slots + cornerFills are the avoid-set every new layer
-  // respects) — same "rebuild only when seed/tier changes" contract as frontage/furniture above.
-  const infill = useMemo(() => buildInfill(seed, frontage, tierParams), [seed, frontage, tierParams]);
-  // Phase 25.7 venue dressing: pure, derived off the frontage's resolved venue claims (seed-
-  // independent claims, so this only rebuilds when the frontage object changes). Passed into
-  // CityDress → VenueDressLayer; its dressing-prop model ids join the preload set below.
-  const dress = useMemo(() => buildVenueDress(frontage.venueClaims), [frontage]);
 
   // Preload every used pack GLB once the scene mounts (an effect, not module scope, so a build
   // that never mounts this component — e.g. a unit test importing the module in isolation —
@@ -1392,10 +1369,13 @@ export function TorontoScene() {
     };
   }, []);
 
-  // --- static building AABB index (Phase 33; PROD-ACTIVE since Phase 36) --------------------
-  // Built from the layouts this component ALREADY memoizes — the index is a re-view of the
-  // shipped placement, never a second generation pass (rebuilding frontage would cost seconds
-  // and could silently drift from what is on screen).
+  // --- static building AABB index (Phase 33; PROD-ACTIVE since Phase 36; SOURCED FROM THE
+  // PLACEMENT ARBITER since Phase 40) -------------------------------------------------------
+  // The volumes are `world.clipVolumes` — a projection of the very claims composeWorld placed
+  // (claimIndex.buildingClipVolumes), not a second hand-assembled walk over the layout arrays.
+  // That closes the drift risk the old `ClipIndexSources` shape carried: a new building-ish layer
+  // used to have to be remembered in TWO places, and forgetting the second one silently made the
+  // camera blind to it.
   //
   // PHASE 36 PROMOTED THIS OUT OF `import.meta.env.DEV`. It was Phase 33 instrumentation; it is
   // now load-bearing production machinery, feeding two shipped systems: the occlusion pass's
@@ -1404,10 +1384,6 @@ export function TorontoScene() {
   // below plus the bucket-grid build — which is inside the same Suspense window the pack GLBs
   // already spend far longer in. The DEV-only half (the clip STATISTICS sampler) is a separate
   // pass below and stays gated.
-  //
-  // Still throwaway in the Phase 40 sense: the placement arbiter replaces this index and
-  // re-points its consumers (world/toronto/cameraClipIndex.ts's header) — there are now three of
-  // them, not one, and they are shipped features rather than instrumentation.
   //
   // Toggle-blind ON PURPOSE: it indexes the full frontage/infill layout regardless of the dev
   // toggles that can hide layers from CityDress. A key the index knows but no renderer registered
@@ -1433,19 +1409,24 @@ export function TorontoScene() {
     ].map(({ at, collider }) => ({ x: at.x, z: at.z, ...collider }));
     cn.geometry.dispose();
     rogers.geometry.dispose();
-    // buildClipIndexEntries (not the fade-key-free buildClipAabbs) — the entries carry the fade
-    // identity the occlusion pass targets by. The frontage slots/corner fills come in as
-    // FrontageSlots (they carry `slotId`, the Phase 25.7 seam) and the infill items as themselves,
-    // so both families mint the SAME keys the CityDress renderers register under.
-    setClipIndex(
-      buildClipIndexEntries({
-        groundedBuildings: [...frontage.slots, ...frontage.cornerFills],
-        centredBoxes: [...frontage.towerBoxes, ...infill.boxes],
-        infillFixed: infill.fixed,
-        namedBoxes: named.placements.flatMap((p) => p.boxes),
-        heroBases,
-      }),
-    );
+    // The arbiter's building-class claims (frontage slots + corner fills + backdrop/back-lot boxes
+    // + back-lot pack buildings + named boxes), each already carrying the fade key minted at
+    // REGISTRATION by the same frontageFadeKey/infillFadeKey/backdropFadeKey functions the
+    // CityDress renderers call — so both sides key by the item's own identity, never by an array
+    // position. The two hero volumes are geometry-meta-derived (three-dependent, so they cannot
+    // live in the pure layer) and are appended here exactly as before.
+    setClipIndex([
+      ...world.clipVolumes,
+      ...heroBases.map((h) => ({
+        minX: h.x - h.radius,
+        maxX: h.x + h.radius,
+        minY: Math.max(0, h.centerY - h.halfHeight),
+        maxY: h.centerY + h.halfHeight,
+        minZ: h.z - h.radius,
+        maxZ: h.z + h.radius,
+        fadeKey: null,
+      })),
+    ]);
     return () => {
       clearClipIndex();
       // The occlusion pass's per-frame state is keyed to THIS index's keys — drop it with the
@@ -1453,7 +1434,7 @@ export function TorontoScene() {
       // segment able to re-hit it.
       resetDitherPassState();
     };
-  }, [frontage, infill, named]);
+  }, [world]);
 
   // --- Phase 33 camera lab: clip sampling (DEV-only, priority 2 = after the render) ---------
   // Priority 2 runs after CameraFxSystem's priority-1 update + render, so it observes the camera

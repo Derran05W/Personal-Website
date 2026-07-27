@@ -27,11 +27,9 @@ import { CAMERA_EYE_MAX_WU, CAMERA_EYE_MIN_WU } from '../../config/camera';
 import { resolveCityPackScale, STREETWALL_MAX_HEIGHT_WU } from '../../config/cityPackScale';
 import { TORONTO_DISTRICTS } from '../../config/torontoDistricts';
 import { CITY_PACK_MANIFEST } from '../../assets/cityPackManifest';
-import { buildFrontage } from './frontage';
-import { buildInfill } from './infill';
+import { composeWorld } from './composeWorld';
 import { buildNamedBuildings } from './namedBuildings';
 import { buildPlacesLayer } from './placesLayer';
-import { buildVenueDress } from './venueDress';
 import { buildCnTowerGeometry, buildRogersGeometry } from './heroes';
 import { hGame } from './heightCurve';
 
@@ -142,8 +140,7 @@ describe('eye-line law — (b) city-pack building models', () => {
 describe('eye-line law — (c) the placed classes, measured on the real layout', () => {
   // Class checks above are on the SOURCES; these are on the OUTPUT, so a placer that invents its own
   // height (or scales a model itself) can't slip past the table checks.
-  const frontage = buildFrontage(SEED);
-  const infill = buildInfill(SEED, frontage);
+  const { frontage, infill, dress } = composeWorld(SEED);
 
   it('frontage streetwall: every slot is below the resting eye', () => {
     for (const s of frontage.slots) {
@@ -180,7 +177,6 @@ describe('eye-line law — (c) the placed classes, measured on the real layout',
   });
 
   it('venue dressing (fascia bands, awnings, props, plaques) sits at street level', () => {
-    const dress = buildVenueDress(frontage.venueClaims);
     expect(dress.bands.length).toBeGreaterThan(0);
     for (const band of dress.bands) {
       expect(band.cy + band.height / 2, `${band.venueId} band`).toBeLessThanOrEqual(CAMERA_EYE_MIN_WU - MIN_MARGIN_WU);
@@ -214,8 +210,7 @@ describe('eye-line law — (d) THE CROSSER LIST (Phase 36 occlusion work order)'
   // the occlusion pass. Not a snapshot update on autopilot.
 
   it('BATCHED crossers (no per-mesh fade today — Phase 36 needs the dither path for these)', () => {
-    const frontage = buildFrontage(SEED);
-    const infill = buildInfill(SEED, frontage);
+    const { frontage, infill } = composeWorld(SEED);
     const batched = {
       // The backdrop-tower row: sparse extruded boxes behind the frontage in the 3 skyline districts.
       backdropTowerBoxes: frontage.towerBoxes.filter((b) => b.hy * 2 > CAMERA_EYE_MIN_WU).length,
@@ -234,8 +229,17 @@ describe('eye-line law — (d) THE CROSSER LIST (Phase 36 occlusion work order)'
     // Note both rows draw heights from the SAME district ranges as the filler, so only the upper
     // part of each roll crosses — 35 of the 90 placed backdrop boxes, and a small tail of back-lot
     // boxes inside the three skyline districts.
+    //
+    // Phase 40: this count moved 9 -> 6. Back-lot boxes now gate on the placement arbiter's
+    // `blocked` predicate (world-edge ring + named boxes + frontage streetwall/backdrop towers),
+    // which nothing checked before Phase 40 — a back-lot box could roll on top of a backdrop-tower
+    // box behind the SAME frontage, since the two rows were built independently and neither one's
+    // rejection list knew about the other. The three lost crossers were exactly that: tall back-lot
+    // boxes interpenetrating a backdrop tower inside a skyline district (ablation-proven — removing
+    // the new `blocked(fp)` check from buildBacklotRow alone restores all three). See
+    // phase-40-notes.md.
     expect(batched.backdropTowerBoxes).toBe(35);
-    expect(batched.backLotBoxes).toBe(9);
+    expect(batched.backLotBoxes).toBe(6);
   });
 
   it('NAMED crossers, enumerated by id + final height (wu)', () => {

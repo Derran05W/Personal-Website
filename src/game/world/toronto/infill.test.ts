@@ -8,8 +8,10 @@ import { hasCityPackModel } from '../../assets/cityPackManifest';
 import { QUALITY_TIERS } from '../../config/quality';
 import { DEEP_SCATTER, TORONTO_TIER_IDENTITY, type TorontoTierParams } from '../../config/torontoDress';
 import { TORONTO_DISTRICTS } from '../../config/torontoDistricts';
-import { buildFrontage, overlaps, type Aabb } from './frontage';
-import { buildInfill, type DecorPlacement, type DynamicConeSpec, type FixedInfillItem } from './infill';
+import { colliderHalfExtents } from '../../config/cityPackScale';
+import { footprintHalfExtents, overlaps, type Aabb } from './claimIndex';
+import { type DecorPlacement, type DynamicConeSpec, type FixedInfillItem } from './infill';
+import { composeWorld } from './composeWorld';
 import { buildNamedBuildings } from './namedBuildings';
 import { buildParks } from './parks';
 import { buildPlacesLayer } from './placesLayer';
@@ -19,6 +21,22 @@ import { VENUE_AUTHORS } from './venues';
 
 const SEEDS = [416, 9417] as const;
 const WATER_Z = ZONE_BOUNDARIES[3];
+
+// Phase 40: infill runs inside the composition (its lane-closure half is built AFTER furniture so
+// it can gate on parked cars + manholes), so the suite reads `composeWorld(seed).infill` rather
+// than a standalone builder. Memoized per (seed, tier) — a world build is ~130 ms.
+const worldCache = new Map<string, ReturnType<typeof composeWorld>>();
+function worldOf(seed: number, tier?: TorontoTierParams): ReturnType<typeof composeWorld> {
+  const key = `${seed}:${JSON.stringify(tier ?? null)}`;
+  const hit = worldCache.get(key);
+  if (hit) return hit;
+  const built = composeWorld(seed, tier);
+  worldCache.set(key, built);
+  return built;
+}
+function infillOf(seed: number, tier?: TorontoTierParams): ReturnType<typeof composeWorld>['infill'] {
+  return worldOf(seed, tier).infill;
+}
 
 function footprintFixed(s: FixedInfillItem): Aabb {
   return { minX: s.position[0] - s.hx, maxX: s.position[0] + s.hx, minZ: s.position[2] - s.hz, maxZ: s.position[2] + s.hz };
@@ -34,20 +52,17 @@ function tierParamsOf(tier: keyof typeof QUALITY_TIERS): TorontoTierParams {
 }
 
 describe('buildInfill — determinism', () => {
-  it('same (seed, frontage) → deep-equal output', () => {
-    const frontage = buildFrontage(416);
-    expect(buildInfill(416, frontage)).toEqual(buildInfill(416, frontage));
+  it('same seed → deep-equal output', () => {
+    expect(composeWorld(416).infill).toEqual(composeWorld(416).infill);
   });
   it('different seeds → different infill layouts', () => {
-    const a = buildInfill(416, buildFrontage(416));
-    const b = buildInfill(9417, buildFrontage(9417));
-    expect(a.fixed).not.toEqual(b.fixed);
+    expect(infillOf(416).fixed).not.toEqual(infillOf(9417).fixed);
   });
 });
 
 describe('buildInfill — every model id is a real manifest entry', () => {
   it.each(SEEDS)('seed %i', (seed) => {
-    const infill = buildInfill(seed, buildFrontage(seed));
+    const infill = infillOf(seed);
     const ids = new Set<string>([
       ...infill.fixed.map((f) => f.modelId),
       ...infill.boxes.map(() => 'box-geometry'), // boxes are extruded, not a manifest model — skip
@@ -60,8 +75,8 @@ describe('buildInfill — every model id is a real manifest entry', () => {
 });
 
 describe.each(SEEDS)('buildInfill — reject-never-relocate invariants at seed %i', (seed) => {
-  const frontage = buildFrontage(seed);
-  const infill = buildInfill(seed, frontage);
+  const frontage = worldOf(seed).frontage;
+  const infill = infillOf(seed);
   const streets = buildStreets().streets;
   const sidewalkBands: Aabb[] = streets.map((s) => ({
     minX: s.ribbon.minX - 3, // SIDEWALK.widthWu (3) — literal duplicated here as an independent
@@ -101,7 +116,17 @@ describe.each(SEEDS)('buildInfill — reject-never-relocate invariants at seed %
   it('no DECOR item (laneway/construction/lane-closure) sits inside a sidewalk band — the D10 no-furniture-on-ribbon extension, EXCEPT lane-closure road-bits (on-road by design, the manhole/parked-style exemption)', () => {
     const offenders = infill.decor.filter((d) => {
       if (d.modelId === 'road-bits') return false; // lane-closure plates sit ON the asphalt by design
-      const fp: Aabb = { minX: d.position[0] - 0.6, maxX: d.position[0] + 0.6, minZ: d.position[2] - 0.6, maxZ: d.position[2] + 0.6 };
+      // Phase 40: measured at the REAL rotated model footprint — the same footprint the placement
+      // gate tests and the claim registers (the 0.6 wu stand-in convention this test used to
+      // mirror is retired; a smaller-than-0.6 model may now legally stand closer to the band).
+      const half = colliderHalfExtents(d.modelId);
+      const rotated = footprintHalfExtents(half.hx, half.hz, d.rotationY);
+      const fp: Aabb = {
+        minX: d.position[0] - rotated.hx,
+        maxX: d.position[0] + rotated.hx,
+        minZ: d.position[2] - rotated.hz,
+        maxZ: d.position[2] + rotated.hz,
+      };
       return sidewalkBands.some((r) => overlaps(fp, r));
     });
     expect(offenders.length).toBe(0);
@@ -159,7 +184,7 @@ describe.each(SEEDS)('buildInfill — reject-never-relocate invariants at seed %
 });
 
 describe('buildInfill — layer presence on the real map (seed 416)', () => {
-  const infill = buildInfill(416, buildFrontage(416));
+  const infill = infillOf(416);
   it('every category is non-empty', () => {
     expect(infill.fixed.length).toBeGreaterThan(0);
     expect(infill.boxes.length).toBeGreaterThan(0);
@@ -177,7 +202,6 @@ describe('buildInfill — layer presence on the real map (seed 416)', () => {
 
 describe('buildInfill — tier wiring (D8)', () => {
   const seed = 416;
-  const frontage = buildFrontage(seed);
   const HIGH = tierParamsOf('high');
   const MED = tierParamsOf('med');
   const LOW = tierParamsOf('low');
@@ -187,39 +211,39 @@ describe('buildInfill — tier wiring (D8)', () => {
   });
 
   it('high tier is byte-identical to the pre-tier (no-arg default) output — golden', () => {
-    const noArg = buildInfill(seed, frontage);
-    expect(buildInfill(seed, frontage, HIGH)).toEqual(noArg);
+    const noArg = infillOf(seed);
+    expect(infillOf(seed, HIGH)).toEqual(noArg);
   });
 
   it('same (seed, tier) → deep-equal output (determinism)', () => {
-    expect(buildInfill(seed, frontage, LOW)).toEqual(buildInfill(seed, frontage, LOW));
+    expect(composeWorld(seed, LOW).infill).toEqual(composeWorld(seed, LOW).infill);
   });
 
   it('low tier thins backlot/laneway/parking-lot counts relative to high tier', () => {
-    const high = buildInfill(seed, frontage, HIGH);
-    const med = buildInfill(seed, frontage, MED);
-    const low = buildInfill(seed, frontage, LOW);
+    const high = infillOf(seed, HIGH);
+    const med = infillOf(seed, MED);
+    const low = infillOf(seed, LOW);
     expect(low.counts.backlotPack + low.counts.backlotBox).toBeLessThanOrEqual(high.counts.backlotPack + high.counts.backlotBox);
     expect(low.counts.laneway).toBeLessThanOrEqual(med.counts.laneway);
     expect(med.counts.laneway).toBeLessThanOrEqual(high.counts.laneway);
   });
 
   it('low tier drops lane closures entirely (D7/D8: "dropped entirely on the low tier")', () => {
-    const low = buildInfill(seed, frontage, LOW);
+    const low = infillOf(seed, LOW);
     expect(low.cones.length).toBe(0);
     expect(low.counts.laneClosures).toBe(0);
   });
 
   it('med/high tiers still have lane closures', () => {
-    const med = buildInfill(seed, frontage, MED);
-    const high = buildInfill(seed, frontage, HIGH);
+    const med = infillOf(seed, MED);
+    const high = infillOf(seed, HIGH);
     expect(med.cones.length).toBeGreaterThan(0);
     expect(high.cones.length).toBeGreaterThan(0);
   });
 
   it('low tier halves construction decor props per site relative to high tier (propScale)', () => {
-    const high = buildInfill(seed, frontage, HIGH);
-    const low = buildInfill(seed, frontage, LOW);
+    const high = infillOf(seed, HIGH);
+    const low = infillOf(seed, LOW);
     // Every site keeps its fence run + dumpster (structural); only cone-cluster/box/debris counts
     // thin, so a strict per-site halving isn't exact, but the map-wide construction decor total
     // must drop noticeably.
@@ -227,8 +251,8 @@ describe('buildInfill — tier wiring (D8)', () => {
   });
 
   it('D11 deep-interior scatter thins with tier too (both caps AND the coarser scan)', () => {
-    const high = buildInfill(seed, frontage, HIGH);
-    const low = buildInfill(seed, frontage, LOW);
+    const high = infillOf(seed, HIGH);
+    const low = infillOf(seed, LOW);
     expect(low.counts.deepScatterTrees).toBeLessThan(high.counts.deepScatterTrees);
     expect(low.counts.deepScatterTrees).toBeLessThanOrEqual(Math.round(DEEP_SCATTER.treeCapMapWide * LOW.dressDensityScalar));
     expect(low.counts.deepScatterGreenhouses).toBeLessThanOrEqual(high.counts.deepScatterGreenhouses);
@@ -242,8 +266,7 @@ describe('buildInfill — tier wiring (D8)', () => {
 // every street-hugging layer above (D1-D7). D11 is the last, lowest-density pass that scatters
 // tree clusters + rare greenhouse/pile garnish into exactly those deep interiors.
 describe.each(SEEDS)('buildInfill — D11 deep-interior scatter at seed %i', (seed) => {
-  const frontage = buildFrontage(seed);
-  const infill = buildInfill(seed, frontage);
+  const infill = infillOf(seed);
   const { streets } = buildStreets();
   const densityById = new Map(TORONTO_DISTRICTS.map((d) => [d.id, d.density]));
 
@@ -260,8 +283,8 @@ describe.each(SEEDS)('buildInfill — D11 deep-interior scatter at seed %i', (se
     return infill.decor.filter((d) => d.modelId === 'dumpster' || d.modelId === 'box');
   }
 
-  it('determinism: same (seed, frontage) → identical deep-scatter counts and items', () => {
-    const again = buildInfill(seed, frontage);
+  it('determinism: same seed → identical deep-scatter counts and items', () => {
+    const again = composeWorld(seed).infill;
     expect(again.counts.deepScatterTrees).toBe(infill.counts.deepScatterTrees);
     expect(again.counts.deepScatterGreenhouses).toBe(infill.counts.deepScatterGreenhouses);
     expect(again.counts.deepScatterPiles).toBe(infill.counts.deepScatterPiles);
@@ -325,7 +348,7 @@ describe.each(SEEDS)('buildInfill — D11 deep-interior scatter at seed %i', (se
 // --- type re-exports sanity (compile-time only, cheap runtime smoke) ----------------------------
 describe('infill output shapes', () => {
   it('DecorPlacement/DynamicConeSpec fields are present on real output', () => {
-    const infill = buildInfill(416, buildFrontage(416));
+    const infill = infillOf(416);
     const d: DecorPlacement = infill.decor[0];
     expect(typeof d.modelId).toBe('string');
     const c: DynamicConeSpec = infill.cones[0];

@@ -3,7 +3,8 @@
 // tier-wiring tests. Manholes + parked are the on-road exemptions.
 import { describe, expect, it } from 'vitest';
 import { buildStreets, type MapRect } from './streets';
-import { buildFurniture, isOnAnyRibbon } from './furniture';
+import { isOnAnyRibbon } from './furniture';
+import { composeWorld } from './composeWorld';
 
 describe('isOnAnyRibbon', () => {
   const ribbons: MapRect[] = [{ minX: 0, maxX: 10, minY: 0, maxY: 4 }];
@@ -18,7 +19,7 @@ describe('isOnAnyRibbon', () => {
 describe('no-furniture-on-ribbon invariant (map-wide)', () => {
   const streets = buildStreets().streets;
   const ribbons: MapRect[] = streets.map((s) => s.ribbon);
-  const f = buildFurniture(2026);
+  const f = composeWorld(2026).furniture;
 
   const nonExempt = [
     ['trafficLights', f.trafficLights],

@@ -39,40 +39,37 @@ import {
 import { ROAD_CLASSES } from '../../config/torontoMap';
 import { SIDEWALK } from '../../config/torontoMap';
 import { createRng, type Rng } from '../rng';
-import { buildDistricts, districtAt, type ResolvedDistrict } from './districts';
+import { overlaps, type Aabb } from './claimIndex';
+import { districtAt, type ResolvedDistrict } from './districts';
 import { hGame } from './heightCurve';
-import { buildNamedBuildings } from './namedBuildings';
-import { buildParks } from './parks';
-import { buildPlacesLayer } from './placesLayer';
 import { PLAYABLE_POLYGON, pointInPolygon } from './polygon';
 import { ZONE_BOUNDARIES, type MapPoint } from './projection';
-import { listIntersections, type Intersection } from './roadGraph';
-import { buildStreets, type Street } from './streets';
+import { type Intersection } from './roadGraph';
+import { type Street } from './streets';
 import {
   VENUE_AUTHORS,
   buildVenueClaims,
   facadeModelFor,
   type CandidateLookup,
   type FrontageCandidate,
+  type VenueAuthor,
   type VenueClaim,
 } from './venues';
+import { BLOCKING_QUERY, EXCLUSION_ZONE_KINDS, createPlacementContext, type PlacementContext } from './worldContext';
 
 // --- shared geometry helpers (ported from the retired massing.ts — the ONE home now) ----------
 
-/** An axis-aligned footprint in map space (= world XZ; mapToWorld is the identity swap). */
-export interface Aabb {
-  readonly minX: number;
-  readonly minZ: number;
-  readonly maxX: number;
-  readonly maxZ: number;
-}
-
-/** Interior overlap (touching edges never count) — the shared predicate for ribbon / exclusion /
- * same-district checks, so generator and test agree on the boundary (massing.ts's `overlaps`). */
-export function overlaps(a: Aabb, b: Aabb): boolean {
-  const t = 1e-9;
-  return a.minX < b.maxX - t && a.maxX > b.minX + t && a.minZ < b.maxZ - t && a.maxZ > b.minZ + t;
-}
+// `Aabb` + `overlaps` MOVED to world/toronto/claimIndex.ts at Phase 40 (the arbiter is a leaf
+// module, so the footprint shape and the interior-overlap predicate had to live there for every
+// placer AND the index itself to share one definition). Re-exported here verbatim so every
+// existing `from './frontage'` import path — the placement test suites — keeps resolving to the
+// same symbols.
+//
+// PERF NOTE, measured: import `overlaps` from claimIndex.ts DIRECTLY in any hot placement loop.
+// Consuming it through this re-export costs ~1.8× in the millions-of-calls inner loops (infill's
+// reject cascade went 86 ms → 156 ms on seed 416 purely from the extra module-namespace hop under
+// the SSR transform). infill.ts imports it from the leaf for exactly this reason.
+export { overlaps, type Aabb };
 
 /** All four corners of a footprint inside the playable polygon (boundary-inclusive). */
 export function insidePolygon(fp: Aabb): boolean {
@@ -373,6 +370,7 @@ function buildBackdropTowers(
   streets: readonly Street[],
   districts: readonly ResolvedDistrict[],
   exclusions: readonly Aabb[],
+  blocked: (fp: Aabb) => boolean,
   base: Rng,
 ): readonly BackdropBox[] {
   const out: BackdropBox[] = [];
@@ -406,6 +404,9 @@ function buildBackdropTowers(
         if (!insidePolygon(fp)) continue;
         if (ribbons.some((r) => overlaps(fp, r))) continue;
         if (exclusions.some((r) => overlaps(fp, r))) continue;
+        // Phase 40: everything the arbiter has already placed — at this point the named-building
+        // boxes and the whole world-edge barrier ring, which nothing used to check against.
+        if (blocked(fp)) continue;
         if (keptFootprints.some((r) => overlaps(fp, r))) continue;
         const color = def.fillerColors[Math.floor(rng.next() * def.fillerColors.length) % def.fillerColors.length];
         keptFootprints.push(fp);
@@ -453,6 +454,7 @@ function buildCornerFill(
   exclusions: readonly Aabb[],
   ribbons: readonly Aabb[],
   keepFootprints: readonly Aabb[],
+  blocked: (fp: Aabb) => boolean,
   base: Rng,
 ): readonly RawSlot[] {
   const out: RawSlot[] = [];
@@ -491,6 +493,7 @@ function buildCornerFill(
         if (!insidePolygon(fp)) continue;
         if (exclusions.some((r) => overlaps(fp, r))) continue;
         if (ribbons.some((r) => overlaps(fp, r))) continue;
+        if (blocked(fp)) continue; // Phase 40: the world-edge ring + named boxes
         if (keepFootprints.some((r) => overlaps(fp, r))) continue;
         if (kept.some((r) => overlaps(fp, r))) continue;
         kept.push(fp);
@@ -524,6 +527,41 @@ export function thinToCap<T>(items: readonly T[], cap: number): readonly T[] {
   return out;
 }
 
+// --- Phase 40 (gap 6): sequential venue-claim resolution, dedupe by construction --------------
+
+/** Given an author and the set of slotIds every EARLIER author in the same resolution already
+ * claimed, produce the `CandidateLookup` `buildVenueClaims` should search for THAT author alone.
+ * The factory closes over whatever real lattice/street data the caller has on hand (buildFrontage
+ * closes over `latticeByKey`/`streetById`/`candidatePasses`); `resolveVenueClaimsSequential` never
+ * sees that data itself, which is what keeps it a pure, lattice-agnostic mechanism testable with a
+ * synthetic two-candidate lookup (see frontage.test.ts). */
+export type VenueClaimLookupFactory = (author: VenueAuthor, taken: ReadonlySet<string>) => CandidateLookup;
+
+/**
+ * Resolves `authors` to venue claims IN ORDER, each against a lookup built by
+ * `lookupFor(author, taken)` — `taken` accumulates every earlier author's resolved `slotId`, so a
+ * second author whose nearest candidate is already claimed deterministically falls through to its
+ * next-nearest PASSING candidate instead of colliding with the first (DEDUPE BY CONSTRUCTION,
+ * rather than by the post-hoc throw in Pass 1 below, which stays as defense-in-depth for the case
+ * no `lookupFor` can prevent: two authors whose ENTIRE candidate sets are identical).
+ *
+ * Pure mechanical extraction of buildFrontage's original inline loop (byte-identical behavior —
+ * the existing frontage suite's goldens are the proof); zero RNG, zero module state, so the same
+ * `authors` + `lookupFor` always produce the same claims in the same order.
+ */
+export function resolveVenueClaimsSequential(
+  authors: readonly VenueAuthor[],
+  lookupFor: VenueClaimLookupFactory,
+): readonly VenueClaim[] {
+  const taken = new Set<string>();
+  return authors.map((author) => {
+    const lookup = lookupFor(author, taken);
+    const claim = buildVenueClaims(lookup, [author])[0];
+    taken.add(claim.slotId);
+    return claim;
+  });
+}
+
 // --- top-level orchestrator ------------------------------------------------------------------
 
 interface RawSlot extends FrontageSlot {
@@ -554,25 +592,37 @@ function thinPreservingClaimed(items: readonly RawSlot[], cap: number): readonly
  * `tierParams` (Phase 25.8 D8) defaults to TORONTO_TIER_IDENTITY — every pre-25.8 call site
  * (devPanel, debugBridge, tests) that omits it gets byte-identical pre-tier output. Only
  * `frontageOccupancyScalar` affects this builder (multiplies FRONTAGE.occupancy's per-density
- * roll in Pass 2); venue claims (Pass 1) are forced-occupied and never scaled. */
-export function buildFrontage(seed: number, tierParams: TorontoTierParams = TORONTO_TIER_IDENTITY): FrontageLayout {
+ * roll in Pass 2); venue claims (Pass 1) are forced-occupied and never scaled.
+ *
+ * `ctx` (Phase 40) is the pre-built placement context — the shared world skeleton plus the claim
+ * index carrying every earlier layer's claims. It DEFAULTS to a freshly-composed prefix context
+ * so the two standalone call sites (core/debugBridge.ts's venue dump, core/devPanel.tsx's venue
+ * teleports) keep working with the exact same two-argument signature they always had; the default
+ * is built by the SAME `createPlacementContext()` helper `composeWorld()` uses, so a standalone
+ * call and the shipped world agree by construction rather than by luck. */
+export function buildFrontage(
+  seed: number,
+  tierParams: TorontoTierParams = TORONTO_TIER_IDENTITY,
+  ctx: PlacementContext = createPlacementContext(),
+): FrontageLayout {
   const base = createRng(seed).fork('toronto-packdress-v1');
-  const { streets } = buildStreets();
-  const intersections = listIntersections(streets);
-  const districts = buildDistricts();
-  const named = buildNamedBuildings();
-  const places = buildPlacesLayer(named);
+  const { streets, intersections, districts } = ctx;
 
   // Phase 25.8 (D7): park rects join the exclusion set (built BEFORE this walk, like named/places)
   // so the streetwall legitimately gaps at a park. Parks are SEED-INDEPENDENT (parks.ts), so this
   // keeps the claim gate — and thus venue claims — seed-independent (the 25.7 invariant); it also
   // guarantees venue-claim ∩ park = ∅ by construction (a park excludes any candidate overlapping it).
-  const exclusions: Aabb[] = [...named.exclusions, ...places.exclusions, ...buildParks().exclusions].map((r) => ({
-    minX: r.minX,
-    maxX: r.maxX,
-    minZ: r.minY,
-    maxZ: r.maxY,
-  }));
+  //
+  // Phase 40: the set is no longer hand-composed here — it is the arbiter's zone claims
+  // (named ∪ places ∪ parks), so this placer, infill.ts and furniture.ts can never again disagree
+  // about what an "exclusion" is (the audit's gap 7, and the cause of gap 3).
+  const exclusions: readonly Aabb[] = ctx.index.rects({ kinds: EXCLUSION_ZONE_KINDS });
+  // Phase 40: everything BLOCKING the arbiter already holds when the streetwall is laid — the
+  // named-building boxes (already covered by the strictly-larger exclusion rects above) and the
+  // whole Phase-37 world-edge ring, which no placer used to consult. Asked through the index's
+  // bucket grid rather than a materialized list: the ring alone is ~1.5k dressing pieces, and this
+  // predicate runs once per lattice candidate.
+  const blocked = (fp: Aabb): boolean => ctx.index.overlapsAny(fp, BLOCKING_QUERY);
   // Ribbons as AABBs (map space = world XZ), inflated a hair so a wide corner facade can't clip a
   // perpendicular cross-street's asphalt.
   const ribbons: Aabb[] = streets.map((s) => ({
@@ -633,6 +683,7 @@ export function buildFrontage(seed: number, tierParams: TorontoTierParams = TORO
     if (exclusions.some((r) => overlaps(fp, r))) return false;
     if (!insidePolygon(fp)) return false;
     if (claimRibbons.some((r) => overlaps(fp, r))) return false;
+    if (blocked(fp)) return false;
     return true;
   };
 
@@ -641,14 +692,19 @@ export function buildFrontage(seed: number, tierParams: TorontoTierParams = TORO
   // filtered-out nearest is simply absent and the nearest-pick fall-back to the next-nearest passing
   // candidate is deterministic and automatic. buildVenueClaims throws (venue-id-bearing) if a venue
   // has zero passing candidates on its side — every venue must resolve (D1).
-  const claims: readonly VenueClaim[] = VENUE_AUTHORS.map((author) => {
-    const lookup: CandidateLookup = (streetId, sideNum) => {
-      const list = latticeByKey.get(`${streetId}:${sideNum === 1 ? 'p' : 'n'}`) ?? [];
-      const street = streetById.get(streetId);
-      if (!street) return [];
-      return list.filter((c) => candidatePasses(street, c, author.kitId));
-    };
-    return buildVenueClaims(lookup, [author])[0];
+  // Phase 40 (gap 6): DEDUPE BY CONSTRUCTION, via the extracted `resolveVenueClaimsSequential`
+  // above. Authors resolve in VENUE_AUTHORS order and each one's candidate lookup is filtered by
+  // the slots ALREADY claimed (the `taken` set `resolveVenueClaimsSequential` threads through), so
+  // a second author whose nearest candidate is taken deterministically falls through to its
+  // next-nearest instead of colliding. Previously each author searched the full lattice
+  // independently and the only tripwire was the throw in Pass 1 below (kept, as defense in depth —
+  // but it can no longer be the mechanism). Zero drift expected on the shipped lattice: no two
+  // authors resolve to one slot today.
+  const claims: readonly VenueClaim[] = resolveVenueClaimsSequential(VENUE_AUTHORS, (author, taken) => (streetId, sideNum) => {
+    const list = latticeByKey.get(`${streetId}:${sideNum === 1 ? 'p' : 'n'}`) ?? [];
+    const street = streetById.get(streetId);
+    if (!street) return [];
+    return list.filter((c) => !taken.has(c.slotId) && candidatePasses(street, c, author.kitId));
   });
 
   let order = 0;
@@ -741,6 +797,7 @@ export function buildFrontage(seed: number, tierParams: TorontoTierParams = TORO
         if (exclusions.some((r) => overlaps(fp, r))) continue;
         if (!insidePolygon(fp)) continue;
         if (ribbons.some((r) => overlaps(fp, r))) continue;
+        if (blocked(fp)) continue; // Phase 40: the world-edge ring + named boxes
         if (claimedFootprints.some((r) => overlaps(fp, r))) continue;
         const placed = placedByDistrict.get(def.id) ?? [];
         if (placed.some((r) => overlaps(fp, r))) continue;
@@ -785,7 +842,7 @@ export function buildFrontage(seed: number, tierParams: TorontoTierParams = TORO
   const ranges = buildRanges(slots);
   const modelIds = [...new Set(slots.map((s) => s.modelId))].sort();
 
-  const towerBoxes = buildBackdropTowers(streets, districts, exclusions, base.fork('backdrop-towers'));
+  const towerBoxes = buildBackdropTowers(streets, districts, exclusions, blocked, base.fork('backdrop-towers'));
 
   // Part-8 (D1): corner fill runs against the REAL, already-thinned frontage footprint set (the
   // final `slots`, not the pre-cap `raw` list) — a corner piece never overlaps a rendered building.
@@ -795,7 +852,7 @@ export function buildFrontage(seed: number, tierParams: TorontoTierParams = TORO
     minZ: s.position[2] - s.hz,
     maxZ: s.position[2] + s.hz,
   }));
-  const cornerFillRaw = buildCornerFill(intersections, districts, exclusions, ribbons, slotFootprints, base.fork('corner-fill'));
+  const cornerFillRaw = buildCornerFill(intersections, districts, exclusions, ribbons, slotFootprints, blocked, base.fork('corner-fill'));
   const cornerFills: FrontageSlot[] = cornerFillRaw.map((s) => ({
     slotId: s.slotId,
     modelId: s.modelId,

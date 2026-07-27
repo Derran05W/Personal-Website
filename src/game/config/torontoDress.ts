@@ -25,6 +25,15 @@ export const TRAFFIC_LIGHT = {
    * [+ns/-ew, +ns/+ew, -ns/-ew, -ns/+ew]) a 2-mast DIAGONAL intersection uses. Fixed, not
    * randomized — a diagonal intersection always mounts opposite corners. */
   diagonalCornerIndices: [0, 3] as readonly [number, number],
+  /**
+   * Phase 40 — the mast's PHYSICAL POST footprint half-width (wu), for the placement arbiter's
+   * claim. Deliberately NOT `colliderHalfExtents('traffic-light')`, whose ~3.6 wu half-width is
+   * the ARM reaching out over the roadway at LAMP_OVERLAY.headAnchor.y (3.78 wu) — far above
+   * anything standing on the sidewalk, so claiming that box would falsely block a quarter of
+   * every corner. Same "claim the trunk, not the canopy" convention TREE_ROW.trunkHalfWidthWu
+   * established for street trees.
+   */
+  postHalfWidthWu: 0.25,
 } as const;
 
 /** Deterministic NS/EW signal-phase clock (D17), consumed by world/toronto/lampClock.ts. Cosmetic

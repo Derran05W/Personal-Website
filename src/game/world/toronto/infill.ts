@@ -40,27 +40,23 @@ import { SIDEWALK } from '../../config/torontoMap';
 import { neutralVehicleModelId } from '../../config/carVariety';
 import { createCarVarietySequencer } from '../../vehicles/carVariety';
 import { createRng, type Rng } from '../rng';
-import { buildDistricts, districtAt, type ResolvedDistrict } from './districts';
+import { aabbAround, footprintHalfExtents, overlaps, type Aabb, type ClaimKind, type ClaimQuery } from './claimIndex';
+import { districtAt, type ResolvedDistrict } from './districts';
 import { hGame } from './heightCurve';
-import { buildNamedBuildings } from './namedBuildings';
-import { buildParks } from './parks';
-import { buildPlacesLayer } from './placesLayer';
 import { PLAYABLE_POLYGON, pointInPolygon } from './polygon';
 import { ZONE_BOUNDARIES, type MapPoint } from './projection';
-import { listIntersections, type Intersection } from './roadGraph';
-import { buildStreets, type Street } from './streets';
+import { type Intersection } from './roadGraph';
+import { type Street } from './streets';
 import {
   frontageRotationY,
   insidePolygon,
-  overlaps,
   pickModel,
   pickTint,
   thinToCap,
   worldHalfExtents,
-  type Aabb,
   type BackdropBox,
-  type FrontageLayout,
 } from './frontage';
+import { BLOCKING_QUERY, EXCLUSION_ZONE_KINDS, type PlacementContext } from './worldContext';
 
 const DISTRICT_ORDER: readonly DistrictId[] = TORONTO_DISTRICTS.map((d) => d.id);
 const WATER_Z = ZONE_BOUNDARIES[3];
@@ -113,6 +109,45 @@ export interface InfillLayout {
   readonly counts: Readonly<Record<string, number>>;
 }
 
+/**
+ * Phase 40 — the infill layer MINUS lane closures. The composition splits here because the two
+ * halves sit on opposite sides of furniture in the pipeline: everything below reserves interior
+ * lots and back rows that furniture must then avoid, while LANE CLOSURES must avoid furniture's
+ * street-parked cars + manhole covers (the audit's gap 4 — `buildLaneClosures` was the one
+ * gate-less signature in the module). The split is rng-neutral: every pass draws from its own
+ * `base.fork(name)` stream, and `fork` is seeded by label, never by call order.
+ */
+export interface InfillMain {
+  readonly fixed: readonly FixedInfillItem[];
+  readonly boxes: readonly BackdropBox[];
+  readonly decor: readonly DecorPlacement[];
+  /** Reserved construction-site lot rects (their fixtures/decor legitimately sit inside them). */
+  readonly constructionLots: readonly Aabb[];
+  /** Reserved parking-lot rects (ditto for the fence run + the lot's cars). */
+  readonly parkingLots: readonly Aabb[];
+  /** The un-concatenated pass outputs, in the order they were produced. `fixed`/`decor` above are
+   * exactly these concatenated; composeWorld reads the groups so it can register each family with
+   * the right claim KIND and OWNER without re-parsing generator ids. */
+  readonly groups: {
+    readonly backlot: readonly FixedInfillItem[];
+    readonly parking: readonly FixedInfillItem[];
+    readonly construction: readonly FixedInfillItem[];
+    readonly scatterFixed: readonly FixedInfillItem[];
+    readonly laneway: readonly DecorPlacement[];
+    readonly constructionDecor: readonly DecorPlacement[];
+    readonly scatterDecor: readonly DecorPlacement[];
+  };
+  readonly counts: Readonly<Record<string, number>>;
+}
+
+/** Phase 40 — the lane-closure half, built AFTER furniture. */
+export interface LaneClosureLayer {
+  readonly cones: readonly DynamicConeSpec[];
+  readonly decor: readonly DecorPlacement[];
+  /** How many closure sites actually placed anything (≤ the rolled count). */
+  readonly siteCount: number;
+}
+
 // --- shared geometry helpers ---------------------------------------------------------------------
 
 function aabbFromCenterHalf(p: MapPoint, hx: number, hz: number): Aabb {
@@ -122,6 +157,19 @@ function aabbFromCenterHalf(p: MapPoint, hx: number, hz: number): Aabb {
 function rejectsAny(fp: Aabb, lists: readonly (readonly Aabb[])[]): boolean {
   return lists.some((list) => list.some((r) => overlaps(fp, r)));
 }
+
+/**
+ * Phase 40 — the arbiter gate every pass in this module now carries alongside its own `gates`
+ * lists. It answers "has ANY earlier layer already claimed this footprint?" through the claim
+ * index's bucket grid: at infill time that is the named-building boxes, the whole world-edge
+ * barrier ring, the frontage streetwall + corner fills + BACKDROP TOWERS, and the venue dressing
+ * props. Three of those five families were previously unchecked here — infill only ever received a
+ * hand-built list of frontage slots + corner fills.
+ *
+ * It is a PREDICATE rather than another `Aabb[]` on purpose: the ring alone contributes ~1.5k
+ * rects and the streetwall ~1.4k, and these gates run inside the module's hottest loops.
+ */
+type BlockedFn = (fp: Aabb) => boolean;
 
 function passesCommonGates(fp: Aabb): boolean {
   if (fp.maxZ >= WATER_Z) return false;
@@ -174,6 +222,7 @@ function scanForSites(
   cfg: ScanConfig,
   districts: readonly ResolvedDistrict[],
   gates: readonly (readonly Aabb[])[],
+  blocked: BlockedFn,
   base: Rng,
   densityScalar: number,
 ): readonly SiteCandidate[] {
@@ -199,6 +248,7 @@ function scanForSites(
       const fp = aabbFromCenterHalf(p, hx, hz);
       if (!passesCommonGates(fp)) continue;
       if (rejectsAny(fp, gates)) continue;
+      if (blocked(fp)) continue;
       if (keptFootprints.some((r) => overlaps(fp, r))) continue;
       if (rng.next() >= cfg.keepProbability) continue;
       const def = districtAt(p, districts);
@@ -354,6 +404,7 @@ function buildConstructionSite(site: SiteCandidate, idPrefix: string, base: Rng,
 function buildConstructionSites(
   districts: readonly ResolvedDistrict[],
   gates: readonly (readonly Aabb[])[],
+  blocked: BlockedFn,
   base: Rng,
   densityScalar: number,
   propScale: number,
@@ -367,6 +418,7 @@ function buildConstructionSites(
     },
     districts,
     gates,
+    blocked,
     base.fork('construction-scan'),
     densityScalar,
   );
@@ -432,6 +484,7 @@ function weightedPick(rng: Rng, entries: readonly { readonly id: string; readonl
 function buildParkingLots(
   districts: readonly ResolvedDistrict[],
   gates: readonly (readonly Aabb[])[],
+  blocked: BlockedFn,
   base: Rng,
   densityScalar: number,
 ): { lots: readonly SiteCandidate[]; fixed: FixedInfillItem[] } {
@@ -444,6 +497,7 @@ function buildParkingLots(
     },
     districts,
     gates,
+    blocked,
     base.fork('parking-scan'),
     densityScalar,
   );
@@ -461,6 +515,7 @@ function buildBacklotRow(
   streets: readonly Street[],
   districts: readonly ResolvedDistrict[],
   gates: readonly (readonly Aabb[])[],
+  blocked: BlockedFn,
   base: Rng,
   densityScalar: number,
 ): { packItems: readonly FixedInfillItem[]; boxes: readonly BackdropBox[] } {
@@ -496,6 +551,7 @@ function buildBacklotRow(
           const fp = aabbFromCenterHalf(p, world.hx, world.hz);
           if (!passesCommonGates(fp)) continue;
           if (rejectsAny(fp, gates)) continue;
+          if (blocked(fp)) continue;
           if (kept.some((r) => overlaps(fp, r))) continue;
           kept.push(fp);
           packItems.push({
@@ -519,6 +575,7 @@ function buildBacklotRow(
           const fp = aabbFromCenterHalf(p, hx, hz);
           if (!passesCommonGates(fp)) continue;
           if (rejectsAny(fp, gates)) continue;
+          if (blocked(fp)) continue;
           if (kept.some((r) => overlaps(fp, r))) continue;
           kept.push(fp);
           const realM = def.heightRangeM[0] + cellRng.next() * (def.heightRangeM[1] - def.heightRangeM[0]);
@@ -538,6 +595,7 @@ function buildLanewayClutter(
   streets: readonly Street[],
   districts: readonly ResolvedDistrict[],
   gates: readonly (readonly Aabb[])[],
+  blocked: BlockedFn,
   base: Rng,
   densityScalar: number,
 ): DecorPlacement[] {
@@ -557,13 +615,24 @@ function buildLanewayClutter(
         if (!pointInPolygon(p, PLAYABLE_POLYGON)) continue;
         const def = districtAt(p, districts);
         if (!def) continue;
-        const fp = aabbFromCenterHalf(p, 0.6, 0.6); // small footprint stand-in — clutter never gets a collider
-        if (fp.maxZ >= WATER_Z) continue;
-        if (rejectsAny(fp, gates)) continue;
+        // Phase 40: the model + spin are drawn FIRST (cellRng is per-candidate, so drawing before
+        // the gate is rng-neutral for every other candidate, and this candidate's pick→spin order
+        // is unchanged) because the gate must test the REAL rotated model footprint. The old
+        // 0.6 wu stand-in let a dumpster's true box reach into ground — streetwall backs, the
+        // edge ring — the check never saw as taken (the invariant sweep's decor×frontageSlot
+        // finding); the claim composeWorld registers is exactly this footprint, so gate and claim
+        // can no longer disagree. Clutter still never gets a collider.
         const includeWashingLine = (LANEWAY.washingLineDensities as readonly DistrictDensity[]).includes(def.density);
         const pool = includeWashingLine ? [...LANEWAY_MODELS, { id: 'washing-line', weight: 0.15 }] : LANEWAY_MODELS;
         const modelId = weightedPick(cellRng, pool);
-        out.push({ modelId, position: [p.x, 0, p.y], rotationY: seededSpin(cellRng), districtId: def.id });
+        const rotationY = seededSpin(cellRng);
+        const modelHalf = colliderHalfExtents(modelId);
+        const rotated = footprintHalfExtents(modelHalf.hx, modelHalf.hz, rotationY);
+        const fp = aabbFromCenterHalf(p, rotated.hx, rotated.hz);
+        if (fp.maxZ >= WATER_Z) continue;
+        if (rejectsAny(fp, gates)) continue;
+        if (blocked(fp)) continue;
+        out.push({ modelId, position: [p.x, 0, p.y], rotationY, districtId: def.id });
       }
     }
   }
@@ -602,15 +671,28 @@ function collectClosureCandidates(streets: readonly Street[], intersections: rea
   return out;
 }
 
+/**
+ * Phase 40 (gap 4) — the ON-ROAD gate a lane closure must clear. Lane closures were the module's
+ * one GATE-LESS signature: cones went down at `side · halfWidth · taperFrac` and a road-bits plate
+ * on the exact centreline, with no check against the street-parked cars in the same outer lane, the
+ * manhole covers on the same centreline, or the painted crosswalk bands. All three now gate, which
+ * is why this pass moved to the END of the composition (composeWorld's deviation ②): the parked
+ * cars and manholes it must avoid are furniture's output.
+ */
+const CLOSURE_BLOCKER_QUERY: ClaimQuery = {
+  kinds: new Set<ClaimKind>(['parkedCar', 'manhole', 'crosswalkBand']),
+};
+
 function buildLaneClosures(
   streets: readonly Street[],
   intersections: readonly Intersection[],
   districts: readonly ResolvedDistrict[],
+  blocked: BlockedFn,
   base: Rng,
   dropAll: boolean,
-): { cones: DynamicConeSpec[]; decor: DecorPlacement[] } {
+): { cones: DynamicConeSpec[]; decor: DecorPlacement[]; siteCount: number } {
   // D8/D7: low tier drops lane closures entirely (existing tier-param seam, like lampOverlay).
-  if (dropAll) return { cones: [], decor: [] };
+  if (dropAll) return { cones: [], decor: [], siteCount: 0 };
   const candidates = collectClosureCandidates(streets, intersections);
   const rng = base.fork('lane-closures');
   const [loCount, hiCount] = LANE_CLOSURE.countRange;
@@ -619,30 +701,44 @@ function buildLaneClosures(
 
   const cones: DynamicConeSpec[] = [];
   const decor: DecorPlacement[] = [];
+  let siteCount = 0;
+  const coneHalf = colliderHalfExtents('cone');
+  const plateHalf = colliderHalfExtents('road-bits');
   picked.forEach((c, i) => {
     const detailRng = base.fork(`closure-detail:${i}`);
     const side: 1 | -1 = detailRng.next() < 0.5 ? 1 : -1;
     const [loCones, hiCones] = LANE_CLOSURE.coneCountRange;
     const coneCount = loCones + Math.floor(detailRng.next() * (hiCones - loCones + 1));
+    let placedHere = 0;
     for (let k = 0; k < coneCount; k++) {
       const stepAlong = c.along + (k - coneCount / 2) * LANE_CLOSURE.coneSpacingWu;
       const taperFrac = 0.25 + (0.5 * k) / Math.max(1, coneCount - 1);
       const perp = side * c.street.halfWidth * taperFrac;
       const p = pointAlongStreet(c.street, stepAlong, perp);
+      // REJECT, never relocate — a cone that would stand in a parked car, on a manhole cover or
+      // across a painted crosswalk band is simply skipped; the taper reads fine with a gap.
+      if (blocked(aabbFromCenterHalf(p, coneHalf.hx, coneHalf.hz))) continue;
       cones.push({ modelId: 'cone', position: [p.x, 0, p.y], rotationY: 0 });
+      placedHere++;
     }
     const rbP: MapPoint = { x: c.street.axis === 'ns' ? c.street.centerline : c.along, y: c.street.axis === 'ns' ? c.along : c.street.centerline };
-    const def = districtAt(rbP, districts);
-    decor.push({
-      modelId: 'road-bits',
-      // Phase 39: this plate lies ON the asphalt (lane closures sit in the roadway), so it takes
-      // the road anchor rather than the laneway one — a flat plate at y=0 sat below the ribbon.
-      position: [rbP.x, SURFACE_ANCHOR.road, rbP.y],
-      rotationY: c.street.axis === 'ns' ? Math.PI / 2 : 0,
-      districtId: def?.id ?? DISTRICT_ORDER[DISTRICT_ORDER.length - 1],
-    });
+    const plateRot = c.street.axis === 'ns' ? Math.PI / 2 : 0;
+    const plateFp = footprintHalfExtents(plateHalf.hx, plateHalf.hz, plateRot);
+    if (!blocked(aabbAround(rbP.x, rbP.y, plateFp.hx, plateFp.hz))) {
+      const def = districtAt(rbP, districts);
+      decor.push({
+        modelId: 'road-bits',
+        // Phase 39: this plate lies ON the asphalt (lane closures sit in the roadway), so it takes
+        // the road anchor rather than the laneway one — a flat plate at y=0 sat below the ribbon.
+        position: [rbP.x, SURFACE_ANCHOR.road, rbP.y],
+        rotationY: plateRot,
+        districtId: def?.id ?? DISTRICT_ORDER[DISTRICT_ORDER.length - 1],
+      });
+      placedHere++;
+    }
+    if (placedHere > 0) siteCount++;
   });
-  return { cones, decor };
+  return { cones, decor, siteCount };
 }
 
 // --- D11: deep-interior scatter -------------------------------------------------------------------
@@ -745,6 +841,7 @@ function buildDeepScatter(
   streets: readonly Street[],
   districts: readonly ResolvedDistrict[],
   gates: readonly (readonly Aabb[])[],
+  blocked: BlockedFn,
   base: Rng,
   densityScalar: number,
 ): { fixed: FixedInfillItem[]; decor: DecorPlacement[] } {
@@ -766,7 +863,7 @@ function buildDeepScatter(
     if (kind === 'greenhouse') {
       const half = colliderHalfExtents('greenhouse');
       const fp = aabbFromCenterHalf(candidate.p, half.hx, half.hz);
-      if (!passesCommonGates(fp) || rejectsAny(fp, gates) || kept.some((r) => overlaps(fp, r))) continue;
+      if (!passesCommonGates(fp) || rejectsAny(fp, gates) || blocked(fp) || kept.some((r) => overlaps(fp, r))) continue;
       kept.push(fp);
       greenhouses.push({
         id: `deep-scatter:greenhouse:${counter++}`,
@@ -791,15 +888,21 @@ function buildDeepScatter(
           x: candidate.p.x + (itemRng.next() * 2 - 1) * DEEP_SCATTER.pileSpreadWu,
           y: candidate.p.y + (itemRng.next() * 2 - 1) * DEEP_SCATTER.pileSpreadWu,
         };
-        // Small stand-in footprint (colliderless decor — same convention as laneway clutter's own
-        // 0.6 wu stand-in, never a real collider box).
-        const fp = aabbFromCenterHalf(pt, 0.6, 0.6);
-        if (!passesCommonGates(fp) || rejectsAny(fp, gates) || kept.some((r) => overlaps(fp, r))) continue;
+        // Phase 40: real rotated footprint at the gate, pick+spin drawn first — itemRng is
+        // per-item, so the early draws are rng-neutral and the in-fork order (jitter→pick→spin)
+        // is unchanged. Same stand-in-vs-claim fix as laneway clutter's, same rationale; piles
+        // stay colliderless.
+        const modelId = weightedPick(itemRng, PILE_MODELS);
+        const rotationY = seededSpin(itemRng);
+        const modelHalf = colliderHalfExtents(modelId);
+        const rotated = footprintHalfExtents(modelHalf.hx, modelHalf.hz, rotationY);
+        const fp = aabbFromCenterHalf(pt, rotated.hx, rotated.hz);
+        if (!passesCommonGates(fp) || rejectsAny(fp, gates) || blocked(fp) || kept.some((r) => overlaps(fp, r))) continue;
         kept.push(fp);
         piles.push({
-          modelId: weightedPick(itemRng, PILE_MODELS),
+          modelId,
           position: [pt.x, 0, pt.y],
-          rotationY: seededSpin(itemRng),
+          rotationY,
           districtId: candidate.def.id,
         });
       }
@@ -818,7 +921,7 @@ function buildDeepScatter(
         y: candidate.p.y + (treeRng.next() * 2 - 1) * DEEP_SCATTER.clusterSpreadWu,
       };
       const fp = aabbFromCenterHalf(pt, trunkHalf, trunkHalf);
-      if (!passesCommonGates(fp) || rejectsAny(fp, gates) || kept.some((r) => overlaps(fp, r))) continue;
+      if (!passesCommonGates(fp) || rejectsAny(fp, gates) || blocked(fp) || kept.some((r) => overlaps(fp, r))) continue;
       kept.push(fp);
       trees.push({
         id: `deep-scatter:tree:${counter++}`,
@@ -850,9 +953,12 @@ function buildDeepScatter(
 // --- top-level orchestrator ------------------------------------------------------------------
 
 /**
- * Builds the whole Phase-28 infill layer for `seed`, given the already-built `frontage` layout
- * (its `slots` + `cornerFills` footprints are the avoid-set every new layer respects). Pure,
- * deterministic (mulberry32 forks) — same contract as frontage.ts/furniture.ts.
+ * Builds the whole Phase-28 infill layer for `seed`. Pure, deterministic (mulberry32 forks) — same
+ * contract as frontage.ts/furniture.ts.
+ *
+ * Phase 40: the frontage layout is no longer a parameter. Everything this layer must avoid reaches
+ * it through `ctx.index` — composeWorld registers frontage (and venue dressing, and the world-edge
+ * ring) BEFORE calling this, and the ordering lives there instead of in a threaded argument list.
  *
  * `tierParams` (D8) defaults to TORONTO_TIER_IDENTITY (dressDensityScalar=1) — every call site
  * that omits it gets the identity (highest-density) output, matching frontage.ts/furniture.ts's
@@ -865,25 +971,21 @@ function buildDeepScatter(
  * without touching frontage.ts/furniture.ts's existing byte-identity goldens. D11's own tree/
  * greenhouse/pile caps are ALSO scaled by `dressDensityScalar` directly (see buildDeepScatter).
  */
-export function buildInfill(seed: number, frontage: FrontageLayout, tierParams: TorontoTierParams = TORONTO_TIER_IDENTITY): InfillLayout {
+export function buildInfillMain(
+  seed: number,
+  ctx: PlacementContext,
+  tierParams: TorontoTierParams = TORONTO_TIER_IDENTITY,
+): InfillMain {
   const densityScalar = tierParams.dressDensityScalar;
   // QUALITY_TIERS.low.dressDensityScalar = 0.55; med/high are 0.85/1 — this threshold cleanly
   // separates low from every other tier without importing config/quality.ts here.
   const isLowTier = densityScalar <= 0.6;
   const propScale = isLowTier ? 0.5 : 1;
   const base = createRng(seed).fork('toronto-infill-v1');
-  const { streets } = buildStreets();
-  const intersections = listIntersections(streets);
-  const districts = buildDistricts();
-  const named = buildNamedBuildings();
-  const places = buildPlacesLayer(named);
-  const parks = buildParks();
-  const exclusions: Aabb[] = [...named.exclusions, ...places.exclusions, ...parks.exclusions].map((r) => ({
-    minX: r.minX,
-    maxX: r.maxX,
-    minZ: r.minY,
-    maxZ: r.maxY,
-  }));
+  const { streets, districts } = ctx;
+  // Phase 40: named ∪ places ∪ parks now comes from the arbiter's zone claims instead of a third
+  // hand-maintained composition (the audit's gap 7).
+  const exclusions: readonly Aabb[] = ctx.index.rects({ kinds: EXCLUSION_ZONE_KINDS });
   // D10: every new layer must clear not just the ribbon but the SIDEWALK band beyond it too
   // (buildings only — laneway clutter is exempt from the sidewalk part by design, but this module
   // applies it uniformly since every layer's nominal placement already clears both by construction;
@@ -895,70 +997,164 @@ export function buildInfill(seed: number, frontage: FrontageLayout, tierParams: 
     minZ: s.ribbon.minY - SIDEWALK.widthWu,
     maxZ: s.ribbon.maxY + SIDEWALK.widthWu,
   }));
-  const frontageFootprints: Aabb[] = [...frontage.slots, ...frontage.cornerFills].map((s) => ({
-    minX: s.position[0] - s.hx,
-    maxX: s.position[0] + s.hx,
-    minZ: s.position[2] - s.hz,
-    maxZ: s.position[2] + s.hz,
-  }));
+  // Phase 40: the hand-built `frontageFootprints` list this module used to assemble is GONE. Every
+  // earlier layer's footprints — frontage slots AND corner fills AND the backdrop-tower row (never
+  // checked before) AND venue dressing props AND the world-edge ring AND the named boxes — now come
+  // through the arbiter, which is also what makes the ordering explicit rather than implied by a
+  // parameter list.
+  const blocked: BlockedFn = (fp) => ctx.index.overlapsAny(fp, BLOCKING_QUERY);
 
   // 1) Construction sites FIRST — first pick of the big interiors.
-  const construction = buildConstructionSites(districts, [sidewalkBands, exclusions, frontageFootprints], base.fork('construction'), densityScalar, propScale);
-  const constructionFootprints = construction.sites.map((s) => s.rect);
+  const construction = buildConstructionSites(districts, [sidewalkBands, exclusions], blocked, base.fork('construction'), densityScalar, propScale);
+  const constructionLotRects = construction.sites.map((s) => s.rect);
+  // Phase 40: the GATE list carries the rects + the sites' real fixture footprints — a perimeter
+  // fence run straddles its rect edge, so a later claim standing just OUTSIDE the rect can still
+  // overlap a fence piece (the sweep's seed-7 tree×fence catch, on the parking twin below). The
+  // returned `constructionLots`/`parkingLots` stay PURE rects (composeWorld registers those as
+  // the zone claims and counts them).
+  const constructionFootprints = [
+    ...constructionLotRects,
+    ...construction.fixed.map((f) => aabbFromCenterHalf({ x: f.position[0], y: f.position[2] }, f.hx, f.hz)),
+  ];
 
   // 2) Back-lot second row — avoids frontage + construction.
-  const backlot = buildBacklotRow(streets, districts, [sidewalkBands, exclusions, frontageFootprints, constructionFootprints], base.fork('backlot'), densityScalar);
+  const backlot = buildBacklotRow(streets, districts, [sidewalkBands, exclusions, constructionFootprints], blocked, base.fork('backlot'), densityScalar);
   const backlotFootprints = [...backlot.packItems.map((p) => aabbFromCenterHalf({ x: p.position[0], y: p.position[2] }, p.hx, p.hz)), ...backlot.boxes.map((b) => aabbFromCenterHalf({ x: b.x, y: b.z }, b.hx, b.hz))];
 
   // 3) Parking lots — avoids frontage + construction + backlot.
-  const parking = buildParkingLots(districts, [sidewalkBands, exclusions, frontageFootprints, constructionFootprints, backlotFootprints], base.fork('parking'), densityScalar);
-  const parkingFootprints = parking.lots.map((l) => l.rect);
+  const parking = buildParkingLots(districts, [sidewalkBands, exclusions, constructionFootprints, backlotFootprints], blocked, base.fork('parking'), densityScalar);
+  const parkingLotRects = parking.lots.map((l) => l.rect);
+  // Same rect-vs-fixture closure as constructionFootprints above (this is where seed 7's
+  // tree×fence pair actually lived).
+  const parkingFootprints = [
+    ...parkingLotRects,
+    ...parking.fixed.map((f) => aabbFromCenterHalf({ x: f.position[0], y: f.position[2] }, f.hx, f.hz)),
+  ];
 
   // 4) Laneway clutter — fits leftover gaps; may sit in interiors freely (D10), never on a ribbon
   //    (still checked) or inside any reserved footprint above.
   const laneway = buildLanewayClutter(
     streets,
     districts,
-    [sidewalkBands, exclusions, frontageFootprints, constructionFootprints, backlotFootprints, parkingFootprints],
+    [sidewalkBands, exclusions, constructionFootprints, backlotFootprints, parkingFootprints],
+    blocked,
     base.fork('laneway'),
     densityScalar,
   );
 
-  // 5) Lane closures — independent, on-road (majors, never spine); dropped entirely on low tier.
-  const closures = buildLaneClosures(streets, intersections, districts, base.fork('lane-closures'), isLowTier);
-
-  // 6) Deep-interior scatter (D11) — runs LAST of all, avoiding every layer above (+ laneway's own
+  // 5) Deep-interior scatter (D11) — runs LAST of all, avoiding every layer above (+ laneway's own
   //    small decor footprints, added here since laneway is built just above) plus itself.
-  const lanewayFootprints: Aabb[] = laneway.map((d) => aabbFromCenterHalf({ x: d.position[0], y: d.position[2] }, 0.6, 0.6));
+  // Phase 40: deep scatter avoids laneway clutter at its REAL claimed footprints (the 0.6 wu
+  // stand-in under-reported a dumpster by ~2 wu — the same gate-vs-claim mismatch fixed inside
+  // both passes above, closed here for the cross-pass gate list too).
+  const lanewayFootprints: Aabb[] = laneway.map((d) => {
+    const half = colliderHalfExtents(d.modelId);
+    const rotated = footprintHalfExtents(half.hx, half.hz, d.rotationY);
+    return aabbFromCenterHalf({ x: d.position[0], y: d.position[2] }, rotated.hx, rotated.hz);
+  });
   const deepScatter = buildDeepScatter(
     streets,
     districts,
-    [sidewalkBands, exclusions, frontageFootprints, constructionFootprints, backlotFootprints, parkingFootprints, lanewayFootprints],
+    [sidewalkBands, exclusions, constructionFootprints, backlotFootprints, parkingFootprints, lanewayFootprints],
+    blocked,
     base.fork('deep-scatter'),
     densityScalar,
   );
 
   const fixed: FixedInfillItem[] = [...backlot.packItems, ...parking.fixed, ...construction.fixed, ...deepScatter.fixed];
-  const decor: DecorPlacement[] = [...laneway, ...construction.decor, ...closures.decor, ...deepScatter.decor];
+  const decor: DecorPlacement[] = [...laneway, ...construction.decor, ...deepScatter.decor];
 
-  const counts: Record<string, number> = {
-    backlotPack: backlot.packItems.length,
-    backlotBox: backlot.boxes.length,
-    laneway: laneway.length,
-    parkingLots: parking.lots.length,
-    parkingCars: parking.fixed.filter((f) => f.id.includes('-car-')).length,
-    constructionSites: construction.sites.length,
-    constructionFixed: construction.fixed.length,
-    constructionDecor: construction.decor.length,
-    // Each closure emits exactly one road-bits decor item, so decor.length IS the closure count.
-    laneClosures: closures.decor.length,
-    laneClosureCones: closures.cones.length,
-    deepScatterTrees: deepScatter.fixed.filter((f) => f.modelId === 'tree').length,
-    deepScatterGreenhouses: deepScatter.fixed.filter((f) => f.modelId === 'greenhouse').length,
-    deepScatterPiles: deepScatter.decor.length,
-    fixedTotal: fixed.length,
-    decorTotal: decor.length,
+  return {
+    fixed,
+    boxes: backlot.boxes,
+    decor,
+    constructionLots: constructionLotRects,
+    parkingLots: parkingLotRects,
+    groups: {
+      backlot: backlot.packItems,
+      parking: parking.fixed,
+      construction: construction.fixed,
+      scatterFixed: deepScatter.fixed,
+      laneway,
+      constructionDecor: construction.decor,
+      scatterDecor: deepScatter.decor,
+    },
+    counts: {
+      backlotPack: backlot.packItems.length,
+      backlotBox: backlot.boxes.length,
+      laneway: laneway.length,
+      parkingLots: parking.lots.length,
+      parkingCars: parking.fixed.filter((f) => f.id.includes('-car-')).length,
+      constructionSites: construction.sites.length,
+      constructionFixed: construction.fixed.length,
+      constructionDecor: construction.decor.length,
+      deepScatterTrees: deepScatter.fixed.filter((f) => f.modelId === 'tree').length,
+      deepScatterGreenhouses: deepScatter.fixed.filter((f) => f.modelId === 'greenhouse').length,
+      deepScatterPiles: deepScatter.decor.length,
+    },
   };
+}
 
-  return { fixed, boxes: backlot.boxes, decor, cones: closures.cones, counts };
+/**
+ * Phase 40 — the lane-closure pass, split out of `buildInfill` and moved AFTER furniture in the
+ * composition so it can gate on the street-parked cars, manhole covers and painted crosswalk bands
+ * that furniture + the road paint put on the same asphalt (the audit's gap 4).
+ *
+ * Its rng is `base.fork('lane-closures')` / `base.fork('closure-detail:N')` off the SAME
+ * `toronto-infill-v1` base, exactly as before — mulberry forks are seeded by label, not by call
+ * order, so moving this call changes no other layer's rolls by construction.
+ */
+export function buildLaneClosuresLayer(
+  seed: number,
+  ctx: PlacementContext,
+  tierParams: TorontoTierParams = TORONTO_TIER_IDENTITY,
+): LaneClosureLayer {
+  const densityScalar = tierParams.dressDensityScalar;
+  const isLowTier = densityScalar <= 0.6;
+  const base = createRng(seed).fork('toronto-infill-v1');
+  const blocked: BlockedFn = (fp) => ctx.index.overlapsAny(fp, CLOSURE_BLOCKER_QUERY);
+  const closures = buildLaneClosures(ctx.streets, ctx.intersections, ctx.districts, blocked, base.fork('lane-closures'), isLowTier);
+  return { cones: closures.cones, decor: closures.decor, siteCount: closures.siteCount };
+}
+
+/**
+ * Merge the two halves back into the single `InfillLayout` the scene + colliders consume. Array
+ * order is preserved verbatim from the pre-split builder (`decor` = laneway, construction,
+ * lane-closure plates, deep-scatter piles) so nothing downstream — renderer batching, collider
+ * mounting, the golden suites — sees a reordering.
+ */
+export function mergeInfill(main: InfillMain, closures: LaneClosureLayer): InfillLayout {
+  // Re-inserting the lane-closure plates at their original position in `decor`: laneway +
+  // construction first, then closures, then the deep-scatter piles.
+  const pileStart = main.decor.length - main.counts.deepScatterPiles;
+  const decor: DecorPlacement[] = [
+    ...main.decor.slice(0, pileStart),
+    ...closures.decor,
+    ...main.decor.slice(pileStart),
+  ];
+  const fixed = main.fixed;
+  return {
+    fixed,
+    boxes: main.boxes,
+    decor,
+    cones: closures.cones,
+    counts: {
+      backlotPack: main.counts.backlotPack,
+      backlotBox: main.counts.backlotBox,
+      laneway: main.counts.laneway,
+      parkingLots: main.counts.parkingLots,
+      parkingCars: main.counts.parkingCars,
+      constructionSites: main.counts.constructionSites,
+      constructionFixed: main.counts.constructionFixed,
+      constructionDecor: main.counts.constructionDecor,
+      // One road-bits plate per placed closure site.
+      laneClosures: closures.siteCount,
+      laneClosureCones: closures.cones.length,
+      deepScatterTrees: main.counts.deepScatterTrees,
+      deepScatterGreenhouses: main.counts.deepScatterGreenhouses,
+      deepScatterPiles: main.counts.deepScatterPiles,
+      fixedTotal: fixed.length,
+      decorTotal: decor.length,
+    },
+  };
 }

@@ -21,6 +21,7 @@ import {
   SRGBColorSpace,
   type InstancedMesh,
 } from 'three';
+import { VENUE_QUEUE } from '../../../config/venueDressing';
 import { CityPackBatched } from './CityPackBatched';
 import type { CityPackPlacement } from './CityPackInstances';
 import {
@@ -294,15 +295,17 @@ export function VenueDressLayer({ dress, unlit }: VenueDressLayerProps) {
       {/* Queue lineups — cosmetic props, NO colliders. */}
       {posts.length > 0 ? (
         <instancedMesh ref={postsRef} args={[undefined, undefined, posts.length]} frustumCulled={false}>
-          <boxGeometry args={[0.16, 1.2, 0.16]} />
+          <boxGeometry args={[VENUE_QUEUE.postSizeWu.w, VENUE_QUEUE.postSizeWu.h, VENUE_QUEUE.postSizeWu.w]} />
           <meshBasicMaterial color="#c8b06a" toneMapped={false} />
         </instancedMesh>
       ) : null}
       {blobs.length > 0 ? (
         <instancedMesh ref={blobsRef} args={[undefined, undefined, blobs.length]} castShadow frustumCulled={false}>
           {/* Phase 25.8 (D10): slight scale-up (0.62/0.9/0.42 → 0.72/1.02/0.5) so the lineup reads.
-              instanceColor (setColorAt) multiplies automatically — no vertexColors flag needed. */}
-          <boxGeometry args={[0.72, 1.02, 0.5]} />
+              instanceColor (setColorAt) multiplies automatically — no vertexColors flag needed.
+              Phase 40: dims now read from config/venueDressing.ts's VENUE_QUEUE so the placement
+              arbiter's queue claims and this geometry can never drift apart. */}
+          <boxGeometry args={[VENUE_QUEUE.blobSizeWu.w, VENUE_QUEUE.blobSizeWu.h, VENUE_QUEUE.blobSizeWu.d]} />
           <meshBasicMaterial toneMapped={false} />
         </instancedMesh>
       ) : null}

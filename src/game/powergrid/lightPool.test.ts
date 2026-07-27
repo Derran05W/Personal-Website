@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { generate } from '../world/generate';
-import { buildFurniture } from '../world/toronto/furniture';
+import { composeWorld } from '../world/toronto/composeWorld';
 import { torontoDistrictIndex, TORONTO_DISTRICT_COUNT } from '../world/toronto/districts';
 import {
   assign,
@@ -61,7 +61,7 @@ describe('torontoStreetlightEmitters', () => {
   });
 
   it.each([416, 9417])('seed %d: one emitter per real traffic-light mast, every districtId valid', (seed) => {
-    const furniture = buildFurniture(seed);
+    const furniture = composeWorld(seed).furniture;
     expect(furniture.trafficLights.length).toBeGreaterThan(0);
     const masts = furniture.trafficLights.map((m) => ({
       position: m.position,

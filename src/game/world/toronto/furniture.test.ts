@@ -14,7 +14,6 @@ import {
   MANHOLE_ROW,
   PARKED,
   POWER_BOX,
-  SIDEWALK_ROW,
   TORONTO_TIER_IDENTITY,
   TRAFFIC_LIGHT,
   TRAFFIC_LIGHT_FULL_CLASSES,
@@ -24,15 +23,30 @@ import {
 } from '../../config/torontoDress';
 import { busRouteStreetCoverage, isOnBusRoute } from './transitRoutes';
 import { QUALITY_TIERS } from '../../config/quality';
-import { resolveCityPackScale } from '../../config/cityPackScale';
-import { ROAD_CLASSES, type RoadClass } from '../../config/torontoMap';
+import { colliderHalfExtents, resolveCityPackScale } from '../../config/cityPackScale';
+import { ROAD_CLASSES, SIDEWALK, type RoadClass } from '../../config/torontoMap';
 import { TORONTO_DISTRICTS } from '../../config/torontoDistricts';
 import { getCityPackModel, hasCityPackModel } from '../../assets/cityPackManifest';
-import { buildFurniture, type FurniturePlacement, type ParkedVehicle } from './furniture';
+import { type FurniturePlacement, type ParkedVehicle } from './furniture';
+import { composeWorld } from './composeWorld';
 
 const SEED = 416; // the repo's canonical dev seed (phase-04/18 notes)
 
-const layout = buildFurniture(SEED);
+// Phase 40: furniture is the LAST seed-dependent layer of the composition and rejects against
+// everything the layers before it placed, so it is built through the composition root — there is
+// no honest standalone `buildFurniture(seed)` any more. One memo per (seed, tier) keeps this
+// suite's cost to a handful of world builds.
+const worldCache = new Map<string, ReturnType<typeof composeWorld>>();
+function furnitureOf(seed: number, tier?: Parameters<typeof composeWorld>[1]): ReturnType<typeof composeWorld>['furniture'] {
+  const key = `${seed}:${JSON.stringify(tier ?? null)}`;
+  const hit = worldCache.get(key);
+  if (hit) return hit.furniture;
+  const built = composeWorld(seed, tier);
+  worldCache.set(key, built);
+  return built.furniture;
+}
+
+const layout = furnitureOf(SEED);
 const { streets } = buildStreets();
 const intersections = listIntersections(streets);
 const ribbonsWorld = buildRibbons(streets).map((r) => ({ minX: r.minX, minY: r.minZ, maxX: r.maxX, maxY: r.maxZ }) as MapRect);
@@ -52,12 +66,12 @@ function onAnyRibbon(placement: { readonly position: readonly [number, number, n
 
 describe('buildFurniture — determinism', () => {
   it('two independent builds are deep-equal', () => {
-    const again = buildFurniture(SEED);
+    const again = composeWorld(SEED).furniture;
     expect(again).toEqual(layout);
   });
 
   it('a different seed changes at least one placement (not a hardcoded/frozen layout)', () => {
-    const other = buildFurniture(SEED + 1);
+    const other = furnitureOf(SEED + 1);
     expect(other.trees.items).not.toEqual(layout.trees.items);
   });
 });
@@ -274,6 +288,13 @@ describe('bus stops are route-derived (Phase 31, Part-8 D5)', () => {
   const coverage = busRouteStreetCoverage();
   const eligibleClasses = new Set(BUS_STOP_ROW.eligibleClasses);
 
+  // Phase 40 (T1 flush-to-facade fix, see furniture.ts's buildFurniture bus-stop comment): the
+  // shelter's row offset is DERIVED (back panel flush at the sidewalk-band facade plane), not the
+  // shared SIDEWALK_ROW.facadeOffsetWu every other facade-offset row (bench/trash-can) still uses.
+  // Re-deriving the SAME formula here (rather than importing a private furniture.ts constant) keeps
+  // this test an independent geometric check, not a tautology against the production constant.
+  const busStopRowOffsetWu = SIDEWALK.widthWu - colliderHalfExtents('bus-stop').hz;
+
   /** Which street (if any) a placed item sits alongside, at the busStop row's own facade offset
    * — re-derives the placement geometry (buildRow's own pointAlong convention) rather than
    * threading a streetId through FurniturePlacement (which stays a lean, model-agnostic shape). */
@@ -283,7 +304,7 @@ describe('bus stops are route-derived (Phase 31, Part-8 D5)', () => {
       const [lo, hi] = street.span;
       const along = street.axis === 'ns' ? p.y : p.x;
       if (along < lo - 1 || along > hi + 1) continue;
-      const perpTarget = street.width / 2 + SIDEWALK_ROW.facadeOffsetWu;
+      const perpTarget = street.width / 2 + busStopRowOffsetWu;
       const across = street.axis === 'ns' ? p.x - street.centerline : p.y - street.centerline;
       if (Math.abs(Math.abs(across) - perpTarget) < 0.5) return { street, along };
     }
@@ -405,18 +426,18 @@ describe('buildFurniture — Phase 25.8 (D8) quality-tier wiring', () => {
   });
 
   it('high tier is byte-identical to the pre-tier (no-arg) output — golden', () => {
-    expect(buildFurniture(SEED, HIGH)).toEqual(layout);
-    expect(buildFurniture(SEED, HIGH)).toEqual(buildFurniture(SEED));
+    expect(furnitureOf(SEED, HIGH)).toEqual(layout);
+    expect(furnitureOf(SEED, HIGH)).toEqual(furnitureOf(SEED));
   });
 
   it('same (seed, tier) -> deep-equal output (determinism)', () => {
-    expect(buildFurniture(SEED, LOW)).toEqual(buildFurniture(SEED, LOW));
+    expect(composeWorld(SEED, LOW).furniture).toEqual(composeWorld(SEED, LOW).furniture);
   });
 
   it('dressDensityScalar thins every row-spacing category monotonically (low <= med <= high)', () => {
-    const high = buildFurniture(SEED, HIGH);
-    const med = buildFurniture(SEED, MED);
-    const low = buildFurniture(SEED, LOW);
+    const high = furnitureOf(SEED, HIGH);
+    const med = furnitureOf(SEED, MED);
+    const low = furnitureOf(SEED, LOW);
     for (const cat of ['trees', 'hydrants', 'benches', 'trashCans', 'busStops', 'manholes'] as const) {
       expect(low[cat].items.length, cat).toBeLessThanOrEqual(med[cat].items.length);
       expect(med[cat].items.length, cat).toBeLessThanOrEqual(high[cat].items.length);
@@ -427,17 +448,17 @@ describe('buildFurniture — Phase 25.8 (D8) quality-tier wiring', () => {
   });
 
   it('intersection-rule furniture (masts/stop-signs/power-boxes) is NEVER scaled by tier', () => {
-    const high = buildFurniture(SEED, HIGH);
-    const low = buildFurniture(SEED, LOW);
+    const high = furnitureOf(SEED, HIGH);
+    const low = furnitureOf(SEED, LOW);
     expect(low.trafficLights.length).toBe(high.trafficLights.length);
     expect(low.stopSigns.items.length).toBe(high.stopSigns.items.length);
     expect(low.powerBoxes.items.length).toBe(high.powerBoxes.items.length);
   });
 
   it('parkedCarKeepFraction scales PARKED.cap (the low-tier dynamic-body-budget driver)', () => {
-    const high = buildFurniture(SEED, HIGH);
-    const med = buildFurniture(SEED, MED);
-    const low = buildFurniture(SEED, LOW);
+    const high = furnitureOf(SEED, HIGH);
+    const med = furnitureOf(SEED, MED);
+    const low = furnitureOf(SEED, LOW);
     expect(high.parked.items.length).toBeLessThanOrEqual(PARKED.cap);
     expect(med.parked.items.length).toBeLessThanOrEqual(Math.round(PARKED.cap * QUALITY_TIERS.med.parkedCarKeepFraction));
     expect(low.parked.items.length).toBeLessThanOrEqual(Math.round(PARKED.cap * QUALITY_TIERS.low.parkedCarKeepFraction));
@@ -448,7 +469,7 @@ describe('buildFurniture — Phase 25.8 (D8) quality-tier wiring', () => {
   });
 
   it('district ranges stay contiguous/valid under low-tier thinning (sacred convention holds at every tier)', () => {
-    const low = buildFurniture(SEED, LOW);
+    const low = furnitureOf(SEED, LOW);
     for (const ordered of [low.trees, low.parked, low.hydrants, low.manholes]) {
       let cursor = 0;
       for (const r of ordered.ranges) {
