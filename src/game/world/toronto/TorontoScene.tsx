@@ -25,7 +25,7 @@
 // map-size-agnostic and self-restores scene state on unmount — clean when the toggle flips back).
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import { CuboidCollider, RigidBody, useAfterPhysicsStep, type IntersectionEnterPayload } from '@react-three/rapier';
 import {
   BufferGeometry,
@@ -101,6 +101,7 @@ import { RunLoopSystem } from '../../combat/runLoop';
 import { LightPool } from '../../powergrid/LightPoolMount';
 import { torontoStreetlightEmitters } from '../../powergrid/lightPool';
 import { GROUND_STACK, WALL_STACK } from '../../config/layering';
+import { resolveAnisotropy } from '../../config/surfaces';
 import { useDevToggle } from '../../core/devToggles';
 import { preloadCityPack } from '../../assets/cityPack';
 import { CityPackPreview } from './cityPack/CityPackPreview';
@@ -283,8 +284,15 @@ function pushQuad(
 
 /** Build the shared D6 ground-noise CanvasTexture: one sample of the seeded tileable field
  * (groundNoise.ts) painted into a 256² luminance map, RepeatWrapping so world-planar UVs tile it.
- * Set as `map` on the unlit ground/tint/park materials → multiplies the vertex-colour ladder. */
-function makeGroundNoiseTexture(seed: number): CanvasTexture {
+ * Set as `map` on the unlit ground/tint/park materials → multiplies the vertex-colour ladder.
+ *
+ * Phase 41: `anisotropy` is the resolved per-tier level (config/surfaces.ts's resolveAnisotropy,
+ * already capped by the renderer's max). This is THE grazing-angle texture in the Toronto world —
+ * world-planar UVs, a full trilinear mip chain, ~11.6 texels/wu, and the 58° rig lays it right out
+ * to the frame's top band, where an aniso-1 fetch collapses the along-view axis into a single mip
+ * level's worth of blur. Threaded in from the mount site (the caller owns tier capture) so this
+ * stays a pure function of its arguments. */
+function makeGroundNoiseTexture(seed: number, anisotropy: number): CanvasTexture {
   const field = buildNoiseField(seed, GROUND_NOISE.lattice, GROUND_NOISE.lo, GROUND_NOISE.hi);
   const size = GROUND_NOISE.textureSize;
   const canvas = document.createElement('canvas');
@@ -293,6 +301,7 @@ function makeGroundNoiseTexture(seed: number): CanvasTexture {
   const tex = new CanvasTexture(canvas);
   tex.wrapS = RepeatWrapping;
   tex.wrapT = RepeatWrapping;
+  tex.anisotropy = anisotropy;
   const ctx = canvas.getContext('2d');
   if (ctx) {
     const img = ctx.createImageData(size, size);
@@ -1049,8 +1058,20 @@ export function TorontoScene() {
   // segment set the visual band uses. Gated by SIDEWALK.colliders (drive-feel kill-switch).
   const curbBoxes = useMemo(() => buildSidewalkColliderBoxes(streets, intersections), [streets, intersections]);
 
+  // Phase 41: the ground-noise map's anisotropy — the tier's level (config/quality.ts) capped by
+  // this renderer's real maximum. Captured once at mount, exactly like tierParams below: texture
+  // parameters are only pushed at upload time, so a mid-run quality change lands on the next mount
+  // regardless of how reactively we read it.
+  const maxAnisotropy = useThree((s) => s.gl.capabilities.getMaxAnisotropy());
+  const [groundNoiseAnisotropy] = useState(() =>
+    resolveAnisotropy(useGameStore.getState().settings.quality, maxAnisotropy),
+  );
+
   // Phase 25.8 (D6): one shared ground-noise texture keyed on the seed (deterministic).
-  const groundNoiseTex = useMemo(() => makeGroundNoiseTexture(seed), [seed]);
+  const groundNoiseTex = useMemo(
+    () => makeGroundNoiseTexture(seed, groundNoiseAnisotropy),
+    [seed, groundNoiseAnisotropy],
+  );
   useEffect(() => () => groundNoiseTex.dispose(), [groundNoiseTex]);
 
   // Phase 25.8 (D8): the quality-tier dress scaling, captured ONCE at mount via a lazy useState

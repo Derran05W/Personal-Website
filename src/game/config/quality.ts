@@ -51,8 +51,27 @@ export interface QualityTierDef {
   // overlay to mount. The overlay is a small per-frame cost (instance-colour writes on phase
   // change) that buys nothing on a screen too small to read the phase anyway at low tier.
   readonly lampOverlay: boolean;
+  // Phase 41: anisotropic-filter level for MIPPED textures viewed at grazing angles — the
+  // ground-noise map (world-planar UVs, trilinear, laid out to the frame's top band by the 58°
+  // rig) and any city-pack GLB map that carries a mip chain. Read ONLY through
+  // config/surfaces.ts's resolveAnisotropy(), which caps it by the renderer's actual
+  // gl.capabilities.getMaxAnisotropy() — aniso above the hardware max is a silent no-op at best.
+  // A no-op by spec on the Nearest/no-mipmap homage textures (aniso only selects between mip
+  // levels); see surfaces.ts's ATLAS_POLICY. 8/8/4: near-free on any target GPU, low = mobile.
+  readonly anisotropy: number;
 }
 
+// MSAA / DPR TRUTH (Phase 41 T1, MEASURED — recorded here, not changed). No `gl={{...}}` prop
+// exists anywhere in the app, so R3F's default `antialias: true` is what actually ships: the T1
+// matrix read `getContextAttributes().antialias = true` and `gl.getParameter(gl.SAMPLES) = 4` on
+// ALL THREE tiers — MSAA is 4× everywhere and is NOT a tier-reactive knob. The only tier-reactive
+// renderer knobs remain `dprCap` and `shadowMapSize` (plus `anisotropy` as of this phase).
+// PROVENANCE: measured headless under SwiftShader, where `window.devicePixelRatio` is 1 on every
+// tier, so the dpr [1, dprCap] clamp never binds in captures — the 2 / 1.5 / 1.5 caps engage only
+// on a real display (the same real-GPU-provisional caveat the P22/25.5 material verdicts carry;
+// `maxAnisotropy` reported 16 there, which the resolveAnisotropy cap makes moot either way).
+// Consequence for P42's flicker thresholds: every Phase 41 capture is a DPR-1, 4×-MSAA frame —
+// i.e. the worst-case sampling the shipped game ever runs at, not the typical one.
 export const QUALITY_TIERS = {
   high: {
     targetFps: 60,
@@ -69,6 +88,7 @@ export const QUALITY_TIERS = {
     dressDensityScalar: 1,
     frontageOccupancyScalar: 1,
     lampOverlay: true,
+    anisotropy: 8,
   },
   med: {
     targetFps: 60,
@@ -85,6 +105,7 @@ export const QUALITY_TIERS = {
     dressDensityScalar: 0.85,
     frontageOccupancyScalar: 1,
     lampOverlay: true,
+    anisotropy: 8,
   },
   low: {
     targetFps: 30,
@@ -101,6 +122,7 @@ export const QUALITY_TIERS = {
     dressDensityScalar: 0.55,
     frontageOccupancyScalar: 0.75,
     lampOverlay: false,
+    anisotropy: 4,
   },
 } as const satisfies Record<string, QualityTierDef>;
 

@@ -8,6 +8,8 @@
 
 import { DENSITY } from './torontoMap';
 import { TORONTO_DISTRICTS, type DistrictId } from './torontoDistricts';
+import { resolveCityPackScale } from './cityPackScale';
+import { getCityPackModel } from '../assets/cityPackManifest';
 
 /**
  * Which road classes count as "full" for the traffic-light signalization rule (D16): both
@@ -51,15 +53,48 @@ export const LAMP_COLORS = {
   red: '#e0453f',
 } as const;
 
-/** Lamp-quad overlay geometry (D17). `headAnchor` is the head position relative to the mast model
- * origin, in RESOLVED world units (the traffic-light already resolves to ~7.2 wu wide / 6.3 wu tall
- * with its native arm on local −x — see config/cityPackScale.ts), BEFORE the mast's own yaw. The
- * mounting task rotates this offset by each mast's rotationY. Provisional — tunable live; D17's
- * static-heads fallback stands if the alignment fights back.
- * Phase 27 road-diet retune (live-verification FIX 2): re-scaled by 1.0/1.35 to match
- * cityPackScale.ts's 'traffic-light' override dropping from 1.35 to 1.0 (was {x:-5.4, y:5.1, z:0}). */
+/**
+ * Lamp-quad overlay geometry (D17). `headAnchor` is the head position relative to the mast model
+ * origin, in RESOLVED world units, BEFORE the mast's own yaw (TrafficLampOverlay rotates this
+ * offset by each mast's rotationY). Provisional — tunable live; D17's static-heads fallback stands
+ * if the alignment fights back.
+ *
+ * Phase 41 (T3) — DERIVED, not hand-typed, specifically because of what happened at Phase 27:
+ * the road-diet retune dropped cityPackScale.ts's 'traffic-light' override from 1.35 to 1.0, and
+ * this constant had to be hand-rescaled to match (was {x:-5.4, y:5.1, z:0} — silently wrong for
+ * one commit, caught only by a live-verification screenshot, not a test). `headAnchor` is now
+ * `LAMP_HEAD_ANCHOR_FRAC x (manifest nativeDims x resolveCityPackScale('traffic-light'))`, read
+ * live off getCityPackModel/resolveCityPackScale — a future manifest regen or scale retune moves
+ * this anchor WITH it automatically, and anchorPins.test.ts's derivation-proof test fails loudly
+ * if anyone ever reverts to a hand literal. The fractions themselves (x -0.74938, y 0.81049) are
+ * pinned quotients of TODAY's resolved anchor against today's resolved dims
+ * (-4.0 / (5.3377 x 1.0) and 3.78 / (4.6639 x 1.0), rounded to 5 decimals) — the head's true
+ * model-relative position is empirical/screenshot-tuned, not something derivable from first
+ * principles, so the fraction is the pin, not a formula.
+ *
+ * quadSizeWu stays a plain literal — an arbitrary emissive-quad size with no model tie.
+ */
+export const LAMP_HEAD_ANCHOR_FRAC = {
+  x: -0.74938,
+  y: 0.81049,
+} as const;
+
+/** Resolved traffic-light footprint (world units) — manifest native dims x today's scale
+ * override, read live so LAMP_OVERLAY tracks either input if it ever changes. */
+function resolvedTrafficLightDims(): { readonly w: number; readonly h: number } {
+  const entry = getCityPackModel('traffic-light');
+  const scale = resolveCityPackScale('traffic-light');
+  return { w: entry.nativeDims.w * scale, h: entry.nativeDims.h * scale };
+}
+
+const TRAFFIC_LIGHT_DIMS = resolvedTrafficLightDims();
+
 export const LAMP_OVERLAY = {
-  headAnchor: { x: -4.0, y: 3.78, z: 0 } as const,
+  headAnchor: {
+    x: LAMP_HEAD_ANCHOR_FRAC.x * TRAFFIC_LIGHT_DIMS.w,
+    y: LAMP_HEAD_ANCHOR_FRAC.y * TRAFFIC_LIGHT_DIMS.h,
+    z: 0,
+  },
   quadSizeWu: 0.7,
 } as const;
 

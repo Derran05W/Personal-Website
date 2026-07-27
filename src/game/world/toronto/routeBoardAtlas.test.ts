@@ -2,6 +2,7 @@
 // caveat logoAtlas.ts/VenueDressLayer's atlas builders document), so this only asserts the
 // structural contract (row assignment, geometry UV remap) — not rendered pixel content.
 import { describe, expect, it } from 'vitest';
+import { NearestFilter, NearestMipmapLinearFilter } from 'three';
 import { buildRouteBoardAtlas, buildRouteBoardGeometry } from './routeBoardAtlas';
 
 describe('buildRouteBoardAtlas', () => {
@@ -23,9 +24,15 @@ describe('buildRouteBoardAtlas', () => {
     expect(buildRouteBoardAtlas([]).rowCount).toBe(1);
   });
 
-  it('produces a texture with nearest-neighbour filtering and no mipmaps (pixel-art convention)', () => {
+  // Phase 41 (surface & shimmer pass): this atlas is THE one mipped homage texture
+  // (config/surfaces.ts's ATLAS_POLICY.routeBoards) — measured ~5× minified at play distance on a
+  // moving vehicle, where Nearest/no-mips strobed. The homage rule is preserved by the MAG filter
+  // staying Nearest (near look untouched); only minification changed.
+  it('keeps NEAREST magnification (the pixel-art convention) but mips for minification', () => {
     const atlas = buildRouteBoardAtlas([{ id: '97', label: '97 YONGE' }]);
-    expect(atlas.texture.generateMipmaps).toBe(false);
+    expect(atlas.texture.magFilter).toBe(NearestFilter);
+    expect(atlas.texture.minFilter).toBe(NearestMipmapLinearFilter);
+    expect(atlas.texture.generateMipmaps).toBe(true);
   });
 });
 

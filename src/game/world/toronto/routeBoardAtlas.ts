@@ -6,7 +6,14 @@
 // is a plain three.js PlaneGeometry (no custom yaw-generalized winding needed — the board is a
 // child of each vehicle's own transform, so it inherits the vehicle's yaw for free).
 
-import { CanvasTexture, NearestFilter, PlaneGeometry, SRGBColorSpace, type BufferGeometry } from 'three';
+import {
+  CanvasTexture,
+  NearestFilter,
+  NearestMipmapLinearFilter,
+  PlaneGeometry,
+  SRGBColorSpace,
+  type BufferGeometry,
+} from 'three';
 import { ROUTE_BOARD, TTC_LIVERY } from '../../config/torontoTransit';
 
 const ROW_H_PX = 64;
@@ -24,9 +31,23 @@ export interface RouteBoardAtlas {
 }
 
 /** Builds ONE shared canvas atlas: one row per DISTINCT route id in `entries` (order of first
- * appearance), each row a flat background + the route number (large) + short name (small),
- * NearestFilter/no-mipmaps (CLAUDE.md pixel-art-style decal convention). Safe in a non-DOM test
- * environment (jsdom has no real 2d context — same guard makeVenueBandAtlas/logoAtlas use). */
+ * appearance), each row a flat background + the route number (large) + short name (small).
+ * Safe in a non-DOM test environment (jsdom has no real 2d context — same guard
+ * makeVenueBandAtlas/logoAtlas use).
+ *
+ * PHASE 41 — THE ONE MIPPED ATLAS (config/surfaces.ts's ATLAS_POLICY.routeBoards). Every other
+ * homage atlas is magnification-only under the fixed rig and correctly ships Nearest/no-mips; this
+ * one is not. A 256-px-wide route row lands on a 2.2 × 0.9 wu rooftop quad that the player reads
+ * from across a street: ~230 texels of text into ~50 px of screen, i.e. ~5× MINIFIED, on a MOVING
+ * vehicle — every frame re-picked a different set of texels and the text strobed (T1 capture
+ * matrix, `.planning/screenshots/phase-41/before-routeboard-crop2.png`).
+ *
+ * The fix keeps the homage rule intact by construction: `magFilter` stays NearestFilter, so the
+ * NEAR look is byte-identical to before; only the MINIFIED look changes, via a real mip chain read
+ * with NearestMipmapLinearFilter — nearest WITHIN a level preserves the hard pixel-text edges,
+ * linear BETWEEN levels removes the level-popping strobe as the bus drives away. WebGL2 (the P18
+ * boot gate guarantees it) generates mips for NPOT textures, which this atlas is by construction
+ * (256 × 64·rowCount). */
 export function buildRouteBoardAtlas(entries: readonly RouteBoardEntry[]): RouteBoardAtlas {
   const distinct: RouteBoardEntry[] = [];
   const seen = new Set<string>();
@@ -44,8 +65,8 @@ export function buildRouteBoardAtlas(entries: readonly RouteBoardEntry[]): Route
   canvas.height = rowCount * ROW_H_PX;
   const tex = new CanvasTexture(canvas);
   tex.magFilter = NearestFilter;
-  tex.minFilter = NearestFilter;
-  tex.generateMipmaps = false;
+  tex.minFilter = NearestMipmapLinearFilter;
+  tex.generateMipmaps = true;
   tex.colorSpace = SRGBColorSpace;
 
   const ctx = canvas.getContext('2d');

@@ -70,14 +70,36 @@ export const TTC_LIVERY = {
   boardNameHex: '#1c1c1c',
 } as const;
 
+/** Phase 41 (T3) pinned clearance the bus route board floats above the resolved bus roofline —
+ * see ROUTE_BOARD.busHeightWu's doc comment. Frozen from today's numbers (3.6 - resolved
+ * ~3.0996 = ~0.5004, rounded to 3 decimals); an arbitrary "sits visibly above the roof" gap, not
+ * itself derivable from anything. */
+export const ROUTE_BOARD_CLEARANCE_WU = 0.5;
+
+/** Resolved bus roofline height (wu) — the SAME colliderHalfExtents('bus') resolver
+ * busChassisHalfExtents() below already reads (Phase 25.5), doubled back to a full height. Kept
+ * as its own tiny function (rather than inlined) so ROUTE_BOARD's derivation reads as "roofline +
+ * clearance", matching the plain-English doc comment. */
+function resolvedBusRoofHeightWu(): number {
+  return colliderHalfExtents('bus').hy * 2;
+}
+
 /** Route-board board plate size (wu) — a small nearest-neighbour CanvasTexture plane mounted
  * above each transit vehicle (D3: "small route-number board... number + short name only, NO
  * wordmark/logo"). */
 export const ROUTE_BOARD = {
   widthWu: 2.2,
   heightWu: 0.9,
-  /** Height (wu) above the vehicle's own ground-up origin the board's centre sits at. */
-  busHeightWu: 3.6,
+  /** Height (wu) above the vehicle's own ground-up origin the board's centre sits at.
+   * Phase 41 (T3) — DERIVED: `resolvedBusRoofHeightWu() + ROUTE_BOARD_CLEARANCE_WU`, read live off
+   * the same manifest-backed resolver `busChassisHalfExtents()` already uses, so a manifest regen
+   * or a BUS_TARGET_LENGTH_WU retune (config/cityPackScale.ts) can never silently leave this board
+   * floating inside the roof or drifting away from it uncaught — the traffic-light headAnchor's
+   * exact Phase 27 drift failure mode (config/torontoDress.ts LAMP_OVERLAY), fixed the same way
+   * here. anchorPins.test.ts pins the resolved value + proves the derivation reads the manifest. */
+  busHeightWu: resolvedBusRoofHeightWu() + ROUTE_BOARD_CLEARANCE_WU,
+  /** Stays a hand literal: the streetcar is an in-house model (config/streetcar.ts /
+   * TRAFFIC_STREETCAR), not a city-pack manifest entry — there is no resolver to derive it from. */
   streetcarHeightWu: 3.9,
 } as const;
 

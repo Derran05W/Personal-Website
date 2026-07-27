@@ -33,22 +33,30 @@
 
 import { useMemo } from 'react';
 import { useGLTF } from '@react-three/drei';
+import { useThree } from '@react-three/fiber';
 import {
   Box3,
   BufferGeometry,
   Color,
   Float32BufferAttribute,
   Group,
+  LinearMipmapLinearFilter,
+  LinearMipmapNearestFilter,
   Matrix3,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
+  NearestMipmapLinearFilter,
+  NearestMipmapNearestFilter,
   Quaternion,
   Vector3,
   type Material,
   type Object3D,
+  type Texture,
 } from 'three';
 import { getCityPackModel } from './cityPackManifest';
+import { resolveAnisotropy } from '../config/surfaces';
+import { useGameStore } from '../state/store';
 // Deliberately the ZERO-DEPENDENCY names module, never cityPackPlayerCar.mjs itself (which pulls
 // in @gltf-transform/functions + a lazy `sharp` import, Node-only — see that file's own header).
 import { PLAYER_NODE_NAMES } from '../../../scripts/lib/cityPackPlayerCarNames.mjs';
@@ -101,6 +109,50 @@ function extractSingleModel(scene: Object3D): CityPackModel {
   };
 }
 
+// Phase 41 — the mip-capable minification filters. Anisotropic filtering ONLY ever selects between
+// mip levels, so a texture whose min filter never touches a mip chain can't be affected by it.
+const MIPPED_MIN_FILTERS: ReadonlySet<number> = new Set<number>([
+  LinearMipmapLinearFilter,
+  LinearMipmapNearestFilter,
+  NearestMipmapLinearFilter,
+  NearestMipmapNearestFilter,
+]);
+
+/**
+ * Phase 41 — THE choke point for city-pack texture anisotropy. Every pack render path (batched
+ * buildings, instanced furniture, parked/civilian/transit vehicles, the player car) reaches its
+ * texture through `useCityPackModel`/`usePlayerCarPackModel` and drei caches one Texture per URL,
+ * so setting it on the source material's `map` here reaches every derived material by reference —
+ * `toUnlit` below copies the same Texture object, never a clone.
+ *
+ * DELIBERATELY SKIPS the palette-baked family (the bulk of the pack): those ship NEAREST/NEAREST
+ * with no mip chain, and their UVs sample flat swatch CELL CENTRES — minification-stable by
+ * construction (config/surfaces.ts's ATLAS_POLICY.packPalette), so anisotropy there is a no-op by
+ * spec, not an oversight. Only the mipped family (bus / tree / traffic-light) is touched.
+ */
+export function applyPackTextureAnisotropy(material: Material, anisotropy: number): void {
+  const map = (material as Material & { map?: Texture | null }).map ?? null;
+  if (!map || !MIPPED_MIN_FILTERS.has(map.minFilter)) return;
+  if (map.anisotropy === anisotropy) return;
+  map.anisotropy = anisotropy;
+  // Texture parameters are only pushed at upload time, so a texture the renderer has already
+  // uploaded (a second mount of the same cached GLB) needs the re-upload flag to pick this up.
+  map.needsUpdate = true;
+}
+
+/**
+ * The tier's anisotropy level, capped by what this renderer actually supports. The tier is read
+ * NON-reactively (same mount-capture precedent as TorontoScene's tierParams): texture parameters
+ * only apply at upload, so a mid-run quality change lands on the next mount either way.
+ */
+function usePackAnisotropy(): number {
+  const maxAnisotropy = useThree((s) => s.gl.capabilities.getMaxAnisotropy());
+  return useMemo(
+    () => resolveAnisotropy(useGameStore.getState().settings.quality, maxAnisotropy),
+    [maxAnisotropy],
+  );
+}
+
 /**
  * Loads one city-pack model by manifest id and returns its single-prim render data. Suspends
  * (drei useGLTF) until the GLB streams from public/assets/city-pack/<id>.glb — mount consumers
@@ -109,9 +161,14 @@ function extractSingleModel(scene: Object3D): CityPackModel {
 export function useCityPackModel(id: string): CityPackModel {
   const entry = getCityPackModel(id);
   const gltf = useGLTF(entry.url, false);
+  const anisotropy = usePackAnisotropy();
   // The scene identity is stable across re-renders (drei caches per URL), so this memo extracts
   // once per loaded model rather than re-traversing every render.
-  return useMemo(() => extractSingleModel(gltf.scene), [gltf.scene]);
+  return useMemo(() => {
+    const model = extractSingleModel(gltf.scene);
+    applyPackTextureAnisotropy(model.material, anisotropy);
+    return model;
+  }, [gltf.scene, anisotropy]);
 }
 
 /** Preloads the given model ids (drei useGLTF.preload) so a consumer's first mount doesn't stall.
@@ -312,7 +369,14 @@ function extractPlayerCarModel(scene: Object3D): PlayerCarPackModel {
 export function usePlayerCarPackModel(id: string): PlayerCarPackModel {
   const entry = getCityPackModel(id);
   const gltf = useGLTF(entry.url, false);
-  return useMemo(() => extractPlayerCarModel(gltf.scene), [gltf.scene]);
+  const anisotropy = usePackAnisotropy();
+  return useMemo(() => {
+    const model = extractPlayerCarModel(gltf.scene);
+    for (const part of [model.body, model.wheelFrontLeft, model.wheelFrontRight, model.wheelRear]) {
+      if (part) applyPackTextureAnisotropy(part.material, anisotropy);
+    }
+    return model;
+  }, [gltf.scene, anisotropy]);
 }
 
 /**
