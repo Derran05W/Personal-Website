@@ -192,14 +192,24 @@ describe('CREDITS.brandTrademarks — Phase 24 bank + Phase 26 retail/nostalgia 
   // Phase 31 (Part-8 D1/D3): the TTC transit-route homage entry, appended after the Phase 26 set.
   const EXPECTED_TRANSIT_BRANDS = ['TTC (Toronto Transit Commission)'];
 
-  const EXPECTED_BRANDS = [...EXPECTED_BANK_BRANDS, ...EXPECTED_RETAIL_BRANDS, ...EXPECTED_TRANSIT_BRANDS];
+  // Phase 46 (Part 11 T1/T2): the first two `namedGeometryBuilders` tenants' wordmark homages —
+  // a different atlas (namedSignage.ts's shared pixel font, not logoAtlas.ts's 32×32 cells) but
+  // the same trademark-note idiom, so they live in the same typed list.
+  const EXPECTED_LANDMARK_BRANDS = ['Fairmont Royal York', 'Union Station (Toronto)'];
 
-  it('covers exactly the five Phase-24 bank brands, the seventeen Phase-26/Phase-45 retail/nostalgia brands, and the Phase-31 TTC entry', () => {
+  const EXPECTED_BRANDS = [
+    ...EXPECTED_BANK_BRANDS,
+    ...EXPECTED_RETAIL_BRANDS,
+    ...EXPECTED_TRANSIT_BRANDS,
+    ...EXPECTED_LANDMARK_BRANDS,
+  ];
+
+  it('covers exactly the five Phase-24 bank brands, the seventeen Phase-26/Phase-45 retail/nostalgia brands, the Phase-31 TTC entry, and the two Phase-46 landmark wordmark homages', () => {
     expect(CREDITS.brandTrademarks.map((entry) => entry.name)).toEqual(EXPECTED_BRANDS);
   });
 
-  it('has exactly 23 entries', () => {
-    expect(CREDITS.brandTrademarks.length).toBe(23);
+  it('has exactly 25 entries', () => {
+    expect(CREDITS.brandTrademarks.length).toBe(25);
   });
 
   it('has unique brand names', () => {

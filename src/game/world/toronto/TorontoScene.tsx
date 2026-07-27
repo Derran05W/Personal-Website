@@ -64,6 +64,8 @@ import { GROUND_NOISE, buildNoiseField, sampleNoiseField } from './groundNoise';
 import { BARRIER, SIDEWALK } from '../../config/torontoMap';
 import { CityPackBatched } from './cityPack/CityPackBatched';
 import { HERO_LOTS, type CrownDecal, type NamedBox, type NamedPlacement } from './namedBuildings';
+import { buildNamedSignGeometry, resolveNamedBespoke, resolveNamedRenderBoxes } from './namedGeometry';
+import { makeNamedSignTexture } from './namedSignage';
 import { buildCnTowerGeometry, buildRogersGeometry } from './heroes';
 import { createCnNightMaterial, writeCnNightUniforms } from './cnNightMaterial';
 import { resolveNightProgram } from './cnNightProgram';
@@ -579,47 +581,80 @@ function decalTransform(box: NamedBox, decal: CrownDecal): {
  * one UV-sliced quad per CROWN decal (shared bank-logo atlas), and one BUILDING CuboidCollider
  * per box (matching the filler massing's fixed-body pattern). Textures/geometries are built once
  * (memoized) and disposed on unmount so a toggle flip / remount never leaks GPU memory.
+ *
+ * PHASE 46 — the `namedGeometryBuilders` seam (world/toronto/namedGeometry.ts). A placement with a
+ * registered builder additionally contributes:
+ *   • RENDER boxes that replace its data boxes for the facade-texture path only (Union's box
+ *     shrinks to the wing height so a bespoke attic can top out at the data height);
+ *   • ONE merged vertex-coloured mesh — the sculpted part — registered as an occludable exactly
+ *     like the boxes;
+ *   • wordmark quads, which merge ACROSS builders into a single mesh sharing one signage atlas
+ *     (+1 draw call for the whole seam, no matter how many landmarks eventually carry one);
+ *   • extra BUILDING colliders inside this layer's existing fixed body.
+ * Placements without a builder take the identical path they have taken since Phase 24 — the
+ * fallback is the absence of a map entry, not a branch (namedGeometry.test.ts pins it).
  */
 function NamedBuildingsLayer({ placements }: { placements: readonly NamedPlacement[] }) {
   // Phase 29 (D1): named boxes carry no districtId field of their own (street-referenced, not
   // district-referenced) — resolved spatially, once, against the same district rects every
   // other Toronto layer derives from.
   const districts = useMemo(() => buildDistricts(), []);
+  // Phase 46: bespoke render plans, resolved once. Pure arithmetic — the merged meshes below are
+  // what actually allocate, and they do it inside their own memo.
+  const bespokes = useMemo(() => resolveNamedBespoke(placements), [placements]);
   // Flat box list (with its owning placement id → stable texture seed key).
-  const boxes = useMemo(
-    () => placements.flatMap((p) => p.boxes.map((box, i) => ({ box, key: `${p.id}#${i}` }))),
-    [placements],
-  );
+  const boxes = useMemo(() => resolveNamedRenderBoxes(placements, bespokes), [placements, bespokes]);
   const textures = useMemo(() => boxes.map(({ box, key }) => makeFacadeTexture(box, key)), [boxes]);
   useEffect(() => () => textures.forEach((t) => t.dispose()), [textures]);
 
-  // CROWN decals: shared atlas texture + one UV-sliced geometry per decal.
+  // CROWN decals: shared atlas texture + one UV-sliced geometry per decal. The decal rides the
+  // RENDER box when a builder supplied one (no built id carries a crown today, so this is
+  // byte-identical now and correct the day one does).
   const atlas = useMemo(() => getLogoAtlas(), []);
   const decals = useMemo(
     () =>
-      placements.flatMap((p) =>
-        p.decals.map((decal) => {
-          const box = p.boxes[decal.boxIndex];
+      placements.flatMap((p) => {
+        const decalBoxes = bespokes.get(p.id)?.renderBoxes ?? p.boxes;
+        return p.decals.map((decal) => {
+          const box = decalBoxes[decal.boxIndex];
           const uv = logoCellUv(decal.brand);
           return {
             geometry: makeDecalGeometry(decal.size, uv),
             ...decalTransform(box, decal),
             key: `${p.id}-${decal.brand}-${decal.face}`,
           };
-        }),
-      ),
-    [placements],
+        });
+      }),
+    [placements, bespokes],
   );
   useEffect(() => () => decals.forEach((d) => d.geometry.dispose()), [decals]);
 
-  // Register every box mesh as an occludable (Phase 25, A.5): the camera→car ray fades any of
-  // these that stands between the camera and the player so the car is never fully hidden.
+  // The bespoke meshes + the one shared wordmark mesh.
+  const bespokeMeshes = useMemo(
+    () => [...bespokes.values()].map((b) => ({ id: b.id, built: b.buildGeometry() })),
+    [bespokes],
+  );
+  const signGeometry = useMemo(() => buildNamedSignGeometry(bespokes), [bespokes]);
+  const signTexture = useMemo(() => makeNamedSignTexture(), []);
+  useEffect(
+    () => () => {
+      bespokeMeshes.forEach((m) => m.built.geometry.dispose());
+      signGeometry.geometry.dispose();
+      signTexture.dispose();
+    },
+    [bespokeMeshes, signGeometry, signTexture],
+  );
+
+  // Register every box mesh AND every bespoke mesh as an occludable (Phase 25, A.5): the
+  // camera→car ray fades any of these that stands between the camera and the player so the car is
+  // never fully hidden.
   const boxMeshRefs = useRef<(Mesh | null)[]>([]);
+  const bespokeMeshRefs = useRef<(Mesh | null)[]>([]);
   useEffect(() => {
-    const meshes = boxMeshRefs.current.filter((m): m is Mesh => m !== null);
+    const meshes = [...boxMeshRefs.current, ...bespokeMeshRefs.current].filter((m): m is Mesh => m !== null);
     meshes.forEach((m) => occlusionRegistry.add(m));
     return () => meshes.forEach((m) => occlusionRegistry.remove(m));
-  }, [boxes]);
+  }, [boxes, bespokeMeshes]);
 
   return (
     <>
@@ -640,6 +675,31 @@ function NamedBuildingsLayer({ placements }: { placements: readonly NamedPlaceme
         </mesh>
       ))}
 
+      {/* Phase 46 bespoke landmark geometry — one merged vertex-coloured mesh per built id
+          (colonnade / attic / moat / balustrade / GO shed), UNLIT-literal with the shade baked
+          into the vertex colours (bespokeMesh.ts). */}
+      {bespokeMeshes.map(({ id, built }, i) => (
+        <mesh
+          key={id}
+          ref={(m) => {
+            bespokeMeshRefs.current[i] = m;
+          }}
+          geometry={built.geometry}
+          castShadow
+          frustumCulled={false}
+        >
+          <meshBasicMaterial vertexColors toneMapped={false} />
+        </mesh>
+      ))}
+
+      {/* Every builder's wordmark quads in ONE mesh on the shared signage atlas (mipmapped —
+          config/surfaces.ts's minified-text policy, the Phase 41 route-board lesson). */}
+      {signGeometry.count > 0 ? (
+        <mesh geometry={signGeometry.geometry} frustumCulled={false}>
+          <meshBasicMaterial map={signTexture} toneMapped={false} side={DoubleSide} />
+        </mesh>
+      ) : null}
+
       {/* CROWN logo decals on the two camera-visible faces (§4 CROWN / Addendum A.2). */}
       {decals.map((d) => (
         <mesh key={d.key} geometry={d.geometry} position={d.position} rotation={d.rotation}>
@@ -647,9 +707,10 @@ function NamedBuildingsLayer({ placements }: { placements: readonly NamedPlaceme
         </mesh>
       ))}
 
-      {/* Indestructible fixed BUILDING colliders — one per box (massing.ts's fixed-body pattern).
-          Phase 29 (D1): registered so ramming a named tower deals damage to the player instead of
-          silently no-op'ing (combat/damage.ts requires both impact sides registered). */}
+      {/* Indestructible fixed BUILDING colliders — one per box (massing.ts's fixed-body pattern),
+          plus every bespoke's extra cuboids (Union's GO shed). Phase 29 (D1): registered so ramming
+          a named tower deals damage to the player instead of silently no-op'ing (combat/damage.ts
+          requires both impact sides registered). */}
       <RigidBody type="fixed" colliders={false} collisionGroups={BUILDING_GROUPS}>
         {boxes.map(({ box, key }) => (
           <RegisteredCuboidCollider
@@ -659,6 +720,16 @@ function NamedBuildingsLayer({ placements }: { placements: readonly NamedPlaceme
             position={[box.cx, box.hy, box.cz]}
           />
         ))}
+        {[...bespokes.values()].flatMap((b) =>
+          b.extraColliders.map((c) => (
+            <RegisteredCuboidCollider
+              key={`${b.id}:${c.id}`}
+              entry={torontoBuildingEntryAt(torontoDistrictIndexAt(c.cx, c.cz, districts))}
+              halfExtents={[c.hx, c.hy, c.hz]}
+              position={[c.cx, c.cy, c.cz]}
+            />
+          )),
+        )}
       </RigidBody>
     </>
   );

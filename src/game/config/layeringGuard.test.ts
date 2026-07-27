@@ -30,7 +30,15 @@ import { describe, expect, it } from 'vitest';
  *
  * Phase 45 additions: the rail-lands ground dressing (ballast beds, tie bands, the turntable deck
  * and its bridge girder) and its scene mount — the first producers of the new `railBallast` /
- * `railTrack` rungs. */
+ * `railTrack` rungs.
+ *
+ * Phase 46 additions: the bespoke-named-geometry seam and its first builder — `unionStation.ts`
+ * produces the moat paint strip on the new `unionMoat` rung and the facade-normal offsets its
+ * wordmark quads ride, and `namedGeometry.ts` is where every future builder's sign quads are
+ * merged. Both are exactly the class of producer this list exists to police.
+ *
+ * Phase 46 T2: `royalYork.ts` — the seam's second builder, another wordmark-quad producer riding
+ * the same `WALL_STACK.fasciaBand` rung. */
 const SCANNED_FILES: readonly string[] = [
   'src/game/world/toronto/TorontoScene.tsx',
   'src/game/world/toronto/roadPaint.ts',
@@ -39,6 +47,10 @@ const SCANNED_FILES: readonly string[] = [
   'src/game/world/toronto/worldEdgeGeometry.ts',
   'src/game/world/toronto/railLands.ts',
   'src/game/world/toronto/cityPack/RailLandsLayer.tsx',
+  'src/game/world/toronto/namedGeometry.ts',
+  'src/game/world/toronto/unionStation.ts',
+  'src/game/world/toronto/royalYork.ts',
+  'src/game/world/toronto/namedSignage.ts',
   'src/game/config/fx.ts',
   'src/game/config/torontoMaterials.ts',
   'src/game/config/world.ts',

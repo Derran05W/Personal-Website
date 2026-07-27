@@ -77,8 +77,11 @@ export interface CreditsContent {
   disclaimer: string;
   /** Short note on the game's title/branding. */
   gameTitleNote: string;
-  /** Real brands stylized as 32×32 pixel-art logos in the Toronto map layer: the five Phase 24
-   * bank brands plus the fifteen Phase 26 retail/nostalgia brands (places.json). */
+  /** Real brands/landmarks stylized as pixel-art homages in the Toronto map layer: the five
+   * Phase 24 bank brands, the seventeen Phase 26/Phase 45 retail/nostalgia brands (places.json)
+   * and the Phase 31 TTC entry via the 32×32 logo atlas (logoAtlas.ts), plus the two Phase 46
+   * landmark wordmark homages (Fairmont Royal York, Union Station) via the separate
+   * namedSignage.ts pixel-font atlas. */
   brandTrademarks: BrandTrademarkEntry[];
 }
 
@@ -469,6 +472,35 @@ export const CREDITS: CreditsContent = {
         "for Toronto-cityscape flavour. The TTC's trademarks belong to the Toronto Transit",
         'Commission; no affiliation, sponsorship, or endorsement is implied, and no official TTC',
         'assets were used.',
+      ].join(' '),
+    },
+    // Phase 46 (Part 11 civic-heart landmarks): the first two `namedGeometryBuilders` tenants —
+    // bespoke geometry + a shared pixel-font wordmark atlas (namedSignage.ts), not the 32×32 logo
+    // atlas the entries above ride. Same disclaimer idiom, same "homage, never a reproduction" law.
+    {
+      name: 'Fairmont Royal York',
+      note: [
+        'Referenced as an original pixel-art-style red neon "ROYAL YORK" rooftop wordmark homage',
+        '(drawn with the same shared landmark-signage pixel font as Union Station\'s frieze, never',
+        'the real sign traced or photographed) plus a low-poly châteauesque roof massing —',
+        'stepped copper-green tiers and dormer rows evoking the real hotel\'s silhouette, never a',
+        'traced or exact reproduction of the real building. The Fairmont Royal York\'s trademarks',
+        'belong to its owner (Fairmont Hotels & Resorts); no affiliation, sponsorship, or',
+        'endorsement is implied, and no official Fairmont Royal York assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'Union Station (Toronto)',
+      note: [
+        'Referenced as an original pixel-art-style carved "UNION STATION" frieze wordmark homage',
+        '(drawn with the shared landmark-signage pixel font, never the real inscription traced or',
+        'photographed) plus a low-poly colonnade massing — the researched 22-column Front Street',
+        'facade, a sunken balustraded carriageway, and the modern GO Train Shed — evoking the',
+        'real station\'s silhouette, never a traced or exact reproduction of the real building.',
+        'Union Station is a public transportation landmark operated by the City of Toronto and',
+        'Metrolinx; any Union Station trademarks belong to their respective owner, its name and',
+        'likeness are referenced for Toronto-cityscape flavour only, no affiliation, sponsorship,',
+        'or endorsement is implied, and no official Union Station assets were used.',
       ].join(' '),
     },
   ],

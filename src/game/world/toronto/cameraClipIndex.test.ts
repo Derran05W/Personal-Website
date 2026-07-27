@@ -25,6 +25,7 @@ import {
 } from './cameraClipIndex';
 import { aabbAround, buildingClipVolumes, createClaimIndex, type ClaimInput } from './claimIndex';
 import { composeWorld } from './composeWorld';
+import { namedBespokeClaims } from './namedGeometry';
 
 /** A unit-ish box centred at (x, z) with the map's ground-anchored convention. */
 function boxAt(x: number, z: number, hx = 5, hy = 10, hz = 5): ClipAabb {
@@ -277,9 +278,15 @@ describe('buildingClipVolumes — who is dither-fadeable', () => {
     // 2 aquarium cuboids, 4 roundhouse arc chords, the annex, the locomotive — all `fadeKey: null`
     // for the same reason the named boxes are (they render as ONE merged mesh with a material of
     // its own, so occlusionFade.ts's opacity path owns them, not the dither pass).
+    // Phase 46 (25 → 26): the bespoke-named seam adds building-class volumes of its own (Union
+    // Station's GO shed), on the same material path for the same reason — its mesh is merged into
+    // the landmark's single bespoke mesh. DERIVED from the seam rather than re-typed, so the next
+    // builder moves this number by itself.
     const named = world.named.placements.reduce((n, p) => n + p.boxes.length, 0);
     const railLands = world.railLands.colliders.length;
-    expect(world.clipVolumes.length - keys.length).toBe(named + railLands);
+    const bespoke = namedBespokeClaims(world.named.placements).filter((c) => c.kind === 'namedBuilding').length;
+    expect(bespoke).toBeGreaterThan(0);
+    expect(world.clipVolumes.length - keys.length).toBe(named + railLands + bespoke);
   });
 });
 

@@ -405,16 +405,26 @@ describe('rail lands — the arbiter holds the whole block', () => {
     }
   });
 
-  it('THE ACCEPTANCE CENSUS: nothing but the rail lands is left standing inside the strip', () => {
+  // PHASE 46: the strip was reserved as ROOM, not as a void — its whole point is that authored
+  // landmark geometry can take it while generic placers cannot. Union Station's GO train shed is
+  // the first authorized tenant (world/toronto/unionStation.ts: it stands behind the headhouse,
+  // over the ballast beds this layer paints, which is exactly where the real one stands). It is
+  // therefore exempted BY NAME rather than by widening the filter to a whole source or kind — a
+  // generic `named`-sourced intrusion still fails this census.
+  const AUTHORIZED_STRIP_TENANT_IDS: ReadonlySet<string> = new Set(['named-bespoke:union-station:go-shed']);
+
+  it('THE ACCEPTANCE CENSUS: nothing but the rail lands + its authorized tenants stands inside the strip', () => {
     const strip = rectToAabb(layout.strip);
-    const intruders = world.index
-      .allClaims()
-      .filter((c) => c.blocking && c.source !== 'railLands' && overlaps(strip, c.aabb))
+    const inside = world.index.allClaims().filter((c) => c.blocking && c.source !== 'railLands' && overlaps(strip, c.aabb));
+    const intruders = inside
+      .filter((c) => !AUTHORIZED_STRIP_TENANT_IDS.has(c.id))
       .map((c) => ({ id: c.id, kind: c.kind, source: c.source }));
     expect(
       intruders,
       intruders.length === 0 ? undefined : `${intruders.length} generic placement(s) survive inside the reserved rail-lands strip: ${JSON.stringify(intruders.slice(0, 10))}`,
     ).toEqual([]);
+    // …and the exemption list stays EXACT: a stale entry fails as loudly as a new intrusion.
+    expect(inside.map((c) => c.id).sort()).toEqual([...AUTHORIZED_STRIP_TENANT_IDS].sort());
   });
 
   it('every rail-lands claim volume is inside the strip and inside the polygon', () => {

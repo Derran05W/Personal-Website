@@ -86,10 +86,26 @@ describe('composeWorld — the count table (seed 416), pinned', () => {
   //     and the Spadina/Bay flanks survive the claim intact (railLands.ts's STREETWALL_RESERVE_WU).
   //   • Verified after the fact: a blocking-claim census of the strip returns ONLY the 13
   //     rail-lands claims — nothing generic is left inside the corridor.
+  //
+  // PHASE 46 RE-PIN — the bespoke-named-geometry seam's first two claims (world/toronto/
+  // namedGeometry.ts, registered by worldContext step 3a). EXACTLY TWO NUMBERS MOVE, and nothing
+  // else in this table does:
+  //   • claims 8056 → 8058 (+2): `named-bespoke:union-station:go-shed` (the GO train shed behind
+  //     the headhouse, kind `namedBuilding`) and `named-bespoke:union-station:moat` (the sunken
+  //     carriageway strip in front of it, kind `decor`).
+  //   • clipVolumes 2373 → 2374 (+1): only the shed is building-class; `decor` never reaches the
+  //     camera clip projection.
+  //   • EVERY placement count is UNCHANGED, and that was measured, not assumed. Both new claims
+  //     land on ground that was already empty: the moat strip sits inside Union's own 3 wu
+  //     namedExclusion rect (so furniture's point-margin gate had already vacated the Front Street
+  //     frontage in front of the station), and the shed sits inside the Phase-45 rail-lands strip
+  //     (reserved, and swept clean by that phase). A blocking-claim census of both rectangles on
+  //     the pre-Phase-46 world returned zero hits — which is why the seam's first landmark costs no
+  //     displacement at all.
   it('matches the measured seed-416 counts exactly', () => {
     expect(world.counts).toEqual({
-      claims: 8056,
-      clipVolumes: 2373,
+      claims: 8058,
+      clipVolumes: 2374,
       'frontage.total': 1400,
       'frontage.towerBoxes': 90,
       'frontage.cornerFills': 47,

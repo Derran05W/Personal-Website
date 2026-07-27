@@ -38,6 +38,7 @@ import {
 } from './claimIndex';
 import { crosswalkBands } from './crosswalks';
 import { buildDistricts, type ResolvedDistrict } from './districts';
+import { namedBespokeClaims } from './namedGeometry';
 import { buildNamedBuildings, type NamedBuildings } from './namedBuildings';
 import { buildParks, type ParksLayout } from './parks';
 import { buildPlacesLayer, type PlacesLayer } from './placesLayer';
@@ -198,6 +199,7 @@ function dressingHalfExtents(kind: BarrierDressingKind, yawRad: number): { hx: n
  *   1. street ribbons + sidewalk bands + crosswalk bands + the water band   (ZONE)
  *   2. named-building exclusion rects (hero + rail-lands lots/strip incl.)  (ZONE)
  *   3. named-building boxes                                                 (BLOCKING, building)
+ *   3a. bespoke named extras (Union's GO shed + moat strip)                 (BLOCKING)
  *   3b. rail-lands building volumes + patio prop footprints                 (BLOCKING)
  *   4. places-layer exclusion rects                                         (ZONE)
  *   5. park rects                                                           (ZONE)
@@ -278,6 +280,26 @@ export function createPlacementContext(): WritablePlacementContext {
         yRange: [0, 2 * box.hy],
         fadeKey: null,
       });
+    });
+  }
+
+  // 3a) Phase 46 — BESPOKE named geometry (world/toronto/namedGeometry.ts's builder seam). A
+  // landmark with a builder may occupy volume its DATA box does not describe: Union Station's GO
+  // train shed stands behind the headhouse, and its sunken-carriageway moat strip occupies the
+  // flush gap in front of it. Both register HERE — still inside the seed-independent prefix, still
+  // before frontage/venueDress/infill/furniture — so every seed-dependent placer rejects against
+  // them deterministically (a bench standing in the carriageway is the Phase-40 embedded-shelter
+  // defect class). Ids and owners are minted by `namedBespokeClaims` so the id scheme and the
+  // same-owner sanction rule live in one place; no three object is allocated on this path.
+  for (const claim of namedBespokeClaims(prefix.named.placements, prefix.streets)) {
+    index.register({
+      id: claim.id,
+      kind: claim.kind,
+      source: 'named',
+      owner: claim.owner,
+      aabb: claim.aabb,
+      yRange: claim.yRange,
+      fadeKey: claim.fadeKey,
     });
   }
 

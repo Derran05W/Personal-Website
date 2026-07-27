@@ -20,6 +20,7 @@
 import { describe, expect, it } from 'vitest';
 import { getCityPackModel } from '../assets/cityPackManifest';
 import { GROUND_STACK, MIN_GROUND_SEP_WU, MIN_WALL_SEP_WU, SURFACE_ANCHOR, WALL_STACK } from './layering';
+import { SIDEWALK } from './torontoMap';
 
 // Float compare tolerance for the derived-value checks below (SURFACE_ANCHOR is defined AS an
 // arithmetic function of GROUND_STACK + MIN_GROUND_SEP_WU, so exact equality would be fragile to
@@ -35,7 +36,14 @@ describe('GROUND_STACK — every rung pinned exactly', () => {
   // would be a guaranteed coplanar pair). The 0.004 wu gap available there could not hold them, so
   // `railBallast` 0.016 / `railTrack` 0.020 were spliced in and EVERY rung above moved +0.008 wu.
   // Nothing outside this file re-types a rung value, so the whole migration is this pin.
-  it('matches the law values (Phase 39, re-pinned at Phase 45 for the rail-lands splice)', () => {
+  // PHASE 46 RE-PIN (deliberate, same rule): Union Station's sunken-carriageway paint strip needed
+  // a rung, and it is the first surface in the city that rides the RAISED SIDEWALK band rather than
+  // the ground/road plane — every existing rung is below `SIDEWALK.curbHeightWu` (0.12) and would
+  // simply be buried under the walk. `unionMoat` is therefore APPENDED at the top of the ladder
+  // (0.128 = curb top + 2 × MIN_GROUND_SEP_WU) instead of spliced into the road band. No existing
+  // rung moved — the append is why this pin is a one-line addition rather than a whole-ladder shift
+  // like Phase 45's.
+  it('matches the law values (Phase 39, re-pinned at Phase 45 for the rail splice + Phase 46 for the moat)', () => {
     expect(GROUND_STACK).toEqual({
       ground: 0.0,
       districtTint: 0.008,
@@ -51,6 +59,7 @@ describe('GROUND_STACK — every rung pinned exactly', () => {
       scorch: 0.062,
       water: 0.068,
       groundFx: 0.074,
+      unionMoat: 0.128,
     });
   });
 
@@ -111,6 +120,19 @@ describe('SURFACE_ANCHOR — the road/ground placement-lift rule', () => {
     // resting on bare dirt must still dodge it — the anchor is an ANCHOR, not a rung, so it is
     // allowed to sit inside a rung gap, but never ON a rung.
     expect(Math.abs(SURFACE_ANCHOR.ground - GROUND_STACK.railBallast)).toBeGreaterThan(EPS);
+  });
+});
+
+describe('cross-stack sanity — the Phase-46 on-sidewalk rung', () => {
+  it('unionMoat clears the RAISED sidewalk band top (SIDEWALK.curbHeightWu) by at least one ground separation', () => {
+    // The moat strip is painted INSIDE the flush gap between Union Station's facade and Front
+    // Street's ribbon — ground the raised sidewalk band already occupies. A rung below the curb top
+    // would be geometrically invisible, so this relationship (not the literal) is the real law.
+    expect(GROUND_STACK.unionMoat).toBeGreaterThanOrEqual(SIDEWALK.curbHeightWu + MIN_GROUND_SEP_WU - EPS);
+    // …and it must still be the TOP of the ladder: nothing may paint over the walk-level strip
+    // without a deliberate re-pin here.
+    const values = Object.values(GROUND_STACK);
+    expect(values[values.length - 1]).toBe(GROUND_STACK.unionMoat);
   });
 });
 

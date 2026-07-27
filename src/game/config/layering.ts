@@ -100,9 +100,24 @@ export const GROUND_STACK = {
   /** The lake's visual plane (was 0.050; Phase 45: 0.060 → 0.068). */
   water: 0.068,
   /** Ground FX — the helicopter searchlight's ground pool (was 0.050, an EXACT TIE with the
-   * water plane; Phase 45: 0.066 → 0.074). Top of the stack: aircraft light paints over
-   * everything, including the lake. */
+   * water plane; Phase 45: 0.066 → 0.074). Top of the road/ground stack: aircraft light paints
+   * over everything below it, including the lake. */
   groundFx: 0.074,
+  /**
+   * PHASE 46 — Union Station's sunken-carriageway ("moat") paint strip. THE ONE RUNG THAT DOES NOT
+   * RIDE THE GROUND PLANE: the strip lies in the 3 wu flush gap between Union's facade and Front
+   * Street's ribbon, and that whole gap is covered by the RAISED sidewalk band, whose top face sits
+   * at `SIDEWALK.curbHeightWu` = 0.12 (a geometry HEIGHT, not a rung — see this file's "NOT A RUNG"
+   * note). Any value drawn from the road/ground band below would be buried under the walk and
+   * render as nothing at all.
+   *
+   * So it is APPENDED at the top, which keeps both ladder laws intact and is also physically
+   * honest: declaration order is paint order, and this surface really is the highest one in the
+   * stack. Value = curb top + 2 × MIN_GROUND_SEP_WU (layering.test.ts asserts that relationship
+   * against `SIDEWALK.curbHeightWu` rather than trusting this comment; the literal lives here
+   * because this module is a LEAF and imports nothing).
+   */
+  unionMoat: 0.128,
 } as const;
 
 /**
