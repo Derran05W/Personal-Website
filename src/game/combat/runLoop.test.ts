@@ -4,7 +4,7 @@ import { useGameStore } from '../state/store';
 import { DAMAGE, BUSTED } from '../config/damage';
 import { playerVehicle } from '../vehicles/playerRef';
 import { unitsRef, type UnitSlot, type PursuitApi } from '../ai/pursuitTypes';
-import { getDeathPullback, resetCameraRig } from '../fx/cameraRig';
+import { addShake, getDeathPullback, getShakeTrauma, resetCameraRig, setDeathPullback } from '../fx/cameraRig';
 import type { IVehicleModel, VehicleState } from '../vehicles/IVehicleModel';
 import {
   createBustedTracker,
@@ -248,6 +248,28 @@ describe('runStarted', () => {
     expect(handler).toHaveBeenCalledTimes(2);
     off();
   });
+
+  // Phase 37: beginRun calls resetCameraRig() where it used to call setDeathPullback(false).
+  // Asserted through the rig's OWN observable state rather than a module spy (this file drives
+  // the real fx/cameraRig throughout): resetCameraRig is a strict superset — it clears the death
+  // pull-back AND zeroes shake/FOV-kick trauma AND disarms the follow rig, so leftover shake
+  // surviving a run start is exactly the regression this pins.
+  it('a run start resets the whole camera rig, not just the death pull-back (Phase 37)', () => {
+    const off = initRunLoopSystem();
+    const store = useGameStore.getState();
+    store.transition('LOADING');
+    store.transition('GARAGE');
+
+    // Dirty the rig the way a violent death does: pull-back armed + trauma on the shake buckets.
+    setDeathPullback(true);
+    addShake(1, 'explosion');
+    expect(getShakeTrauma()).toBeGreaterThan(0);
+
+    store.transition('PLAYING');
+    expect(getDeathPullback()).toBe(false);
+    expect(getShakeTrauma()).toBe(0); // setDeathPullback(false) alone would NOT clear this
+    off();
+  });
 });
 
 // --- Phase 17: Suspense-race catch-up (root-caused live: a fast start-click can beat this
@@ -389,6 +411,81 @@ describe('WRECKED flow', () => {
     for (let i = 0; i < lockTicks; i++) tickRunLoop();
     expect(useGameStore.getState().machine).toBe('GAMEOVER');
     off();
+  });
+
+  // --- Phase 37: leftWorld (out-of-bounds backstop) is the same death as drowning -------------
+
+  it('leftWorld triggers the WRECKED path exactly once, ending in GAMEOVER + runEnded{wrecked}', () => {
+    const wreckedHandler = vi.fn();
+    const runEndedHandler = vi.fn();
+    gameEvents.on('playerWrecked', wreckedHandler);
+    gameEvents.on('runEnded', runEndedHandler);
+    const off = startRun();
+
+    gameEvents.emit('leftWorld', {});
+    expect(wreckedHandler).toHaveBeenCalledTimes(1);
+    expect(getDeathPullback()).toBe(true);
+    expect(useGameStore.getState().machine).toBe('PLAYING'); // lock window still running
+
+    const lockTicks = Math.round(DAMAGE.wreckedLockSec * 60) + 5;
+    for (let i = 0; i < lockTicks; i++) tickRunLoop();
+    expect(useGameStore.getState().machine).toBe('GAMEOVER');
+    expect(runEndedHandler).toHaveBeenCalledTimes(1);
+    expect(runEndedHandler).toHaveBeenCalledWith({ score: useGameStore.getState().score, reason: 'wrecked' });
+    expect(wreckedHandler).toHaveBeenCalledTimes(1);
+    off();
+  });
+
+  it('a repeat leftWorld (or an enteredWater) during the lock window never double-fires the death', () => {
+    const wreckedHandler = vi.fn();
+    const runEndedHandler = vi.fn();
+    gameEvents.on('playerWrecked', wreckedHandler);
+    gameEvents.on('runEnded', runEndedHandler);
+    const off = startRun();
+
+    gameEvents.emit('leftWorld', {});
+    expect(wreckedHandler).toHaveBeenCalledTimes(1);
+
+    // The car is still outside/underwater while the beat plays — both backstops can keep
+    // shouting; the wrecked latch must swallow every one of them.
+    const lockTicks = Math.round(DAMAGE.wreckedLockSec * 60) + 5;
+    for (let i = 0; i < lockTicks; i++) {
+      if (i % 5 === 0) gameEvents.emit('leftWorld', {});
+      if (i % 7 === 0) gameEvents.emit('enteredWater', {});
+      tickRunLoop();
+    }
+    expect(wreckedHandler).toHaveBeenCalledTimes(1);
+    expect(runEndedHandler).toHaveBeenCalledTimes(1);
+    expect(runEndedHandler).toHaveBeenCalledWith({ score: useGameStore.getState().score, reason: 'wrecked' });
+    expect(useGameStore.getState().machine).toBe('GAMEOVER');
+    off();
+  });
+
+  it('a retry re-arms the leftWorld path (latch cleared by beginRun)', () => {
+    const wreckedHandler = vi.fn();
+    gameEvents.on('playerWrecked', wreckedHandler);
+    const off = startRun();
+    const lockTicks = Math.round(DAMAGE.wreckedLockSec * 60) + 5;
+
+    gameEvents.emit('leftWorld', {});
+    for (let i = 0; i < lockTicks; i++) tickRunLoop();
+    expect(useGameStore.getState().machine).toBe('GAMEOVER');
+
+    useGameStore.getState().runReset();
+    useGameStore.getState().transition('PLAYING');
+    gameEvents.emit('leftWorld', {});
+    expect(wreckedHandler).toHaveBeenCalledTimes(2);
+    off();
+  });
+
+  it('leftWorld after teardown is inert (the subscription is removed with the rest)', () => {
+    const wreckedHandler = vi.fn();
+    gameEvents.on('playerWrecked', wreckedHandler);
+    const off = startRun();
+    off();
+
+    gameEvents.emit('leftWorld', {});
+    expect(wreckedHandler).not.toHaveBeenCalled();
   });
 
   it('the poll fallback catches hp<=0 even without a playerDamaged event (the debugBridge.setPlayerHp kill path)', () => {

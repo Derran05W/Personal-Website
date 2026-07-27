@@ -57,7 +57,7 @@ import { getGameState, useGameStore, type GameStoreState } from '../state/store'
 import { DAMAGE, BUSTED } from '../config/damage';
 import { playerVehicle } from '../vehicles/playerRef';
 import { unitsRef, type UnitSlot } from '../ai/pursuitTypes';
-import { setDeathPullback } from '../fx/cameraRig';
+import { resetCameraRig, setDeathPullback } from '../fx/cameraRig';
 
 // Matches <Physics timeStep={1/60}> (game/index.tsx) — same convention as
 // state/heatScoreSystem.tsx's FIXED_STEP_SEC.
@@ -176,7 +176,14 @@ function beginRun(seed: number): void {
   wreckedLatched = false;
   pendingGameOver = null;
   bustedTracker.reset();
-  setDeathPullback(false);
+  // Phase 37: every respawn path resets the camera rig, and this is the one choke point that
+  // covers all of them (boot, retry, garage start). Was `setDeathPullback(false)`;
+  // resetCameraRig is a strict superset — it clears the death pull-back (cause + beat clock
+  // included), zeroes shake/FOV-kick trauma, and DISARMS the follow rig so the first frame of
+  // the new run snaps to the car instead of sweeping in from wherever the lens died. The
+  // sweep used to be masked by the silent fell-out teleport, which this phase retires;
+  // resetCameraRig had zero production call sites before this line.
+  resetCameraRig();
   gameEvents.emit('runStarted', { seed });
   if (import.meta.env.DEV) console.info(`[runLoop] runStarted seed=${seed}`);
 }
@@ -313,6 +320,15 @@ export function initRunLoopSystem(): () => void {
     handleWrecked();
   });
 
+  // Phase 37: leaving the playable world (past the barrier ring, or through the slab) is the
+  // same death as drowning — world/toronto/outOfBounds.ts has already applied its own sustain
+  // window, so by the time this fires the excursion is real. handleWrecked's latch makes a
+  // second leftWorld (or a leftWorld landing on top of an in-flight enteredWater/hp-0 lock) a
+  // no-op, so the two backstops can never double-fire a run.
+  const offLeftWorld = gameEvents.on('leftWorld', () => {
+    handleWrecked();
+  });
+
   const offTier = gameEvents.on('tierChanged', () => {
     bustedTracker.arm();
   });
@@ -321,6 +337,7 @@ export function initRunLoopSystem(): () => void {
     offStore();
     offPlayerDamaged();
     offWater();
+    offLeftWorld();
     offTier();
   };
 }

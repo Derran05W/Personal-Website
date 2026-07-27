@@ -26,7 +26,7 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { CuboidCollider, RigidBody, useAfterPhysicsStep } from '@react-three/rapier';
+import { CuboidCollider, RigidBody, useAfterPhysicsStep, type IntersectionEnterPayload } from '@react-three/rapier';
 import {
   BufferGeometry,
   CanvasTexture,
@@ -56,13 +56,14 @@ import { buildDistricts, torontoDistrictIndex, torontoDistrictIndexAt } from './
 import { buildGroundTintRanges, darkenColorRange } from './groundTintBlackout';
 import { RegisteredCuboidCollider, RegisteredCylinderCollider } from '../landmarks/registeredCollider';
 import { torontoBuildingEntryAt } from './torontoColliders';
+import { getEntity, type EntityEntry } from '../registry';
 import { buildFrontage } from './frontage';
 import { buildInfill } from './infill';
 import { buildFurniture } from './furniture';
 import { buildRoadGeometry, buildSidewalkColliderBoxes } from './roadPaint';
 import { buildParks, type ParksLayout } from './parks';
 import { GROUND_NOISE, buildNoiseField, sampleNoiseField } from './groundNoise';
-import { SIDEWALK } from '../../config/torontoMap';
+import { BARRIER, SIDEWALK } from '../../config/torontoMap';
 import { CityPackBatched } from './cityPack/CityPackBatched';
 import { HERO_LOTS, buildNamedBuildings, type CrownDecal, type NamedBox, type NamedPlacement } from './namedBuildings';
 import { buildCnTowerGeometry, buildRogersGeometry } from './heroes';
@@ -93,6 +94,9 @@ import {
 import { buildVenueDress } from './venueDress';
 import { createRng } from '../rng';
 import { createFoldTrigger, type FoldTrigger } from './tunnel';
+import { createOobTrigger, type OobTrigger } from './outOfBounds';
+import { buildWorldEdge } from './worldEdge';
+import { buildBarrierDressingGeometry, buildDeadEndColliders } from './worldEdgeGeometry';
 import { gameEvents } from '../../state/events';
 import { getGameState, useGameStore } from '../../state/store';
 import { playerVehicle } from '../../vehicles/playerRef';
@@ -122,6 +126,14 @@ const GROUND_HALF_THICK = BOUNDARY.groundThicknessM / 2; // slab extends downwar
 const POST_H = 6; // signpost pole height (m)
 const BOARD_W = 14;
 const BOARD_H = 3.5;
+// Water sensor box centre (m): the collider spans y ∈ [−underlap, height − underlap], so it both
+// underlaps the surface (catching an already-sinking chassis, as the old centred box did) and
+// covers the full ballistic envelope above it — see BOUNDARY.waterColliderHeightM's Phase 37 note.
+const WATER_SENSOR_CENTER_Y = BOUNDARY.waterColliderHeightM / 2 - BOUNDARY.waterColliderUnderlapM;
+// Matches <Physics timeStep={1/60}> (game/index.tsx) — same convention as combat/runLoop.ts's and
+// state/heatScoreSystem.tsx's FIXED_STEP_SEC. Feeds the out-of-bounds trigger's own sampling
+// clock (useAfterPhysicsStep hands its callback no delta).
+const PHYSICS_STEP_SEC = 1 / 60;
 
 // Palette (component-local placeholders, same carve-out world/CityScape.tsx uses; Phase 23 owns
 // the real Toronto palette). Muted district-neutral ground; lake matches the legacy WATER_COLOR.
@@ -141,6 +153,13 @@ const BUILDING_GROUPS = interactionGroups('BUILDING');
 
 // The lake band's world box, computed once (rectWorldBox is pure).
 const WATER_BOX = rectWorldBox(WATER_RECT);
+
+// Phase 37: every barrier-ring collider (the 11 land-edge walls AND the 19 dead-end "road closed"
+// rows) registers this SAME entry — no districtId, no hp (an indestructible fixed wall segment;
+// ramming one deals damage to the PLAYER like any other 'building' hit, combat/damage.ts's
+// massFactorOf() default). One shared object so RegisteredCuboidCollider's registration effect
+// (keyed on `entry`) never churns across renders.
+const BARRIER_ENTRY: EntityEntry = { kind: 'barrier', districtId: -1 };
 
 // --- polygon camera clamp (Phase 34) ------------------------------------------------------
 // The world's half of fx/cameraRig's PROD-ACTIVE position-constraint seam: keep the camera eye at
@@ -1042,6 +1061,30 @@ export function TorontoScene() {
     [parks],
   );
 
+  // Phase 37: the diegetic world-edge barrier ring (worldEdge.ts is itself module-memoized —
+  // this useMemo only stabilises the DERIVED arrays below across re-renders). Colliders +
+  // dead-end rows mount below (BARRIER_ENTRY); dressing renders as pack fence/cone runs
+  // (CityPackBatched) plus one merged procedural mesh (worldEdgeGeometry.ts's hoarding/jersey/
+  // rail-post boxes).
+  const worldEdge = useMemo(() => buildWorldEdge(), []);
+  const deadEndColliders = useMemo(() => buildDeadEndColliders(), []);
+  const barrierDressingGeometry = useMemo(() => buildBarrierDressingGeometry(), []);
+  useEffect(() => () => barrierDressingGeometry.dispose(), [barrierDressingGeometry]);
+  const fencePlacements = useMemo(
+    () =>
+      worldEdge.dressing
+        .filter((d) => d.kind === 'fencePiece')
+        .map((d) => ({ position: [d.x, 0, d.z] as const, rotationY: d.yawRad })),
+    [worldEdge],
+  );
+  const conePlacements = useMemo(
+    () =>
+      worldEdge.dressing
+        .filter((d) => d.kind === 'cone')
+        .map((d) => ({ position: [d.x, 0, d.z] as const, rotationY: d.yawRad })),
+    [worldEdge],
+  );
+
   // Phase 24 named landmarks: street-referenced, seed-independent (pure function of the street
   // table). Their footprints + the reserved hero lots feed the frontage engine as exclusions so
   // pack filler never collides with a landmark or the P25 CN Tower / Rogers lots.
@@ -1109,6 +1152,8 @@ export function TorontoScene() {
     ids.add('power-box');
     ids.add('stop-sign');
     ids.add('manhole-cover');
+    ids.add(BARRIER.packModelIds.fencePiece); // Phase 37 world-edge ring dressing
+    ids.add(BARRIER.packModelIds.cone);
     for (const car of furniture.parked.items) ids.add(car.modelId);
     for (const prop of dress.props) ids.add(prop.modelId);
     for (const s of frontage.cornerFills) ids.add(s.modelId);
@@ -1118,8 +1163,8 @@ export function TorontoScene() {
     preloadCityPack([...ids]);
   }, [frontage, furniture, dress, infill]);
 
-  // Publish this slice's spawn pose so devPanel's "teleport reset" (and the fell-out net below)
-  // send the car back to Finch, not the legacy map centre — the Toronto equivalent of
+  // Publish this slice's spawn pose so devPanel's "teleport reset" (and core/debugBridge.ts's
+  // `reset()`) send the car back to spawn, not the legacy map centre — the Toronto equivalent of
   // world/CityScape.tsx setting spawnPoseRef from getSpawnPose(world). world/CityScape.tsx
   // re-sets it from the legacy pose whenever the toggle flips back off (it remounts then).
   useEffect(() => {
@@ -1158,14 +1203,28 @@ export function TorontoScene() {
     if (dir) gameEvents.emit('tunnelTransit', { direction: dir });
   });
 
-  // --- fell-out-of-world safety net -------------------------------------------------------
-  // No legacy CityScape here to carry its net, and this map's rects don't fully tile the
-  // polygon (the capsule/corridor/downtown step-ins leave void slivers a car can leave), so a
-  // chassis that drops below the slab gets reset to spawn — mirrors world/CityScape.tsx's net.
-  useFrame(() => {
+  // --- out-of-bounds backstop (Phase 37) ---------------------------------------------------
+  // Replaces the old fell-out-of-world net, which silently teleported a falling chassis back to
+  // spawn (BOUNDARY.fellOutResetY) — a pose jump mid-run that hid the failure instead of
+  // resolving it. The map edge is now a diegetic barrier ring (worldEdge.ts) plus this
+  // guaranteed backstop: leaving the polygon past the ring, or dropping below the slab, ends the
+  // run as WRECKED like any other death.
+  //
+  // Same shape as the fold trigger above: lazily built once per mount (a fresh trigger per run,
+  // so the latch state is always correct on retry), fed the player's PHYSICS-truth position
+  // (rawPose — the interpolated render pose can lag a fast excursion), stepped on the physics
+  // step. outOfBounds.ts owns the semantics: 10 Hz sampling, 0.5 s of CONSECUTIVE out-of-bounds
+  // samples, fires exactly once. The lake is inside the polygon and stays the WATER sensor's
+  // (enteredWater) — this never competes with it.
+  const oobTrigger = useRef<OobTrigger | null>(null);
+  if (oobTrigger.current === null) oobTrigger.current = createOobTrigger();
+  useAfterPhysicsStep(() => {
+    if (getGameState().machine !== 'PLAYING') return;
     const model = playerVehicle.current;
-    if (model && model.readState().rawPose.position.y < BOUNDARY.fellOutResetY) {
-      model.reset(spawnPoseRef.current);
+    if (!model) return;
+    const p = model.readState().rawPose.position;
+    if (oobTrigger.current?.step(p.x, p.y, p.z, PHYSICS_STEP_SEC)) {
+      gameEvents.emit('leftWorld', {});
     }
   });
 
@@ -1427,7 +1486,13 @@ export function TorontoScene() {
     sampleCameraClip(eyeInside, nearPlaneInside, boresightHits);
   }, 2);
 
-  const handleWaterEnter = (): void => {
+  const handleWaterEnter = (payload: IntersectionEnterPayload): void => {
+    // PLAYER-only (Phase 37): the sensor's WATER group senses every vehicle class, and
+    // combat/runLoop.ts turns `enteredWater` into the PLAYER's death — so a pursuit unit or
+    // civilian splashing into the lake must not read as the player drowning. Latent since P22
+    // at ground level; the Phase 37 sensor raise (ballistic envelope, 30 m) widened the
+    // exposure to airborne units launched over the lake band, so the filter is now mandatory.
+    if (getEntity(payload.other.collider.handle)?.kind !== 'player') return;
     gameEvents.emit('enteredWater', {});
   };
 
@@ -1539,7 +1604,12 @@ export function TorontoScene() {
         <meshBasicMaterial vertexColors toneMapped={false} />
       </mesh>
 
-      {/* Lakefront: visual plane + WATER sensor (senses vehicles → enteredWater → WRECKED). */}
+      {/* Lakefront: visual plane + WATER sensor (senses vehicles → enteredWater → WRECKED).
+          Phase 37: the sensor box is 30 m tall and sits with its floor 2 m UNDER the surface
+          (WATER_SENSOR_CENTER_Y) so it covers the whole ballistic envelope of a car leaving the
+          shore — a ramp-assisted arc used to sail clean over the old 6 m band and land in the
+          void south of it with nothing to report. XZ extents are unchanged (WATER_BOX), so the
+          shore road stays outside the sensor. */}
       <mesh
         position={[WATER_BOX.cx, WATER_Y, WATER_BOX.cz]}
         rotation={[-Math.PI / 2, 0, 0]}
@@ -1554,7 +1624,7 @@ export function TorontoScene() {
         colliders={false}
         sensor
         collisionGroups={WATER_GROUPS}
-        position={[WATER_BOX.cx, 0, WATER_BOX.cz]}
+        position={[WATER_BOX.cx, WATER_SENSOR_CENTER_Y, WATER_BOX.cz]}
       >
         <CuboidCollider
           args={[WATER_BOX.hx, BOUNDARY.waterColliderHeightM / 2, WATER_BOX.hz]}
@@ -1562,6 +1632,56 @@ export function TorontoScene() {
           onIntersectionEnter={handleWaterEnter}
         />
       </RigidBody>
+
+      {/* Phase 37 — the diegetic world-edge barrier ring (worldEdge.ts). Colliders: 11 long fixed
+          cuboids (one per LAND polygon edge, corner-overlap sealed — the south water edge has no
+          wall, locked) PLUS 19 dead-end "road closed" rows (orchestrator addendum: without these,
+          a car driving a dead-end street phases through the visual jersey-barrier dressing and
+          only stops ~7-8 wu later at the ring line itself, since BARRIER.edgeInsetWu(6) sits
+          closer to the polygon edge than a dead-end street's EDGE_PAD_WU(14)-deep cut). Arcing
+          OVER 3 wu of wall is the out-of-bounds backstop's job by design, not this collider's. */}
+      <RigidBody type="fixed" colliders={false} collisionGroups={BUILDING_GROUPS}>
+        {worldEdge.colliders.map((c) => (
+          <RegisteredCuboidCollider
+            key={`edge-${c.edgeIndex}`}
+            entry={BARRIER_ENTRY}
+            halfExtents={[c.hx, BARRIER.colliderHeightWu / 2, c.hz]}
+            position={[c.cx, BARRIER.colliderHeightWu / 2, c.cz]}
+          />
+        ))}
+        {deadEndColliders.map((c, i) => (
+          <RegisteredCuboidCollider
+            key={`dead-${i}-${c.streetId}`}
+            entry={BARRIER_ENTRY}
+            // Ring-height wall, NOT the jersey's 0.9 visual height: a 0.9 thin box is a speed
+            // bump to the raycast vehicle (suspension rays ramp the chassis over it) — see
+            // BARRIER.jersey.heightWu's doc for the Phase 37 battery proof.
+            halfExtents={[c.hx, BARRIER.colliderHeightWu / 2, c.hz]}
+            position={[c.cx, BARRIER.colliderHeightWu / 2, c.cz]}
+          />
+        ))}
+      </RigidBody>
+      {/* Dressing: pack fence/cone runs (CityPackBatched — per-object frustum culling is load-
+          bearing here, the pack `fence` model alone is 1,040 tris x up to 1,460 instances) plus
+          one merged procedural mesh for the three kinds with no pack equivalent (hoarding panels,
+          jersey barriers, rail posts). +3 draw calls total over the pre-Phase-37 scene. */}
+      {fencePlacements.length > 0 || conePlacements.length > 0 ? (
+        <Suspense fallback={null}>
+          {fencePlacements.length > 0 ? (
+            <CityPackBatched
+              id={BARRIER.packModelIds.fencePiece}
+              placements={fencePlacements}
+              unlit={cityPackUnlit}
+            />
+          ) : null}
+          {conePlacements.length > 0 ? (
+            <CityPackBatched id={BARRIER.packModelIds.cone} placements={conePlacements} unlit={cityPackUnlit} />
+          ) : null}
+        </Suspense>
+      ) : null}
+      <mesh geometry={barrierDressingGeometry} frustumCulled={false}>
+        <meshBasicMaterial vertexColors toneMapped={false} />
+      </mesh>
 
       {/* §1 exit signposts: instanced posts + per-label CanvasTexture boards (yawed to camera). */}
       <instancedMesh ref={postsRef} args={[undefined, undefined, SIGNPOSTS.length]} castShadow>

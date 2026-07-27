@@ -14,7 +14,8 @@
 // (streets/districts/roadGraph/named/places/tunnel are all street-referenced, so a width edit
 // here alone re-flows the whole map).
 
-import { CAR_REF } from './cityPackScale';
+import { CAR_REF, resolveCityPackScale } from './cityPackScale';
+import { getCityPackModel } from '../assets/cityPackManifest';
 
 /**
  * Part-8 (D1, user directive 2026-07-18 — "density/life flip"): the whole map compacts ~0.6×
@@ -193,6 +194,175 @@ export const WAYPOINT_SPACING_WU = 40;
 
 /** How far a street's ends stop short of the polygon/zone edge it runs up against (wu). */
 export const EDGE_PAD_WU = 14;
+
+/** Collider thickness (wu) of one barrier-ring wall segment. Hoisted out of the BARRIER block
+ * below only because `minEdgeInsetWu` is derived from it (an object literal cannot reference its
+ * own fields). */
+const BARRIER_COLLIDER_THICKNESS_WU = 1;
+
+/** Gap between adjacent fence panels — hoisted for the same reason (`fence.pitchWu` needs it). */
+const BARRIER_FENCE_GAP_WU = 0.2;
+
+/** On-screen width (wu) of one pack `fence` panel: the manifest's native X extent x the model's
+ * resolved runtime scale — MEASURED off the pack, never a copied literal, so a pack regen
+ * (`pnpm assets:pack`) re-flows the fence pitch instead of silently opening gaps in the ring. */
+const BARRIER_FENCE_PANEL_WIDTH_WU =
+  getCityPackModel('fence').nativeDims.w * resolveCityPackScale('fence');
+
+/**
+ * Phase 37 — the diegetic world-edge barrier ring (part-9 §Phase 37; TDD §5.4 "no invisible
+ * walls"). world/toronto/worldEdge.ts walks PLAYABLE_POLYGON's 11 LAND edges (the south water
+ * edge is skipped — locked: no wall on the lake), insets them, and emits one long fixed cuboid
+ * per edge plus per-theme visual dressing. EVERY number the builder uses lives here; worldEdge.ts
+ * contains no tunables of its own.
+ *
+ * The ring is the diegetic primary; the universal out-of-bounds auto-WRECKED (world/toronto/
+ * outOfBounds.ts) is the guaranteed backstop for anything that arcs over 3 wu of wall.
+ */
+export const BARRIER = {
+  /**
+   * How far INSIDE each land polygon edge the barrier centreline sits (wu).
+   *
+   * Deliberately NOT EDGE_PAD_WU (14), which is where the street table stops its ribbons: the
+   * traffic graph's terminal NODES sit exactly on that pad line, so a ring at 14 would stand on
+   * top of them (civilian block-rays latching onto a wall, pursuit spawn nodes in contact with
+   * it). 6 wu instead:
+   *   • stands on tiled ground by construction (GROUND_RECTS ∪ WATER_RECT tile the polygon
+   *     exactly — proven in torontoSceneHelpers.test.ts's Phase 37 ground-truth gate);
+   *   • leaves 14 − 6 − thickness/2 = 7.5 wu of clear road between a dead-end street's last
+   *     asphalt and the wall it faces;
+   *   • sits well inside polygon.ts's CAMERA_CLAMP_PADDING_WU (30) band, so the camera eye is
+   *     already held further in than the ring — the ring never clips the lens.
+   */
+  edgeInsetWu: 6,
+  /**
+   * The floor `edgeInsetWu` collapses to on an edge that has a street ribbon lying FLUSH against
+   * it. Two streets are boundary-nudged onto their zone edge by streets.ts (Bloor's north curb
+   * IS the downtown block's north boundary at y=1362; Sheppard's south curb IS the capsule's
+   * south boundary at y=702), so on those four step/notch edges a 6 wu inset would put a wall
+   * down the middle of a live arterial. The builder detects any parallel ribbon in the inset band
+   * and pulls that edge's inset back to this value — half the collider thickness, i.e. the wall's
+   * outer face flush with the polygon edge and its inner face exactly `colliderThicknessWu`
+   * inside. That reads as a hoarding on the road's outer shoulder (correct — the map genuinely
+   * ends at that curb) and encroaches at most 1 wu of a 8.8-9.9 wu ribbon, leaving both lane
+   * centres (LANE_OFFSET_WU ±2.2 from the centreline) and their car half-widths clear.
+   */
+  minEdgeInsetWu: BARRIER_COLLIDER_THICKNESS_WU / 2,
+  /**
+   * Wall height (wu). Low on purpose: it stops a car, it does NOT try to stop a launched/airborne
+   * one — arcing over the top is the out-of-bounds backstop's job ("bounce or WRECKED, never a
+   * fall"), and a taller ring would be the one piece of world geometry guaranteed to sit inside
+   * the camera's eye-line band (CAMERA_EYE_MIN_WU 22.05) at every map edge.
+   */
+  colliderHeightWu: 3,
+  /** Wall thickness (wu). Also the corner-seal overlap: each edge's box is extended by half this
+   * at both ends so adjacent boxes overlap at the mitred corners and the ring has no gaps
+   * (overlapping FIXED cuboids are free — no solver work, no jitter). */
+  colliderThicknessWu: BARRIER_COLLIDER_THICKNESS_WU,
+  /**
+   * Invariant ceiling (wu), asserted in worldEdge.test.ts: no collider box and no dressing piece
+   * may sit deeper than this into ANY street ribbon. Only the four flush-ribbon edges above can
+   * intrude at all, and only into the outer ~1-1.4 wu of Bloor/Sheppard. Raising this constant
+   * without re-checking the lane-clearance arithmetic in `minEdgeInsetWu` above is a bug.
+   */
+  maxRibbonEncroachWu: 2,
+  /**
+   * Dressing (not colliders) stops this far north of the shoreline (wu). The two downtown W/E
+   * edges run the full height of the polygon, which includes the 240 wu water band — the COLLIDER
+   * must run all the way down to seal the ring's two south corners, but a fence standing in the
+   * lake reads as a bug, so visual pieces are clipped at ZONE_BOUNDARIES[3] − this.
+   */
+  shoreClearanceWu: 4,
+  /**
+   * How far from a land edge a street endpoint may be and still count as a dead end that gets a
+   * "road closed" jersey row (wu). EDGE_PAD_WU (14) + edgeInsetWu (6): every zone-token street end
+   * sits exactly 14 out, and Yonge's north end — the one street that stops on a literal (y=12,
+   * scaleBaseY(20)) rather than a pad token — sits 12 out. Both are caught; nothing else is
+   * (the next-nearest endpoint to any land edge is 59 wu away).
+   */
+  deadEndProbeWu: 20,
+  /**
+   * City-pack model ids the dressing kinds render as (assets/cityPackManifest.ts). Only two kinds
+   * have a pack model; 'hoardingPanel', 'jerseyBarrier' and 'railPost' have no pack equivalent and
+   * are procedural boxes built by the scene (the same precedent as 25.7's procedural awnings).
+   *
+   * 'fencePiece' deliberately resolves to the pack's `fence`, NOT `fence-piece`: `fence-piece`
+   * resolves to a 1.12 x 0.79 wu stub (a kerb rail), far too short to read against a 3 wu wall,
+   * while `fence` resolves to a 3.19 x 2.5 wu panel that reads as a real barrier at the §5.3
+   * camera. Both models' native long axis is X, matching the builder's yaw convention (local +X
+   * runs ALONG the edge, local +Z faces INWARD).
+   */
+  packModelIds: {
+    fencePiece: 'fence',
+    cone: 'cone',
+  },
+  fence: {
+    /** Gap between adjacent fence panels (wu) — small enough that the run reads continuous, big
+     * enough that abutting panels never share a coincident face. It is also the ring's one tri
+     * lever: `fence` is a 1,040-tri model and the fence/rail edges are ~5 km of ring, so widening
+     * this gap is the first thing to try if an edge vantage ever threatens the tri budget
+     * (BatchedMesh per-instance frustum culling means only the ~15-20 panels actually in frame
+     * ever submit triangles). */
+    gapWu: BARRIER_FENCE_GAP_WU,
+    /** Measured panel width (wu) — see BARRIER_FENCE_PANEL_WIDTH_WU above. */
+    panelWidthWu: BARRIER_FENCE_PANEL_WIDTH_WU,
+    /** Centre-to-centre spacing of fence panels along an edge (wu). The builder rounds a segment
+     * to a whole number of pitches and then spreads them evenly, so the run always starts and ends
+     * flush with the segment (the realised pitch lands within a few % of this). */
+    pitchWu: BARRIER_FENCE_PANEL_WIDTH_WU + BARRIER_FENCE_GAP_WU,
+  },
+  hoarding: {
+    /** Construction-hoarding panel: a plywood board on the map's construction-site edges. Width
+     * is a whole-panel proportion of the 4.2 wu pitch; height sits above a car and below the
+     * pack's fence so the two themes read as different structures. */
+    panelWidthWu: 4,
+    panelHeightWu: 2.6,
+    panelThicknessWu: 0.3,
+    gapWu: 0.2,
+  },
+  rail: {
+    /** Rail-corridor theme (the fold corridor's W/E flanks): pack fence + a taller procedural post
+     * every `postSpacingWu`, so the fold reads as a rail right-of-way rather than a job site. */
+    postSpacingWu: 8,
+    postWidthWu: 0.35,
+    postHeightWu: 1.2,
+  },
+  notch: {
+    /** Cone scatter along the two step-in notch pairs (the hoarding-themed edges that are flush
+     * with Bloor/Sheppard). Deterministic, no rng: cones alternate between the barrier centreline
+     * and one lateral step INWARD of it. Inward-only — a lateral step outward would push a cone
+     * off the polygon on a 0.5 wu inset edge. */
+    conePitchWu: 6,
+    coneLateralOffsetWu: 0.6,
+  },
+  jersey: {
+    /** Concrete jersey barrier, procedural. Length runs ACROSS the road (local +X, per the yaw
+     * convention); a row of them at a dead-end street's last asphalt reads "road closed". */
+    lengthWu: 2,
+    widthWu: 0.7,
+    /**
+     * VISUAL height only. The dead-end row's COLLIDER deliberately does NOT use this: a 0.9-tall
+     * thin fixed box is a curb, not a wall, to the raycast vehicle — the suspension rays hit its
+     * top face and lift the chassis smoothly over it, so a car at ANY speed climbs the row like a
+     * speed bump (proven live in the Phase 37 battery: creep-speed pass-through, ram-speed vault,
+     * and a drop test that beached the chassis dead on the box top). The row collider instead
+     * reuses `BARRIER.colliderHeightWu` (3 — the same wall height the ring proves stops the car
+     * by chassis face-contact); see TorontoScene.tsx's dead-end collider mount. The 2.1 wu of
+     * unmarked wall above the visible row is diegetically covered by the row itself — a stop
+     * there still reads as "the road closure stopped me" — and the ring stands 8 wu behind it
+     * regardless.
+     */
+    heightWu: 0.9,
+    gapWu: 0.2,
+    /** How far back from the ribbon's cut end the row's centre sits (wu), so the barriers stand
+     * fully ON the asphalt instead of straddling the cut. */
+    rowInsetWu: 1,
+    /** Jersey positions closer than this to the polygon boundary are dropped (wu). On the four
+     * flush edges (Bloor/Sheppard) the ring itself already occupies the road's outer wu, and a
+     * jersey there would interpenetrate the wall. */
+    edgeClearanceWu: 1.5,
+  },
+} as const;
 
 /**
  * Player spawn — a map-space point on Yonge, facing south. South is map +y, which maps to world

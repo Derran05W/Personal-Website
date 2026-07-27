@@ -10,16 +10,30 @@
 import { useEffect, useRef, type CSSProperties } from 'react';
 import { playerVehicle } from '../vehicles/playerRef';
 import { useDevToggle } from '../core/devToggles';
-import { streetEndpointsWorld, torontoPolygonPx, torontoWorldToMapPx, TORONTO_MINIMAP_STREETS } from './torontoMinimapMath';
+import {
+  streetEndpointsWorld,
+  torontoBarrierRingSegmentsPx,
+  torontoWaterEdgeSegmentPx,
+  torontoWorldToMapPx,
+  TORONTO_MINIMAP_STREETS,
+} from './torontoMinimapMath';
 
 const MAP_PX = 192;
 const REDRAW_INTERVAL_MS = 100; // ~10 Hz — a debug tool, not part of the render loop.
 const PLAYER_DOT_RADIUS_PX = 3;
-const EDGE_STROKE = 'rgba(255, 255, 255, 0.35)';
 const PLAYER_DOT_COLOR = '#ff3b3b';
-// Phase 29 (D6): Toronto street-ribbon stroke — dimmer than the polygon outline (EDGE_STROKE)
-// so the boundary reads as the primary shape and the grid as secondary detail.
+// Phase 29 (D6): Toronto street-ribbon stroke — dimmer than the ring (RING_STROKE below) so the
+// boundary reads as the primary shape and the grid as secondary detail.
 const TORONTO_STREET_STROKE = 'rgba(255, 255, 255, 0.2)';
+// Phase 37: the map edge is now a diegetic barrier — a hazard/warning tone (matching the 3D
+// scene's hoarding-stripe hazard-orange, worldEdgeGeometry.ts's HOARDING_STRIPE_COLOR) reads as
+// "wall", not the old neutral-white "suggested boundary" outline it replaces.
+const RING_STROKE = 'rgba(255, 141, 39, 0.9)';
+const RING_LINE_WIDTH = 2.5; // heavier than the old EDGE_STROKE (1.5) — a wall, not a suggestion.
+// The one open (south) edge: no wall on the lake (locked) — styled in the lake's own blue tone
+// (TorontoScene.tsx's WATER_COLOR '#2f6f93'), brightened for contrast against the dark minimap.
+const WATER_EDGE_STROKE = 'rgba(79, 172, 214, 0.9)';
+const WATER_EDGE_LINE_WIDTH = 2;
 
 // Fixed bottom-left. Header is a fixed 64px bar at the TOP (z-index 50, app/Header.css);
 // there is no site footer, so bottom-left is clear real estate — the 12px inset just keeps
@@ -49,20 +63,33 @@ export default function Minimap() {
     const ctx = canvasRef.current?.getContext('2d');
     if (!ctx) return;
 
-    // Phase 29 (D6), unconditional since the Phase 32 flip: polygon outline + road ribbons +
-    // player blip. No district-tint/dark-district/light-pool overlay — that legacy-only reading
-    // (tile grid + 16-district grid) was retired with the legacy world (Phase 32 de-import); a
+    // Phase 29 (D6), unconditional since the Phase 32 flip: boundary (Phase 37: the barrier ring
+    // + water edge, replacing the old plain polygon outline) + road ribbons + player blip. No
+    // district-tint/dark-district/light-pool overlay — that legacy-only reading (tile grid +
+    // 16-district grid) was retired with the legacy world (Phase 32 de-import); a
     // Toronto-districtId-aware version of those overlays remains a documented future debt, not
     // wired here (phase-29-notes.md).
     const draw = () => {
       ctx.clearRect(0, 0, MAP_PX, MAP_PX);
 
-      const polyPx = torontoPolygonPx(MAP_PX);
-      ctx.strokeStyle = EDGE_STROKE;
-      ctx.lineWidth = 1.5;
+      // Phase 37: the barrier ring (hazard tone, heavier line — it's a wall now) drawn as
+      // independent segments (the ring is a U, open on the water side — a closed loop would draw
+      // a false chord across the lake), plus the one open water edge in the lake's own blue tone.
+      ctx.strokeStyle = RING_STROKE;
+      ctx.lineWidth = RING_LINE_WIDTH;
       ctx.beginPath();
-      polyPx.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-      ctx.closePath();
+      for (const seg of torontoBarrierRingSegmentsPx(MAP_PX)) {
+        ctx.moveTo(seg.a.x, seg.a.y);
+        ctx.lineTo(seg.b.x, seg.b.y);
+      }
+      ctx.stroke();
+
+      const waterEdge = torontoWaterEdgeSegmentPx(MAP_PX);
+      ctx.strokeStyle = WATER_EDGE_STROKE;
+      ctx.lineWidth = WATER_EDGE_LINE_WIDTH;
+      ctx.beginPath();
+      ctx.moveTo(waterEdge.a.x, waterEdge.a.y);
+      ctx.lineTo(waterEdge.b.x, waterEdge.b.y);
       ctx.stroke();
 
       ctx.strokeStyle = TORONTO_STREET_STROKE;

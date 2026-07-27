@@ -39,6 +39,15 @@ export interface GameEventMap {
   /** Player (or, once Phase 7/9 add them, any vehicle) entered the south lakefront WATER
    * sensor (world/CityScape.tsx). Logged only in Phase 4; Phase 9 wires instant WRECKED. */
   enteredWater: Record<string, never>;
+  /** Phase 37: the player left the playable world — off a land edge past the diegetic barrier
+   * ring, or below the ground slab (a physics failure). Detected by world/toronto/outOfBounds.ts
+   * (sustained, never instant) and emitted at most ONCE per run by the Toronto scene's
+   * out-of-bounds stepper. combat/runLoop.ts treats it exactly like `enteredWater`: straight to
+   * the WRECKED path, so the run ends with the ordinary death presentation (`playerWrecked` →
+   * lock window → `runEnded{reason:'wrecked'}`) rather than the pre-Phase-37 silent teleport
+   * back to spawn. The lake is NOT this event — it is inside the polygon and stays
+   * `enteredWater`'s (see outOfBounds.ts's header). */
+  leftWorld: Record<string, never>;
   /** Phase 17: emitted once per NEWLY crossed lifetime-score unlock threshold
    * (config/unlocks.ts's UNLOCKS), exactly when a run's score folds into the persisted
    * `lifetimeScore` — state/persistence.ts's recordRunEnd (the `runEnded` handler) diffs

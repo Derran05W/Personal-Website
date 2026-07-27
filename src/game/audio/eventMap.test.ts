@@ -262,6 +262,7 @@ describe('EVENT_SOUND_DOC', () => {
     'runEnded',
     'darkCity',
     'enteredWater',
+    'leftWorld', // Phase 37 out-of-bounds backstop — documented no-op (see EVENT_SOUND_DOC)
     'carUnlocked',
     'tunnelTransit',
   ];

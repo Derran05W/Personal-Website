@@ -9,6 +9,7 @@
 
 import { PLAYABLE_POLYGON } from '../world/toronto/polygon';
 import { buildStreets, type Street } from '../world/toronto/streets';
+import { buildWorldEdge } from '../world/toronto/worldEdge';
 
 // Polygon bounding box, computed once (PLAYABLE_POLYGON is a module-level constant — pure,
 // deterministic, never changes at runtime).
@@ -46,6 +47,37 @@ export function torontoWorldToMapPx(x: number, z: number, mapPx: number): { x: n
 /** The playable polygon's vertices, in minimap-pixel space, ready for a closed ctx.lineTo loop. */
 export function torontoPolygonPx(mapPx: number): readonly { x: number; y: number }[] {
   return PLAYABLE_POLYGON.map((v) => torontoWorldToMapPx(v.x, v.y, mapPx));
+}
+
+/** One pixel-space line segment (a minimap-drawing primitive: `ctx.moveTo(a); ctx.lineTo(b)`). */
+export interface MinimapSegmentPx {
+  readonly a: { readonly x: number; readonly y: number };
+  readonly b: { readonly x: number; readonly y: number };
+}
+
+/** The Phase 37 world-edge layout, built once (worldEdge.ts is itself module-memoized — this is
+ * only a re-export so Minimap.tsx doesn't need its own world/toronto/worldEdge import, mirroring
+ * `TORONTO_MINIMAP_STREETS` below). */
+const WORLD_EDGE = buildWorldEdge();
+
+/** The barrier ring's 11 LAND edges (the diegetic wall — worldEdge.ts), in minimap-pixel space.
+ * Drawn as independent segments rather than one closed loop: the ring is a U (open on the south/
+ * water side), so a closed loop would draw a false chord across the lake. */
+export function torontoBarrierRingSegmentsPx(mapPx: number): readonly MinimapSegmentPx[] {
+  return WORLD_EDGE.edges.map((e) => ({
+    a: torontoWorldToMapPx(e.start.x, e.start.z, mapPx),
+    b: torontoWorldToMapPx(e.end.x, e.end.z, mapPx),
+  }));
+}
+
+/** The one open (water) edge — the lake's outer boundary, which the ring deliberately has no wall
+ * on — in minimap-pixel space, styled distinctly (water tone, not hazard tone) from the ring. */
+export function torontoWaterEdgeSegmentPx(mapPx: number): MinimapSegmentPx {
+  const e = WORLD_EDGE.waterEdge;
+  return {
+    a: torontoWorldToMapPx(e.start.x, e.start.z, mapPx),
+    b: torontoWorldToMapPx(e.end.x, e.end.z, mapPx),
+  };
 }
 
 /** One street's two endpoints in WORLD space (its map-space centerline/span, which — per the

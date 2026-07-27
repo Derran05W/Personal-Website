@@ -33,9 +33,22 @@ export const BOUNDARY = {
   // corners, not a thin flooded strip poking past them).
   waterLengthM: 200,
   waterWidthM: 700,
-  // WATER sensor collider full height (m) — Rapier colliders need real thickness; tall
-  // enough to catch the player at any reasonable off-the-edge trajectory near y=0.
-  waterColliderHeightM: 6,
+  // WATER sensor collider full height (m). Phase 37 raised this 6 → 30: the sensor must cover
+  // the whole BALLISTIC ENVELOPE of a car leaving the shore, not just the water surface. A 6 m
+  // band was clearable — a ramp-assisted arc (curb, construction pile, another car) launches the
+  // chassis well above 6 m over the lake, sails straight over the sensor, and lands south of it
+  // in the void with nothing to report. 30 m is above anything the vehicle model can reach off a
+  // legitimate world feature, so "went out over the lake" is now caught on the way out, at the
+  // apex, or on the way down. XZ extents are deliberately UNCHANGED (BOUNDARY.waterWidthM /
+  // waterLengthM, and the Toronto scene's own WATER_BOX): the failure mode this fixes is
+  // vertical, and widening the footprint would risk sensing the shore road itself.
+  waterColliderHeightM: 30,
+  // How far BELOW y=0 the water sensor box starts (m) — the box spans y ∈ [−underlap,
+  // waterColliderHeightM − underlap], i.e. its centre sits at waterColliderHeightM/2 − underlap.
+  // Keeps the "already sinking / already below the slab" catch the pre-Phase-37 centred box had
+  // (it spanned ±3), and deliberately matches the depth of `oobMinY` below so the water sensor
+  // and the out-of-bounds floor agree about where "under the world" begins.
+  waterColliderUnderlapM: 2,
   // Highway barrier dimensions (TDD §5.4: the map edge must be diegetic, never an
   // invisible wall). Runs the three non-lake (N/E/W) edges just outside the ring road.
   barrierHeightM: 1,
@@ -51,7 +64,38 @@ export const BOUNDARY = {
   // backlogged for Phase 6's physics session). The map is flat — nothing legitimate is
   // ever below about -1 m — so -5 fires within ~1 s of a genuine fall while staying
   // clear of ordinary suspension bounce.
+  //
+  // PHASE 37: the Toronto scene (the shipped world) NO LONGER USES THIS. Silently teleporting a
+  // falling car back to spawn mid-run hid a real failure behind a pose jump; the map edge is now
+  // a diegetic barrier ring plus the out-of-bounds backstop below (leftWorld → WRECKED), so a car
+  // that leaves the world dies honestly instead. The constant stays because world/CityScape.tsx
+  // (the de-imported legacy 64×64 map) still consumes it verbatim.
   fellOutResetY: -5,
+
+  // --- out-of-bounds backstop (Phase 37; world/toronto/outOfBounds.ts) ----------------------
+  // The guaranteed consequence behind the diegetic barrier ring: whatever the ring fails to
+  // stop (a launched arc clean over it, a physics failure that drops the chassis through the
+  // slab) ends the run as WRECKED rather than as a silent teleport or a fall into the void.
+  //
+  // Sampling rate (Hz) for the out-of-bounds test. The test itself is pure math (a
+  // point-in-polygon against PLAYABLE_POLYGON plus a y compare), but it runs on the physics
+  // step, so it is sampled down rather than evaluated 60×/s — 10 Hz is 6× cheaper, and the
+  // sustain window below is 5 samples wide, which is plenty of resolution for a 0.5 s decision.
+  oobSampleHz: 10,
+  // How long the player must be CONTINUOUSLY out of bounds before the run ends (s). Not
+  // instant on purpose: a barrier bounce at a polygon notch corner can shove the chassis a few
+  // wu past the line for a frame or two before the collider pushes it back in, and insta-killing
+  // on that transient would read as a bug. Any single in-bounds sample resets the window to
+  // zero (the same continuity rule as combat/runLoop.ts's BUSTED hold), so this only ever fires
+  // for a car that genuinely stayed outside.
+  oobSustainSec: 0.5,
+  // World Y (m) below which the player counts as out of bounds regardless of XZ. The map is flat
+  // with its ground slab top at y=0 and nothing legitimate ever sits below about −1 m (ordinary
+  // suspension travel/bounce is far shallower), so −2 is clear of every normal driving state
+  // while still catching a through-the-slab fall within a fraction of a second. Ordering is
+  // deliberate: VEHICLE_TUNING.safety.triggerY (−0.5) recovers a punched-through chassis FIRST,
+  // and only a car that beat that catch ever reaches this floor.
+  oobMinY: -2,
 } as const;
 
 // Seeded-generation tunables consumed only by world/generate.ts. Everything here is a

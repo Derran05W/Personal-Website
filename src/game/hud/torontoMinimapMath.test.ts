@@ -4,9 +4,12 @@
 // Minimap.tsx's actual draw path is exercised manually/via screenshots.
 import { describe, expect, it } from 'vitest';
 import { PLAYABLE_POLYGON } from '../world/toronto/polygon';
+import { buildWorldEdge } from '../world/toronto/worldEdge';
 import {
   streetEndpointsWorld,
+  torontoBarrierRingSegmentsPx,
   torontoPolygonPx,
+  torontoWaterEdgeSegmentPx,
   torontoWorldToMapPx,
   TORONTO_MINIMAP_STREETS,
 } from './torontoMinimapMath';
@@ -55,6 +58,40 @@ describe('torontoPolygonPx', () => {
     for (let i = 0; i < px.length; i++) {
       expect(px[i]).toEqual(torontoWorldToMapPx(PLAYABLE_POLYGON[i].x, PLAYABLE_POLYGON[i].y, MAP_PX));
     }
+  });
+});
+
+describe('torontoBarrierRingSegmentsPx / torontoWaterEdgeSegmentPx (Phase 37)', () => {
+  it('emits one ring segment per LAND polygon edge, every endpoint inside the canvas', () => {
+    const layout = buildWorldEdge();
+    const ring = torontoBarrierRingSegmentsPx(MAP_PX);
+    expect(ring).toHaveLength(layout.edges.length);
+    expect(ring).toHaveLength(11);
+    for (const seg of ring) {
+      for (const p of [seg.a, seg.b]) {
+        expect(p.x).toBeGreaterThanOrEqual(-1e-6);
+        expect(p.x).toBeLessThanOrEqual(MAP_PX + 1e-6);
+        expect(p.y).toBeGreaterThanOrEqual(-1e-6);
+        expect(p.y).toBeLessThanOrEqual(MAP_PX + 1e-6);
+      }
+    }
+  });
+
+  it('the water edge is its own segment, distinct from every ring segment', () => {
+    const layout = buildWorldEdge();
+    const water = torontoWaterEdgeSegmentPx(MAP_PX);
+    expect(water.a.x).toBeGreaterThanOrEqual(-1e-6);
+    expect(water.a.x).toBeLessThanOrEqual(MAP_PX + 1e-6);
+    // South (larger world z) reads at the bottom of the canvas (larger pixel y) — same convention
+    // torontoWorldToMapPx's own test pins — so the water edge sits at the map's southernmost row.
+    const ringMaxY = Math.max(...torontoBarrierRingSegmentsPx(MAP_PX).flatMap((s) => [s.a.y, s.b.y]));
+    expect(water.a.y).toBeGreaterThanOrEqual(ringMaxY - 1e-6);
+    expect(water.b.y).toBeGreaterThanOrEqual(ringMaxY - 1e-6);
+    // Matches the pure layout directly (not just re-deriving the same projection twice).
+    const expectedA = torontoWorldToMapPx(layout.waterEdge.start.x, layout.waterEdge.start.z, MAP_PX);
+    const expectedB = torontoWorldToMapPx(layout.waterEdge.end.x, layout.waterEdge.end.z, MAP_PX);
+    expect(water.a).toEqual(expectedA);
+    expect(water.b).toEqual(expectedB);
   });
 });
 

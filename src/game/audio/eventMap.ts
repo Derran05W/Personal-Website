@@ -422,6 +422,7 @@ export const EVENT_SOUND_DOC: Record<keyof GameEventMap, string> = {
   runEnded: 'stop engine + ambience loop (graceful — synth.ts\'s own release tails, not a hard cut)',
   darkCity: 'ambience swap city -> crickets (nextAmbience)',
   enteredWater: 'impact, low velocity trim (splash-ish stand-in — no dedicated splash synth exists in this pass; a real watery variant is a reasonable Task 2/16 follow-up)',
+  leftWorld: 'no-op — the Phase 37 out-of-bounds backstop is a DETECTION event, not a beat: whatever got the player there already made its own noise (the barrier-ring crash rides the ordinary impact path via the contact spine), and the death itself is audible through `playerWrecked` -> stingerWrecked, which this event triggers a frame later via combat/runLoop.ts. A dedicated "you left the map" cue would double up on that stinger.',
   carUnlocked: 'no-op in the audio map — the unlock cue (score-screen toast + garage badge; a uiTick if the garage/HUD layer wants one) is owned there, not here. No dedicated unlock jingle in this pass; adding one is a clean follow-up.',
   tunnelTransit: 'no-op — the "Line 1" fold transition (TORONTO-MAP-SPEC-v2.md §2) is a silent visual joke (dark tunnel wash + station names), not a sound beat; the engine/ambience loops keep running underneath it since the car never actually stops. A muffled-tunnel ambience dip would be a reasonable follow-up, not this pass\'s.',
 };
@@ -538,7 +539,7 @@ export function initEventMap(): () => void {
     }),
   );
   offs.push(gameEvents.on('enteredWater', () => playImpact(0.3)));
-  // heatChanged, playerDamaged: intentional no-ops — see EVENT_SOUND_DOC above.
+  // heatChanged, playerDamaged, leftWorld: intentional no-ops — see EVENT_SOUND_DOC above.
 
   rafId = requestAnimationFrame(tickFrame);
 

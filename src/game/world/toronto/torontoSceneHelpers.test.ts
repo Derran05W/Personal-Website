@@ -7,7 +7,7 @@ import {
   rectCorners,
   rectWorldBox,
 } from './torontoSceneHelpers';
-import { PLAYABLE_POLYGON, pointInPolygon } from './polygon';
+import { PLAYABLE_POLYGON, pointInPolygon, polygonArea } from './polygon';
 import { buildStreets, type MapRect } from './streets';
 import { ZONE_BOUNDARIES } from './projection';
 import { LANE_OFFSET_WU } from '../../config/torontoMap';
@@ -60,6 +60,82 @@ describe('torontoSceneHelpers — everything stays inside the §1 polygon', () =
     // Settle-safe height, upright (identity) facing.
     expect(TORONTO_SPAWN_POSE.position.y).toBeGreaterThan(0);
     expect(TORONTO_SPAWN_POSE.rotation).toEqual({ x: 0, y: 0, z: 0, w: 1 });
+  });
+});
+
+/**
+ * PHASE 37 GROUND-TRUTH GATE — "the ground tiles the polygon, exactly".
+ *
+ * The Part-9 audit block (and TorontoScene's old fell-out-net comment) claimed void slivers exist
+ * INSIDE the shape at the step-ins, i.e. that a car could be inside PLAYABLE_POLYGON and still
+ * have no ground under it. That has been false since the Part-8 D2 re-derivation: GROUND_RECTS,
+ * WATER_RECT and PLAYABLE_POLYGON are all built from the SAME ZONE_X_EXTENTS/ZONE_BOUNDARIES
+ * constants, so capsule ∪ fold ∪ downtown ∪ water IS the polygon.
+ *
+ * Phase 37 leans on that: the barrier ring (world/toronto/worldEdge.ts) is placed by insetting the
+ * polygon, and every wall/dressing piece is asserted "inside the polygon" — which only means
+ * "standing on ground" if this gate holds. Anything that breaks the tiling breaks the ring, so it
+ * gets proven here rather than assumed: exact area, disjoint interiors, corners in, and a dense
+ * two-way membership sweep.
+ */
+describe('torontoSceneHelpers — Phase 37 ground truth: the rects tile the §1 polygon exactly', () => {
+  const TILES: readonly MapRect[] = [...GROUND_RECTS, WATER_RECT];
+  const EPS = 1e-9;
+
+  const rectArea = (r: MapRect) => (r.maxX - r.minX) * (r.maxY - r.minY);
+  const rectContains = (r: MapRect, p: { x: number; y: number }) =>
+    p.x >= r.minX - EPS && p.x <= r.maxX + EPS && p.y >= r.minY - EPS && p.y <= r.maxY + EPS;
+  const overlapArea = (a: MapRect, b: MapRect) =>
+    Math.max(0, Math.min(a.maxX, b.maxX) - Math.max(a.minX, b.minX)) *
+    Math.max(0, Math.min(a.maxY, b.maxY) - Math.max(a.minY, b.minY));
+
+  it('has pairwise-disjoint interiors (they may share edges, never area)', () => {
+    for (let i = 0; i < TILES.length; i++) {
+      for (let j = i + 1; j < TILES.length; j++) {
+        expect(overlapArea(TILES[i], TILES[j]), `tiles ${i}/${j} overlap`).toBeLessThanOrEqual(EPS);
+      }
+    }
+  });
+
+  it('sums to the polygon area exactly (same constants, so float-exact)', () => {
+    const tiled = TILES.reduce((sum, r) => sum + rectArea(r), 0);
+    const poly = polygonArea(PLAYABLE_POLYGON);
+    expect(poly).toBeGreaterThan(0); // §1 winding: shoelace is +area
+    expect(Math.abs(tiled - poly)).toBeLessThan(1e-6);
+  });
+
+  it('has every rect corner inside the polygon', () => {
+    for (const rect of TILES) {
+      for (const c of rectCorners(rect)) {
+        expect(pointInPolygon(c, PLAYABLE_POLYGON), JSON.stringify(c)).toBe(true);
+      }
+    }
+  });
+
+  it('is two-way complete over a dense 60x60 sweep: inside the polygon <=> on a tile', () => {
+    const minX = Math.min(...TILES.map((r) => r.minX));
+    const maxX = Math.max(...TILES.map((r) => r.maxX));
+    const minY = Math.min(...TILES.map((r) => r.minY));
+    const maxY = Math.max(...TILES.map((r) => r.maxY));
+    const N = 60;
+    let insideSamples = 0;
+    let outsideSamples = 0;
+    for (let i = 0; i < N; i++) {
+      for (let j = 0; j < N; j++) {
+        const p = {
+          x: minX + ((i + 0.5) * (maxX - minX)) / N,
+          y: minY + ((j + 0.5) * (maxY - minY)) / N,
+        };
+        const inPoly = pointInPolygon(p, PLAYABLE_POLYGON);
+        const onTile = TILES.some((r) => rectContains(r, p));
+        expect(onTile, `${JSON.stringify(p)} inPoly=${inPoly} onTile=${onTile}`).toBe(inPoly);
+        if (inPoly) insideSamples += 1;
+        else outsideSamples += 1;
+      }
+    }
+    // The sweep is meaningful: the bbox contains both the thermometer and the void beside it.
+    expect(insideSamples).toBeGreaterThan(0);
+    expect(outsideSamples).toBeGreaterThan(0);
   });
 });
 
