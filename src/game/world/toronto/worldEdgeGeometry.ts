@@ -20,6 +20,7 @@
 // Both are pure (no three scene state beyond building/returning a disposable BufferGeometry).
 
 import { BoxGeometry, BufferGeometry, Color, Float32BufferAttribute } from 'three';
+import { GROUND_STACK } from '../../config/layering';
 import { BARRIER, ROAD_CLASSES } from '../../config/torontoMap';
 import { buildStreets } from './streets';
 import { buildWorldEdge } from './worldEdge';
@@ -43,13 +44,12 @@ const RAIL_POST_COLOR = '#3a3f46';
  * dressing kind here). */
 const HOARDING_STRIPE_FRACTION = 0.2;
 
-/** Base lift (wu) of every dressing box's bottom face above y=0 — one step of the SAME
- * GROUND_TINT_Y (0.008 wu) family TorontoScene.tsx's district-tint quad uses, so a box's floor
- * face never shares a coplanar Z with the tint quad underneath it (the ground-stack ladder itself
- * is formalised in Phase 39; this follows the existing convention rather than inventing a new
- * epsilon). Two steps (0.016) rather than one keeps clearance even where a box also overlaps the
- * base ground mesh at y=0. */
-const BOX_BASE_LIFT_WU = 0.016;
+/** Base lift (wu) of every dressing box's bottom face above y=0, so a box floor never shares a
+ * coplanar Z with the district-tint or base-ground quads underneath it. Phase 37 hand-derived
+ * this as "two steps of the GROUND_TINT_Y family"; Phase 39 formalised that ladder as
+ * config/layering.ts's GROUND_STACK, where it is the `edgeBoxBase` rung — same value (0.016),
+ * now a named rung with law-tested clearance from its neighbours instead of a local epsilon. */
+const BOX_BASE_LIFT_WU = GROUND_STACK.edgeBoxBase;
 
 interface Sink {
   readonly positions: number[];

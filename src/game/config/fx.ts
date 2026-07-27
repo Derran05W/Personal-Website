@@ -3,6 +3,12 @@
 // too. Skid marks are a pooled, fully-recycled InstancedMesh of flat ground quads — no
 // per-frame allocation, no alpha blending (they fade by lerping toward the ground colour,
 // see below), so the block is small and every value is a feel/perf knob.
+//
+// Every ground-decal Y in this file (SKID.yOffset, EXPLOSION.scorch.yOffset,
+// SEARCHLIGHT.ground.yOffset) reads its rung from config/layering.ts's GROUND_STACK — the
+// Phase 39 ladder. Do not hand-pick a new epsilon here.
+import { GROUND_STACK } from './layering';
+
 export const SKID = {
   // Ring-buffer capacity: total skid quads alive at once across BOTH rear wheels. At
   // maxSegmentLength each slot covers ~0.9 m, so 512 ÷ 2 wheels ≈ 230 m of stripe per
@@ -23,10 +29,14 @@ export const SKID = {
   // span, then hides (scale 0) until its slot is recycled. Longer = more persistent skid
   // history on screen at once (watch the pool budget above).
   fadeSeconds: 6,
-  // Quad height above the ground plane (m). The ground slab top is y=0 and
-  // world/CityScape.tsx's road surface sits at y=0.01; 0.03 clears both so marks never
-  // z-fight either.
-  yOffset: 0.03,
+  // Quad height above the ground plane (m) — the `skid` rung of config/layering.ts's
+  // GROUND_STACK ladder (Phase 39). The old 0.03 was derived from the LEGACY 64×64 CityScape
+  // road at y=0.01 and was never re-derived after the Phase 32 Toronto flip; on the shipped
+  // map it landed EXACTLY on placesLayer.ts's rainbow-crosswalk stripes (also 0.03), so
+  // braking over Church Street tore the street art. The ladder puts skids ABOVE
+  // placesRoadArt (marks paint over street art, never through it) and BELOW `water`, so a
+  // mark that would cross the lake plane simply disappears under it.
+  yOffset: GROUND_STACK.skid,
   // Flat-ground guard: only emit when the transformed wheel point's world y is within
   // this of the wheel radius (i.e. the chassis is sitting level on the y=0 slab). This
   // cheaply skips marks on the test ramp / mid-jump — sloped-surface decals are a Phase
@@ -139,12 +149,12 @@ export const EXPLOSION = {
     color: '#cfcac2',
   },
   // Scorch decal: pooled opaque ground quads, cap 24, oldest-recycled ring buffer (same
-  // write-cursor model as fx/SkidMarks.tsx's SKID.poolSize). yOffset sits just above
-  // SkidMarks' own marks (SKID.yOffset = 0.03) so the two decal layers never z-fight where
-  // a blast lands on a skid trail.
+  // write-cursor model as fx/SkidMarks.tsx's SKID.poolSize). yOffset is the `scorch` rung of
+  // config/layering.ts's GROUND_STACK — one step above `skid`, so a blast that lands on a
+  // skid trail paints over it cleanly (Phase 39; supersedes the old hand-picked 0.035).
   scorch: {
     poolSize: 24,
-    yOffset: 0.035,
+    yOffset: GROUND_STACK.scorch,
     sizeScale: 0.9, // decal size = clamp(radiusM * sizeScale, sizeMin, sizeMax)
     sizeMin: 3,
     sizeMax: 7,
@@ -249,10 +259,14 @@ export const SEARCHLIGHT = {
   },
 
   // Ground spot: a soft-edged ellipse (radial-gradient CanvasTexture) laid flat at the
-  // beam→ground intersection, additive, lifted just above the SkidMarks (0.03) / scorch
-  // (0.035) decal layers so it never z-fights them (SkidMarks' y-hygiene rule).
+  // beam→ground intersection, additive. yOffset is the `groundFx` rung of
+  // config/layering.ts's GROUND_STACK — the TOP of the ladder, because aircraft light
+  // legitimately paints over everything below it (skids, scorch, and the lake). The old
+  // hand-picked 0.05 tied TorontoScene's water plane EXACTLY, so the beam strobed against
+  // the lake whenever it crossed the shore (Phase 39; supersedes "SkidMarks' y-hygiene
+  // rule", which the ladder now subsumes).
   ground: {
-    yOffset: 0.05,
+    yOffset: GROUND_STACK.groundFx,
     // Feel-tuning pass: 1.4 -> 1.0 (spot radius = cone base radius · this) — the ground pool
     // now hugs the actual beam footprint instead of spilling past it, so the smaller spot
     // (halfAngleRad above) reads as one clean lit circle, not a soft halo bleeding wider.

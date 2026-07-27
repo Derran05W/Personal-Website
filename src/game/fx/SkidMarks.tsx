@@ -46,6 +46,7 @@ import {
 import { SKID, VEHICLE_TUNING } from '../config';
 import { getDrivingInput } from '../input';
 import { playerVehicle } from '../vehicles/playerRef';
+import { decalPolygonOffset } from './decalPolygonOffsetRef';
 import { attachFxEmitter, type FxEmitter } from './particleFeed';
 import {
   computeLateralSlip,
@@ -184,6 +185,24 @@ export function SkidMarks() {
     const mesh = meshRef.current;
     const rt = runtimeRef.current;
     if (!mesh || !rt) return;
+
+    // Phase 39 dev-only A/B instrument (decalPolygonOffsetRef.ts's doc comment): synced every
+    // frame so a live leva flip takes effect immediately. Read through `mesh.material` (a ref
+    // dereference), not the closed-over `material` useMemo binding — TorontoScene.tsx's
+    // occlusion pass (`applyFade`) uses the same `mesh.material` idiom for the identical
+    // reason: mutating a value directly returned from useMemo inside another hook's callback
+    // trips eslint-plugin-react-hooks' immutability rule. `import.meta.env.DEV` folds to a
+    // literal `false` in production, so this whole block — the read, the write, and the
+    // import above — is dead-code-eliminated; the shipped material is untouched.
+    if (import.meta.env.DEV) {
+      const mat = mesh.material as MeshStandardMaterial;
+      const on = decalPolygonOffset.current;
+      if (mat.polygonOffset !== on) {
+        mat.polygonOffset = on;
+        mat.polygonOffsetFactor = on ? -1 : 0;
+        mat.polygonOffsetUnits = on ? -1 : 0;
+      }
+    }
 
     let matrixDirty = false;
     let colorDirty = false;

@@ -106,6 +106,7 @@ import { BlueHourRig } from '../BlueHourRig';
 import { RunLoopSystem } from '../../combat/runLoop';
 import { LightPool } from '../../powergrid/LightPoolMount';
 import { torontoStreetlightEmitters } from '../../powergrid/lightPool';
+import { GROUND_STACK, WALL_STACK } from '../../config/layering';
 import { useDevToggle } from '../../core/devToggles';
 import { preloadCityPack } from '../../assets/cityPack';
 import { CityPackPreview } from './cityPack/CityPackPreview';
@@ -119,9 +120,14 @@ import {
 } from './torontoSceneHelpers';
 
 // --- layout constants (visual-only y offsets; physics uses the collider slab below) ---------
-const GROUND_Y = 0; // merged ground quads at the collider top face
-const GROUND_TINT_Y = 0.008; // district groundTint quads, just above the base ground, below roads
-const WATER_Y = 0.05; // lake plane above the ribbons
+// Every Y below is a RUNG of config/layering.ts's GROUND_STACK ladder (Phase 39 — LAW; see that
+// module's header). The local names are kept for readability at the call sites; the VALUES live
+// in one place. WATER_Y moved 0.05 → 0.06 as part of that migration: at 0.05 it was an exact tie
+// with the helicopter searchlight's ground pool (SEARCHLIGHT.ground.yOffset), which strobed
+// against the lake wherever the beam crossed the shore.
+const GROUND_Y = GROUND_STACK.ground; // merged ground quads at the collider top face
+const GROUND_TINT_Y = GROUND_STACK.districtTint; // district groundTint quads, above the base ground, below roads
+const WATER_Y = GROUND_STACK.water; // lake plane above the ribbons and the decal layers
 const GROUND_HALF_THICK = BOUNDARY.groundThicknessM / 2; // slab extends downward only; top at y=0
 const POST_H = 6; // signpost pole height (m)
 const BOARD_W = 14;
@@ -359,7 +365,7 @@ function buildGroundTintGeometry(): BufferGeometry {
 }
 
 // --- D7 parks: merged grass mesh (noise-textured, one draw call) ------------------------------
-const PARK_GROUND_Y = 0.01; // just above the base ground / district tint, below the road ribbon
+const PARK_GROUND_Y = GROUND_STACK.parkGround; // above the base ground / district tint, below the road ribbon
 const PARK_GRASS_COLOR = '#3f5236'; // muted blue-hour green (unlit-literal); lighter than tints so
 // the noise reads stronger on the grass than on the darker street tints (D6 note).
 
@@ -543,7 +549,10 @@ function decalTransform(box: NamedBox, decal: CrownDecal): {
   rotation: [number, number, number];
 } {
   const y = decal.bandCenterFrac * box.hy * 2;
-  const off = 0.05; // proud of the face, no z-fight
+  // Phase 39: this was a hand-copied duplicate of torontoMaterials.ts's CROWN_DECAL.offsetWu —
+  // two independently-editable copies of the same crown offset. Both now read the ladder's
+  // `crownDecal` rung (config/layering.ts), so they cannot drift apart.
+  const off = WALL_STACK.crownDecal; // proud of the face, no z-fight
   if (decal.face === 'south') {
     return { position: [box.cx, y, box.cz + box.hz + off], rotation: [0, 0, 0] };
   }

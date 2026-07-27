@@ -17,6 +17,8 @@
 // Pure data, no three/react — the renderer (world/toronto/TorontoScene.tsx) consumes this and
 // bakes one CanvasTexture per building; namedBuildings.ts consumes it for per-box `look`.
 
+import { WALL_STACK } from './layering';
+
 /** The §4 window-pattern family a material implies. */
 export type WindowKind = 'glass' | 'grid' | 'storefront';
 
@@ -94,5 +96,8 @@ export const CROWN_DECAL = {
   faceScale: 0.5,
   sizeMinWu: 8,
   sizeMaxWu: 16,
-  offsetWu: 0.05,
+  /** The `crownDecal` rung of config/layering.ts's WALL_STACK (Phase 39). TorontoScene.tsx's
+   * decalTransform used to carry a hand-copied duplicate of this value; both now read the
+   * ladder, so the two can never drift. */
+  offsetWu: WALL_STACK.crownDecal,
 } as const;

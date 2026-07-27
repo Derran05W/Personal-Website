@@ -29,7 +29,9 @@ import {
   relightAll,
   setForcedHeliTier,
   heliSlotsSummary,
+  setPolygonOffsetDecals,
 } from './debugBridge';
+import { decalPolygonOffset } from '../fx/decalPolygonOffsetRef';
 import { startChaosBench } from '../ai/chaosBench';
 import { ARCHETYPES } from '../world/archetypes';
 import { DISTRICT_COUNT, setDistrictColor } from '../world/instancing';
@@ -859,6 +861,26 @@ export default function DevPanel() {
       schema['fx draw calls'] = monitor(() => getParticleStats().drawCalls, { interval: 200 });
       return schema as unknown as LevaSchema;
     },
+    [],
+  );
+
+  // --- FX: Phase 39 polygonOffset A/B instrument ---------------------------------------------
+  // Measured-verdict toggle for the ground-stack z-fight audit (config/layering.ts's header):
+  // whether the two runtime decal pools — skid marks + explosion scorch — additionally apply
+  // `polygonOffset` on top of their Y-ladder rung. Default OFF (the ladder alone is what
+  // ships); flipping this writes straight into fx/decalPolygonOffsetRef.ts's shared ref via
+  // debugBridge.ts's setPolygonOffsetDecals, which SkidMarks.tsx/Explosions.tsx pick up on
+  // their very next frame. This is an A/B instrument, not a shipping feature — see that ref
+  // module's doc comment for why it's dead-code-eliminated from production builds.
+  useControls(
+    'FX',
+    () => ({
+      polygonOffsetDecals: {
+        value: decalPolygonOffset.current,
+        onChange: (value: boolean) => setPolygonOffsetDecals(value),
+      },
+      note: { value: 'A/B vs the ground-stack ladder — skid + scorch decals only', disabled: true },
+    }),
     [],
   );
 

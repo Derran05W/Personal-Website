@@ -21,6 +21,7 @@
 // districts) — they carry `districtId` per mast but are ordered by intersection, not grouped.
 
 import { colliderHalfExtents, resolveCityPackScale, type ColliderHalfExtents } from '../../config/cityPackScale';
+import { SURFACE_ANCHOR } from '../../config/layering';
 import {
   BENCH_ROW,
   BUS_STOP_ROW,
@@ -203,9 +204,21 @@ function seededSpin(rng: Rng): number {
   return rng.next() * Math.PI * 2;
 }
 
-function toWorldPlacement(modelId: string, p: MapPoint, rotationY: number, districtId: DistrictId): FurniturePlacement {
+/** Map point → world placement. `y` is the SURFACE the model's own floor lands on (the renderer
+ * lifts each model by its own bounding-box min, cityPackBaked's `lift`), so it defaults to 0 —
+ * the ground plane — for every item that is a real 3D prop standing on a sidewalk: their bottom
+ * faces are never visible under the fixed §5.3 camera, so they need no anchor. Pass a
+ * config/layering.ts SURFACE_ANCHOR rung only for the (near-)FLAT props that would otherwise be
+ * coplanar with the surface they sit on — today that is manhole covers on asphalt (Phase 39). */
+function toWorldPlacement(
+  modelId: string,
+  p: MapPoint,
+  rotationY: number,
+  districtId: DistrictId,
+  y = 0,
+): FurniturePlacement {
   const [x, z] = mapToWorld(p);
-  return { modelId, position: [x, 0, z], rotationY, districtId };
+  return { modelId, position: [x, y, z], rotationY, districtId };
 }
 
 /** Deterministic even-stride thinning to a hard cap — preserves the walk's spatial spread
@@ -468,7 +481,11 @@ function buildManholes(
       side = side === 1 ? -1 : 1; // alternate sides of the centreline
       const district = districtAt(p, districts);
       if (!district) continue;
-      out.push(toWorldPlacement('manhole-cover', p, seededSpin(streetRng), district.id));
+      // Phase 39: manholes are the audited on-asphalt coplanar case — the model is only
+      // ~0.018 wu tall, so placed at y=0 its TOP face landed essentially ON the road ribbon's
+      // own surface (GROUND_STACK.roadSurface, 0.020) and every cover z-fought the asphalt it
+      // sat in. SURFACE_ANCHOR.road floors it one full ground separation above the ribbon.
+      out.push(toWorldPlacement('manhole-cover', p, seededSpin(streetRng), district.id, SURFACE_ANCHOR.road));
     }
   }
   return thinToCap(out, MANHOLE_ROW.capMapWide);

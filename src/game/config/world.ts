@@ -1,5 +1,7 @@
 // World generation, power grid, and prop-pool tunables. TDD §5.4 (world),
 // §5.8 (power grid), §7 (props).
+import { WALL_STACK } from './layering';
+
 export const WORLD = {
   // 64 x 64 tiles @ 10 m/tile = 640 m x 640 m playable. TDD §5.4.
   tiles: 64,
@@ -230,7 +232,13 @@ export const PROP_DIMS = {
     windowSideMarginM: 1.2, // clearance from a wall's side edges before the first/last column
     windowBottomMarginM: 1.5, // clearance from ground level (no street-level windows)
     windowTopMarginM: 1, // clearance from the roofline
-    windowInsetM: 0.04, // window quads sit this far proud of the wall plane (z-fight guard)
+    // Window quads sit this far proud of the wall plane (z-fight guard) — now the `windowInset`
+    // rung of config/layering.ts's WALL_STACK. VALUE UNCHANGED (0.04): the only reader,
+    // world/geometry/buildings.ts, is LEGACY 64×64 world code, de-imported from the shipped game
+    // chunk since the Phase 32 flip and pending a user-approved `chore: legacy excision` — this
+    // is a source-of-truth migration only, deliberately NOT a behaviour change, and the reader
+    // itself is untouched.
+    windowInsetM: WALL_STACK.windowInset,
     parapetHeightM: 1.2, // tower-only roof lip, stacked on top of the wall height
     // Representative heights rendered per kind (see buildingVariantKey/bucketHeightM) —
     // both the instancing consumer and this module derive buckets from the SAME
@@ -335,7 +343,11 @@ export const PROP_DIMS = {
     bumperCenterYM: 0.28,
     lightWidthM: 0.32,
     lightHeightM: 0.14,
-    lightInsetM: 0.02, // light quads sit this far proud of the body's front/rear face
+    // Light quads sit this far proud of the body's front/rear face — the `lightInset` rung of
+    // config/layering.ts's WALL_STACK. VALUE UNCHANGED (0.02): the only reader,
+    // world/geometry/parkedCar.ts, is LEGACY 64×64 world code (same excision-pending status as
+    // windowInsetM above) and is untouched.
+    lightInsetM: WALL_STACK.lightInset,
     wheelRadiusM: 0.35,
     wheelWidthM: 0.26,
     halfTrackM: 0.8,

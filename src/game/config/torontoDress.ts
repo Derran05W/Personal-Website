@@ -399,8 +399,9 @@ export const PARKING_LOT = {
 } as const;
 
 // --- D6: construction sites (world/toronto/infill.ts) ------------------------------------------
-/** A composable prefab: perimeter fence + 2 cone clusters + road-bits plates + a floor-hole +
- * dumpster + boxes + debris-papers + a seeded-subset billboard. Reserved BEFORE back-lot/parking
+/** A composable prefab: perimeter fence + 2 cone clusters + road-bits plates + dumpster + boxes
+ * + debris-papers + a seeded-subset billboard (floor-hole dropped at Phase 39 — neither proud
+ * nor sunk-flush read as a hole on the opaque ground). Reserved BEFORE back-lot/parking
  * (D6 placement-order rule: construction gets first pick of the big interior lots). Colliders
  * only on the fence run + dumpster + billboard (PROP_STATIC-style fixed cuboids). */
 export const CONSTRUCTION = {

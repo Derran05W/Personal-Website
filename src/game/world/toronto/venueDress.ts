@@ -26,6 +26,7 @@ import {
   type DressingPropOffset,
   type PropMount,
 } from '../../config/venueDressing';
+import { WALL_STACK } from '../../config/layering';
 import type { FacadeFacing, ResolvedVenueClaim } from './frontage';
 import type { LogoBrand } from './logoAtlas';
 
@@ -33,9 +34,10 @@ import type { LogoBrand } from './logoAtlas';
  * BACKING_PLATE / TorontoScene makeBandAtlas). Karaoke overrides it (magenta) via the kit. */
 const DEFAULT_BAND_BACKING = '#0a0d12';
 
-/** How far a fascia band / plaque sits proud of the wall so it never z-fights (placesLayer.ts's
- * FACE_OFFSET). */
-const FACE_OFFSET = 0.06;
+/** How far a fascia band / plaque sits proud of the wall so it never z-fights — the `fasciaBand`
+ * rung of config/layering.ts's WALL_STACK (Phase 39), shared verbatim with placesLayer.ts's
+ * FACE_OFFSET instead of both files hand-picking the same 0.06. */
+const FACE_OFFSET = WALL_STACK.fasciaBand;
 
 /** Facade-fit clamp: a street/flank prop's along offset is clamped so it stays this far inside the
  * facade's own edge — keeps props on the building's clean frontage instead of hanging off a corner

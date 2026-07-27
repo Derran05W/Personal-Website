@@ -16,19 +16,24 @@
 // faces is winding: every quad is emitted in the same A(x0,z0) B(x0,z1) C(x1,z1) D(x1,z0) order with
 // x0<x1, z0<z1 (matching the proven `quad()` +Y-up winding) so its front face reads from the camera.
 //
-// Y-LAYERING (all a hair above the ground slab; higher = paints on top): road ribbon < curb strips
-// < crosswalk zebra < raised sidewalk top (curbHeightWu, well above the paint). mapToWorld is the
-// identity swap, so street map coords ARE world x/z.
+// Y-LAYERING (Phase 39): every offset below is a RUNG of config/layering.ts's GROUND_STACK, the
+// one ordered ladder the whole city reads from — no hand-picked epsilons here any more (the old
+// `ROAD_Y + 0.005 / + 0.007` arithmetic left the zebra only 0.002 above the curb strips). Order,
+// low to high: road ribbon (`roadSurface`) < curb strips + centre dashes (`roadPaint`) < crosswalk
+// zebra (`crosswalk`) < raised sidewalk top (SIDEWALK.curbHeightWu — a geometry HEIGHT, not a
+// ladder rung, and well above all the paint). mapToWorld is the identity swap, so street map
+// coords ARE world x/z.
 
 import { BufferGeometry, Color, Float32BufferAttribute } from 'three';
 import { CROSSWALK, ROAD_CLASSES, ROAD_COLORS, ROAD_EDGE, SIDEWALK } from '../../config/torontoMap';
+import { GROUND_STACK } from '../../config/layering';
 import { TRAFFIC_LIGHT_FULL_CLASSES } from '../../config/torontoDress';
 import type { Intersection } from './roadGraph';
 import type { Street } from './streets';
 
-const ROAD_Y = 0.02;
-const PAINT_Y = ROAD_Y + 0.005; // curbs + dashes
-const CROSSWALK_Y = ROAD_Y + 0.007; // above the curbs so the zebra reads on the asphalt
+const ROAD_Y = GROUND_STACK.roadSurface;
+const PAINT_Y = GROUND_STACK.roadPaint; // curbs + dashes
+const CROSSWALK_Y = GROUND_STACK.crosswalk; // above the curbs so the zebra reads on the asphalt
 
 // D5 raised-sidewalk geometry.
 const CURB_TOP_Y = SIDEWALK.curbHeightWu; // flat top face height (0.12)

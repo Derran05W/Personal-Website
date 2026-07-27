@@ -66,6 +66,7 @@ import { fadeTargetCount } from '../world/toronto/occlusionTargets';
 import { getAntiClipPullM } from '../world/toronto/cameraAntiClip';
 import { cameraVantages, type CameraVantage } from '../world/toronto/cameraVantages';
 import { startCameraLabDrive, type CameraLabDriveReport } from '../ai/cameraLabDrive';
+import { decalPolygonOffset } from '../fx/decalPolygonOffsetRef';
 
 // Phase 7 traffic verification: exactly-once event proof. The civHit/civWrecked emitter
 // payloads are empty, so scripted checks can't scrape them from the DOM — count them here
@@ -369,6 +370,14 @@ export function audioSnapshot(): AudioSnapshot {
   };
 }
 
+// Phase 39 dev instrument: mirrors the devPanel "FX" folder's `polygonOffsetDecals` toggle
+// (fx/decalPolygonOffsetRef.ts's doc comment has the full rationale) so a scripted check can
+// drive the same A/B switch. Tiny by design — it's a straight write into the shared ref;
+// SkidMarks.tsx/Explosions.tsx pick the new value up on their very next frame.
+export function setPolygonOffsetDecals(on: boolean): void {
+  decalPolygonOffset.current = on;
+}
+
 declare global {
   interface Window {
     __smashy?: {
@@ -658,6 +667,10 @@ declare global {
        * organically and its numbers are contaminated — the tier zoom moves the camera). Idempotent
        * while already running, like runChaosBench. */
       startCameraLabDrive: (opts?: { seconds?: number; seed?: number }) => Promise<CameraLabDriveReport>;
+      /** Phase 39 dev instrument: flips the skid-mark + explosion-scorch decal materials'
+       * `polygonOffset` on/off — the scripted mirror of the devPanel "FX" folder's
+       * `polygonOffsetDecals` toggle (see fx/decalPolygonOffsetRef.ts's doc comment). */
+      setPolygonOffsetDecals: (on: boolean) => void;
     };
   }
 }
@@ -833,4 +846,5 @@ window.__smashy = {
   cameraClipIndexSize: () => getClipIndexSize(),
   cameraVantages: () => cameraVantages(),
   startCameraLabDrive: (opts) => startCameraLabDrive(opts),
+  setPolygonOffsetDecals,
 };

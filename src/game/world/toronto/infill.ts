@@ -21,6 +21,7 @@
 // (ParkedVehicles.tsx, reused for lane-closure cones with a different mass/damping spec).
 
 import { colliderHalfExtents, resolveCityPackScale } from '../../config/cityPackScale';
+import { SURFACE_ANCHOR } from '../../config/layering';
 import {
   BACKLOT,
   CONSTRUCTION,
@@ -315,17 +316,36 @@ function buildConstructionSite(site: SiteCandidate, idPrefix: string, base: Rng,
   }
 
   // Road-bits plate + floor-hole + a few boxes/debris-papers (decor, no collider).
+  //
+  // Phase 39 surface anchoring (config/layering.ts): this cluster sits on bare laneway ground,
+  // and the two FLAT members of it (the road-bits plate, the debris-papers sheet at 0.003 wu
+  // tall) were authored at y=0 — exactly coplanar with the merged ground quads, i.e. one of the
+  // four audited z-fights. They now floor at SURFACE_ANCHOR.ground. The `box` scatter is a real
+  // 3D prop with an invisible bottom face and stays at 0.
   const rb = scatterInRect(rect, rng.fork('road-bits'), 4);
-  decor.push({ modelId: 'road-bits', position: [rb.x, 0, rb.y], rotationY: rng.next() < 0.5 ? 0 : Math.PI / 2, districtId });
-  const fh = scatterInRect(rect, rng.fork('floor-hole'), 2);
-  decor.push({ modelId: 'floor-hole', position: [fh.x, 0, fh.y], rotationY: 0, districtId });
+  decor.push({
+    modelId: 'road-bits',
+    position: [rb.x, SURFACE_ANCHOR.ground, rb.y],
+    rotationY: rng.next() < 0.5 ? 0 : Math.PI / 2,
+    districtId,
+  });
+  // floor-hole DROPPED (Phase 39 keep-vs-drop screenshot call): proud, the 0.2 wu slab read
+  // as a defect (the original audit item); sunk flush to SURFACE_ANCHOR.ground its top face
+  // read as nothing at all — an aperture-less "hole" can't work on an opaque ground mesh.
+  // Removal is seed-neutral: its scatter came from an independent rng.fork('floor-hole')
+  // stream and its rotation was a constant, so no other placement shifts.
   for (let i = 0; i < scatterCount; i++) {
     const bp = scatterInRect(rect, rng.fork(`box:${i}`), 1.5);
     decor.push({ modelId: 'box', position: [bp.x, 0, bp.y], rotationY: seededSpin(rng.fork(`box-r:${i}`)), districtId });
   }
   for (let i = 0; i < scatterCount; i++) {
     const pp = scatterInRect(rect, rng.fork(`papers:${i}`), 1.5);
-    decor.push({ modelId: 'debris-papers', position: [pp.x, 0, pp.y], rotationY: seededSpin(rng.fork(`papers-r:${i}`)), districtId });
+    decor.push({
+      modelId: 'debris-papers',
+      position: [pp.x, SURFACE_ANCHOR.ground, pp.y],
+      rotationY: seededSpin(rng.fork(`papers-r:${i}`)),
+      districtId,
+    });
   }
 
   return { fixed, decor };
@@ -615,7 +635,9 @@ function buildLaneClosures(
     const def = districtAt(rbP, districts);
     decor.push({
       modelId: 'road-bits',
-      position: [rbP.x, 0, rbP.y],
+      // Phase 39: this plate lies ON the asphalt (lane closures sit in the roadway), so it takes
+      // the road anchor rather than the laneway one — a flat plate at y=0 sat below the ribbon.
+      position: [rbP.x, SURFACE_ANCHOR.road, rbP.y],
       rotationY: c.street.axis === 'ns' ? Math.PI / 2 : 0,
       districtId: def?.id ?? DISTRICT_ORDER[DISTRICT_ORDER.length - 1],
     });

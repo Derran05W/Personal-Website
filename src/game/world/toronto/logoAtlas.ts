@@ -20,14 +20,12 @@
 // other export here (LOGO_BRANDS, LOGO_ATLAS_LAYOUT, logoCellIndex, logoCellUv,
 // configureLogoTexture) is pure data/math and IS unit-tested.
 //
-// KNOWN INTEGRATION POINT for whoever wires the Phase-26 FASCIA decals: TorontoScene.tsx's
-// existing `makeDecalGeometry()` (CROWN decals only) remaps just the U coordinate of its
-// PlaneGeometry, leaving V at the PlaneGeometry default [0,1] — correct only while every
-// brand lives in row 0 (the single-row Phase-24 layout). Now that the atlas is a 7×3 grid,
-// any decal consumer sampling a brand outside row 0 MUST also remap V using the `v0`/`v1`
-// this module returns, or it will sample the full canvas height (all 3 rows) into one decal.
-// Out of scope for this module (TorontoScene.tsx is a different file/phase task) — flagged
-// here so the FASCIA scene-integration work does it correctly from the start.
+// RESOLVED (was an open integration warning through Phase 26): TorontoScene.tsx's
+// `makeDecalGeometry()` (~:530) and `makeDiscGeometry()` (~:728) both remap the PlaneGeometry/
+// CircleGeometry UVs on U *and* V using the `u0`/`u1`/`v0`/`v1` this module's `logoCellUv`
+// returns, so brands outside row 0 of the 7×3 grid sample correctly. The constraint still
+// stands for any *new* decal consumer: remap both axes or you'll sample the full atlas height
+// (all 3 rows) into one decal — use `makeDecalGeometry` as the reference implementation.
 
 import { CanvasTexture, NearestFilter, SRGBColorSpace } from 'three';
 

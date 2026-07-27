@@ -21,6 +21,7 @@
 // box + the Sankofa billboard box get a BUILDING collider; `buildingFootprints` is that exact set,
 // and everything else contributes nothing to it (the structural proof the test pins).
 
+import { GROUND_STACK, WALL_STACK } from '../../config/layering';
 import { hGame } from './heightCurve';
 import { buildNamedBuildings, type NamedBuildings } from './namedBuildings';
 import { scaleAboutYonge } from './polygon';
@@ -153,7 +154,10 @@ export interface PlacesLayer {
 }
 
 // --- tunables -------------------------------------------------------------------------------
-const FACE_OFFSET = 0.06; // decal proud of the wall (no z-fight)
+// Decal proud of the wall (no z-fight) — the `fasciaBand` rung of config/layering.ts's
+// WALL_STACK (Phase 39). Was a hand-picked 0.06, which sat exactly MIN_WALL_SEP_WU above the
+// CROWN decal rung with zero headroom; the ladder moved it to 0.07.
+const FACE_OFFSET = WALL_STACK.fasciaBand;
 const STOREFRONT_GAP = 3; // facade-to-ribbon-edge gap (wu) — inside the §5 2–4 band, > road margin
 const HOST_HALF = 4; // Sam host footprint half-extent (8 wu box)
 const DEFAULT_WALL = '#33343a';
@@ -297,7 +301,9 @@ export function buildPlacesLayer(named: NamedBuildings = buildNamedBuildings()):
   const crossColors = ['#e40303', '#ff8c00', '#ffed00', '#008026', '#004dff', '#750787'];
   const stripeW = 1.5;
   const crosswalk: CrosswalkProp = {
-    y: 0.03,
+    // `placesRoadArt` rung of the Phase 39 ladder. Was 0.03 — an EXACT tie with SKID.yOffset,
+    // so braking over the rainbow tore it. Skids now sit a rung above and paint over it.
+    y: GROUND_STACK.placesRoadArt,
     stripes: crossColors.map((color, i) => ({
       minX: church.ribbon.minX,
       maxX: church.ribbon.maxX,

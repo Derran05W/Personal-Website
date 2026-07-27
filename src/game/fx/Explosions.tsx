@@ -66,6 +66,7 @@ import {
 import { EXPLOSION, SKID } from '../config';
 import { readExplosions, type ExplosionRecord } from '../combat/explosionFeed';
 import { addShake, armFovKick } from './cameraRig';
+import { decalPolygonOffset } from './decalPolygonOffsetRef';
 
 // Must match combat/explosionFeed.ts's private ring-buffer CAP — see that file's header
 // and this file's header above for why duplication-by-hand (not an export) is the pattern.
@@ -236,6 +237,28 @@ export function Explosions() {
   }, []);
 
   useFrame((state, dt) => {
+    // Phase 39 dev-only A/B instrument (decalPolygonOffsetRef.ts's doc comment): synced every
+    // frame, ahead of the idle-skip below, so a live leva flip takes effect immediately even
+    // before the first blast. Read through `scorchRef.current` (a fresh ref dereference), not
+    // the closed-over `scorchMaterial` useMemo binding — TorontoScene.tsx's occlusion pass
+    // (`applyFade`, reading `mesh.material`) uses the same idiom for the identical reason:
+    // mutating a value directly returned from useMemo inside another hook's callback trips
+    // eslint-plugin-react-hooks' immutability rule. `import.meta.env.DEV` folds to a literal
+    // `false` in production, so this whole block — the read, the write, and the import above
+    // — is dead-code-eliminated; the shipped scorch material is untouched.
+    if (import.meta.env.DEV) {
+      const scorchMeshNow = scorchRef.current;
+      if (scorchMeshNow) {
+        const mat = scorchMeshNow.material as MeshStandardMaterial;
+        const on = decalPolygonOffset.current;
+        if (mat.polygonOffset !== on) {
+          mat.polygonOffset = on;
+          mat.polygonOffsetFactor = on ? -1 : 0;
+          mat.polygonOffsetUnits = on ? -1 : 0;
+        }
+      }
+    }
+
     const { blasts } = readExplosions();
     const count = blasts.length;
     if (count === 0 && !hadAnyRef.current) {
