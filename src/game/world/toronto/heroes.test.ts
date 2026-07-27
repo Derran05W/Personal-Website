@@ -76,6 +76,27 @@ describe('CN Tower hero mesh — data-locked proportions (§5)', () => {
     const ringCenter = (meta.ringMinY + meta.ringMaxY) / 2;
     expect(Math.abs(ringCenter - meta.podCenterY)).toBeLessThanOrEqual(0.02 * H_CN);
   });
+  it('shaft camera-volume hints (Phase 36) tile base-top → pod-bottom with tapering radii', () => {
+    const bands = meta.shaftColliders;
+    expect(bands).toHaveLength(3);
+    // Contiguous coverage: first band picks up where the base collider hint's footprint logic
+    // hands over (legTopY), last band ends at the pod bottom, no gaps between bands.
+    expect(bands[0]!.centerY - bands[0]!.halfHeight).toBeCloseTo(meta.legTopY, 6);
+    expect(bands[2]!.centerY + bands[2]!.halfHeight).toBeCloseTo(meta.podBottomY, 6);
+    for (let i = 1; i < bands.length; i++) {
+      expect(bands[i]!.centerY - bands[i]!.halfHeight).toBeCloseTo(
+        bands[i - 1]!.centerY + bands[i - 1]!.halfHeight,
+        6,
+      );
+    }
+    // Each band's radius follows the taper: strictly decreasing, never wider than the base
+    // collider, always wider than nothing — so a box tightly contains its own band's concrete.
+    for (let i = 0; i < bands.length; i++) {
+      expect(bands[i]!.radius).toBeGreaterThan(0);
+      expect(bands[i]!.radius).toBeLessThanOrEqual(meta.collider.radius);
+      if (i > 0) expect(bands[i]!.radius).toBeLessThan(bands[i - 1]!.radius);
+    }
+  });
 });
 
 describe('CN Tower hero mesh — the pod ring is actually BRIGHT (emissive read)', () => {

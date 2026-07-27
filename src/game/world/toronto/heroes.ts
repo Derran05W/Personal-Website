@@ -222,6 +222,17 @@ export interface CnTowerMeta {
   readonly legTopY: number;
   /** Base-cylinder collider hint (radius / half-height / centre-y) for the scene. */
   readonly collider: { readonly radius: number; readonly halfHeight: number; readonly centerY: number };
+  /**
+   * Phase 36 — camera-volume hints for the taper shaft ABOVE the base collider: one entry per
+   * taper segment (the same three spans the mesh itself builds), radius = that segment's bottom
+   * (widest) radius so each box tightly contains its band's concrete. The camera clip index takes
+   * these so the anti-clip guard and the eye-inside counter can SEE the shaft — without them the
+   * eye can rest inside it at law heights (the shaft is still ⌀~14 at the eye line) and, because
+   * the prism's faces all point outward, an inside-the-shaft camera back-face-culls the whole
+   * tower and reads as clean see-through rather than a wall. The first band starts at legTopY:
+   * below that, `collider` already covers the wider base footprint.
+   */
+  readonly shaftColliders: readonly { readonly radius: number; readonly halfHeight: number; readonly centerY: number }[];
 }
 
 export interface CnTowerModel {
@@ -292,6 +303,15 @@ export function buildCnTowerGeometry(): CnTowerModel {
     addYawBox(acc, { minX: -2.6, maxX: 2.6, minY: 0, maxY: legTopY, minZ: 2, maxZ: 9.5 }, yaw, 0, 0, CONCRETE);
   }
 
+  // Shaft camera-volume hints (see CnTowerMeta.shaftColliders): the same three taper spans as the
+  // mesh, each box sized to the span's widest (bottom) radius, first span starting where the base
+  // collider hint stops covering for it.
+  const shaftColliders = Array.from({ length: 3 }, (_, i) => {
+    const yA = Math.max((shaftTopY * i) / 3, legTopY);
+    const yB = (shaftTopY * (i + 1)) / 3;
+    return { radius: radiusAt(yA), halfHeight: (yB - yA) / 2, centerY: (yA + yB) / 2 };
+  });
+
   return {
     geometry: toGeometry(acc),
     meta: {
@@ -308,6 +328,7 @@ export function buildCnTowerGeometry(): CnTowerModel {
       needleMaxY: h,
       legTopY,
       collider: { radius: 10.5, halfHeight: legTopY / 2 + 0.2, centerY: legTopY / 2 + 0.2 },
+      shaftColliders,
     },
   };
 }

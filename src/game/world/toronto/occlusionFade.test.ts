@@ -85,6 +85,14 @@ describe('OcclusionFader — keyed multi-mesh state machine', () => {
     expect(fader.opacity('never-seen')).toBe(FADE_MAX);
   });
 
+  it('forget drops a key back to the default', () => {
+    const fader = new OcclusionFader<string>();
+    fader.step(['x'], new Set(['x']), FRAME_MS * 4);
+    expect(fader.opacity('x')).toBeLessThan(FADE_MAX);
+    fader.forget('x');
+    expect(fader.opacity('x')).toBe(FADE_MAX);
+  });
+
   it('a key that clears from the occluded set climbs back to opaque', () => {
     const fader = new OcclusionFader<string>();
     const keys = ['x'];
@@ -100,5 +108,66 @@ describe('OcclusionFader — keyed multi-mesh state machine', () => {
       elapsed += FRAME_MS;
     }
     expect(fader.opacity('x')).toBeGreaterThanOrEqual(0.99);
+  });
+});
+
+// Phase 36 — the recorded debt: restore used to mean "multiply toward 1.0", so the first time the
+// camera passed behind a material authored below full opacity, that authored value was gone for
+// good. The fader now remembers a captured base and restores TO it.
+describe('OcclusionFader — captured base opacity (Phase 36 debt fix)', () => {
+  const settle = (fader: OcclusionFader<string>, keys: string[], occluded: Set<string>): void => {
+    let elapsed = 0;
+    while (elapsed < 200) {
+      fader.step(keys, occluded, FRAME_MS);
+      elapsed += FRAME_MS;
+    }
+  };
+
+  it('a key with no captured base behaves EXACTLY as before (base = 1)', () => {
+    const fader = new OcclusionFader<string>();
+    expect(fader.baseOpacity('x')).toBe(FADE_MAX);
+    expect(fader.appliedOpacity('x')).toBe(fader.opacity('x'));
+    settle(fader, ['x'], new Set(['x']));
+    expect(fader.appliedOpacity('x')).toBe(fader.opacity('x'));
+  });
+
+  it('restores to the CAPTURED base, not to 1', () => {
+    const fader = new OcclusionFader<string>();
+    fader.captureBaseOpacity('glass', 0.6);
+    settle(fader, ['glass'], new Set(['glass']));
+    expect(fader.appliedOpacity('glass')).toBeCloseTo(0.6 * FADE_MIN, 5);
+    settle(fader, ['glass'], new Set<string>());
+    expect(fader.appliedOpacity('glass')).toBeCloseTo(0.6, 5);
+  });
+
+  it('capture is once-only: a later call cannot latch a mid-fade value as the base', () => {
+    const fader = new OcclusionFader<string>();
+    fader.captureBaseOpacity('glass', 0.6);
+    fader.step(['glass'], new Set(['glass']), FRAME_MS * 3);
+    fader.captureBaseOpacity('glass', fader.appliedOpacity('glass')); // the naive every-frame call
+    expect(fader.baseOpacity('glass')).toBe(0.6);
+  });
+
+  it('a faded base-carrying surface still clears A.5s ≤0.4 bar (base only ever lowers alpha)', () => {
+    const fader = new OcclusionFader<string>();
+    fader.captureBaseOpacity('glass', 0.9);
+    settle(fader, ['glass'], new Set(['glass']));
+    expect(fader.appliedOpacity('glass')).toBeLessThanOrEqual(0.4);
+  });
+
+  it('forget drops the base too (a remounted mesh has a fresh material to re-capture from)', () => {
+    const fader = new OcclusionFader<string>();
+    fader.captureBaseOpacity('glass', 0.6);
+    fader.forget('glass');
+    expect(fader.baseOpacity('glass')).toBe(FADE_MAX);
+    fader.captureBaseOpacity('glass', 0.8);
+    expect(fader.baseOpacity('glass')).toBe(0.8);
+  });
+
+  it('minOpacity keeps reporting the raw FADE factor (the occlusionMinOpacity probe contract)', () => {
+    const fader = new OcclusionFader<string>();
+    fader.captureBaseOpacity('glass', 0.5);
+    settle(fader, ['glass'], new Set(['glass']));
+    expect(fader.minOpacity()).toBeCloseTo(FADE_MIN, 5);
   });
 });

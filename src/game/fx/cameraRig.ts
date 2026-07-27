@@ -13,7 +13,8 @@
 // target leads ahead along velocity. The damped position may then be re-shaped by an optional
 // PROD-ACTIVE position constraint (setCameraPosConstraint — the world's polygon camera clamp),
 // applied to the lerp state itself so the clamp is something the rig converges to rather than a
-// correction fought every frame.
+// correction fought every frame, and then by the PROD-ACTIVE anti-clip guard (Phase 36's
+// setCameraAntiClip — the world's "never rest inside a building" last-resort pull), in that order.
 //
 // Hot-path discipline: no per-frame allocation. All working vectors and the returned
 // result live at module scope and are mutated in place — computeCameraFrame() returns a
@@ -505,6 +506,47 @@ export function getCameraPosConstraint(): CameraPosConstraint | null {
   return posConstraint;
 }
 
+// --- anti-clip hook (Phase 36) --------------------------------------------------------------
+// A SECOND prod-active position seam, applied to the same smoothed follow position immediately
+// AFTER `posConstraint`. Same type, same mutate-in-place contract; a separate slot rather than a
+// second registration on the first one because the two must compose in a FIXED order and each
+// world component owns exactly one of them.
+//
+// WHY THIS ORDER (constraint → anti-clip), and why it is safe:
+//   • the polygon clamp answers "is the eye off the edge of the map?" and moves the eye
+//     HORIZONTALLY toward the map interior;
+//   • the anti-clip answers "is the eye inside a building?" and moves it ALONG THE BORESIGHT,
+//     toward the car — and the car is by definition inside the polygon, so the anti-clip can
+//     never undo the clamp (it interpolates toward a point the clamp already accepts). The
+//     reverse order would not hold: clamping after a pull could shove the eye back into the wall
+//     the pull just escaped. Hence: clamp first, guard last.
+//
+// The same three contract rules as posConstraint apply (mutate in place, be idempotent, be
+// cheap) — see that block. Idempotence is the load-bearing one here and the reason the shipped
+// resolver is a PROJECTION ("move the eye to the first clear point along the boresight") rather
+// than a DELTA ("pull the eye in by N metres"): a delta applied to its own output every frame
+// compounds without bound, and this hook, like the constraint, is fed its own previous result
+// through the rig's lerp state and is called twice on the cold-start frame.
+//
+// Shake stays outside this too (it is applied after both hooks, to camera.position, never to the
+// lerp state) — a hard impact may jitter the lens a few cm into a wall for one frame, which is
+// the same deliberate exemption the clamp gets.
+
+let antiClip: CameraPosConstraint | null = null;
+
+/** Register (or clear, with null) the per-frame anti-clip guard. Production DOES register one —
+ * world/toronto/TorontoScene.tsx installs the Toronto resolver (world/toronto/cameraAntiClip.ts)
+ * on mount and clears it on unmount. Last writer wins, so a StrictMode double-mount's
+ * register → cleanup → register sequence lands registered. */
+export function setCameraAntiClip(fn: CameraPosConstraint | null): void {
+  antiClip = fn;
+}
+
+/** Test/debug: the currently registered anti-clip guard (null = unguarded rig). */
+export function getCameraAntiClip(): CameraPosConstraint | null {
+  return antiClip;
+}
+
 // --- live rig ----------------------------------------------------------------------------
 // Smoothed follow position persisted across frames (the lerp state, shake-free). Separate
 // from camera.position so the shake offset never feeds back into the next frame's lerp.
@@ -614,6 +656,7 @@ export function updateCameraRig(camera: PerspectiveCamera, dt: number): void {
     // the hook's contract already demands.)
     computeIdealCamPos(smoothedCamPos, pos, speed, tier, beat.pullback, beat.yawOffsetDeg, beat.pitchOffsetDeg);
     posConstraint?.(smoothedCamPos);
+    antiClip?.(smoothedCamPos);
     rigInitialized = true;
   }
 
@@ -652,6 +695,11 @@ export function updateCameraRig(camera: PerspectiveCamera, dt: number): void {
   // converges toward it instead of fighting it. Null → these three lines above are the final
   // smoothed position, exactly as before Phase 34.
   posConstraint?.(smoothedCamPos);
+  // Anti-clip guard (Phase 36), always AFTER the constraint — see that hook's block above for why
+  // this order is the safe one. Folded into the lerp state for the same convergence reason: the
+  // guard pins the eye at the first clear point and the next frame damps outward FROM there,
+  // which is exactly the smooth release the guard deliberately does not implement itself.
+  antiClip?.(smoothedCamPos);
 
   // Shake + FOV kick ALWAYS step (trauma keeps decaying), but their offsets are suppressed
   // when the CAMERA.shake.enabled kill-switch is off, OR the player has asked for reduced

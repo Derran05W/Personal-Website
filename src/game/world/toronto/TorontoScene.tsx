@@ -17,7 +17,10 @@
 //     createFoldTrigger) that emits `tunnelTransit` (hud/TunnelOverlay.tsx already listens);
 //   • CAMERA CLAMP — the padded-polygon clamp that keeps the camera's frustum off the void,
 //     registered into fx/cameraRig's position-constraint seam on mount (Phase 34 — it used to be
-//     a late priority-2 pass with a second gl.render(); see clampCameraPos below).
+//     a late priority-2 pass with a second gl.render(); see clampCameraPos below);
+//   • OCCLUSION v2 + ANTI-CLIP (Phase 36) — the per-frame A.5 pass (named/hero material fade PLUS
+//     the batched/instanced screen-door fade, targeted by the now-production AABB clip index) and
+//     the anti-clip guard registered into fx/cameraRig's second position seam.
 // Lighting reuses world/BlueHourRig.tsx (its shadow frustum follows the player, so it is
 // map-size-agnostic and self-restores scene state on unmount — clean when the toggle flips back).
 
@@ -63,8 +66,20 @@ import { SIDEWALK } from '../../config/torontoMap';
 import { CityPackBatched } from './cityPack/CityPackBatched';
 import { HERO_LOTS, buildNamedBuildings, type CrownDecal, type NamedBox, type NamedPlacement } from './namedBuildings';
 import { buildCnTowerGeometry, buildRogersGeometry } from './heroes';
-import { needsTransparent, occlusionFader, occlusionRegistry } from './occlusionFade';
-import { buildClipAabbs, clearClipIndex, eyeInsideAny, pointInsideAny, segmentHitCount, setClipIndex } from './cameraClipIndex';
+import { FADE_MAX, needsTransparent, occlusionFader, occlusionRegistry } from './occlusionFade';
+import {
+  buildClipIndexEntries,
+  clearClipIndex,
+  eyeInsideAny,
+  pointInsideAny,
+  segmentHitCount,
+  segmentHitFadeKeys,
+  setClipIndex,
+} from './cameraClipIndex';
+import { applyFadesFor, occlusionGate } from './occlusionTargets';
+import { recordOcclusionPass } from './occlusionStats';
+import { antiClipCameraPos, resetAntiClip } from './cameraAntiClip';
+import { CAMERA } from '../../config/camera';
 import { recordClampFired, recordOcclusionHits, sampleCameraClip } from './cameraClipStats';
 import { liveCamera } from '../../fx/cameraRef';
 import { getLogoAtlas, logoCellUv } from './logoAtlas';
@@ -82,7 +97,7 @@ import { gameEvents } from '../../state/events';
 import { getGameState, useGameStore } from '../../state/store';
 import { playerVehicle } from '../../vehicles/playerRef';
 import { spawnPoseRef } from '../spawn';
-import { setCameraPosConstraint, type Vec3 } from '../../fx/cameraRig';
+import { setCameraAntiClip, setCameraPosConstraint, type Vec3 } from '../../fx/cameraRig';
 import { BlueHourRig } from '../BlueHourRig';
 import { RunLoopSystem } from '../../combat/runLoop';
 import { LightPool } from '../../powergrid/LightPoolMount';
@@ -173,6 +188,56 @@ const occlusionRay = new Raycaster();
 const occlusionDir = new Vector3();
 const occlusionHitKeys = new Set<string>();
 const occlusionKeyList: string[] = [];
+
+// --- Phase 36: occlusion v2 (dither path) hot-path scratch ---------------------------------
+// Same no-per-frame-alloc discipline as the raycast scratch above: every collection below is
+// module-scope and cleared/reused, so a pass that touches a few hundred keys allocates nothing.
+
+/** The five boresight target points (x,y,z triples), rewritten each frame from the car's pose:
+ * index 0 = the car centre, 1..4 = the corners of config/camera.ts's yaw-invariant probe box.
+ * A flat Float64Array rather than five Vector3s — this is only ever read back as raw numbers by
+ * segmentHitFadeKeys, and a flat buffer keeps the write loop branch-free. */
+const PROBE_POINTS = 5;
+const probeTargets = new Float64Array(PROBE_POINTS * 3);
+
+/** Corner sign pairs for the four non-centre probes, paired with which of the two probe heights
+ * each uses. Alternating heights across the diagonals samples BOTH the sill line and the roofline
+ * over the car's whole footprint with five segments instead of nine — the two corners a streetwall
+ * can cross first under the 45° yaw are on opposite diagonals, so this ordering never leaves a
+ * whole height unprobed on the side the wall is actually on. */
+const PROBE_CORNERS: readonly (readonly [number, number, boolean])[] = [
+  [+1, +1, true], // +x/+z, roofline
+  [+1, -1, false], // +x/−z, sill
+  [-1, +1, false], // −x/+z, sill
+  [-1, -1, true], // −x/−z, roofline
+];
+
+/** This frame's raw boresight hits (union over the five segments) — cleared and refilled. */
+const ditherHitKeys = new Set<string>();
+/** The hysteresis gate's held-occluded set for this frame (occlusionTargets.ts owns the clock). */
+const ditherOccluded = new Set<string>();
+/**
+ * The ACTIVE fade set: every key that is occluded now, or was recently and has not finished
+ * ramping back to full opacity. This is the pass's cost governor — the registry holds ~2,000
+ * targets, of which a handful are ever moving, so stepping/writing the active set instead of the
+ * whole registry keeps the pass inside its 0.2 ms budget (see occlusionTargets.ts's applyFadesFor).
+ * Keys leave the set only once they are BOTH clear and fully restored, so nothing can be stranded
+ * mid-fade.
+ */
+const ditherActiveKeys = new Set<string>();
+
+/** Fade lookup handed to applyFadesFor — module scope so the pass doesn't allocate a closure. */
+const ditherFadeOf = (key: string): number => occlusionFader.opacity(key);
+
+/** Drop every scrap of per-frame occlusion state (world unmount / test isolation). The fader's own
+ * per-key entries go with the active set, so a remount starts from "everything opaque". */
+function resetDitherPassState(): void {
+  for (const key of ditherActiveKeys) occlusionFader.forget(key);
+  ditherActiveKeys.clear();
+  ditherHitKeys.clear();
+  ditherOccluded.clear();
+  occlusionGate.clear();
+}
 
 // Phase 33 camera-lab scratch: the near-plane corner point under test, reused across the four
 // corners and across frames (same no-per-frame-alloc discipline as the occlusion scratch above).
@@ -1105,45 +1170,130 @@ export function TorontoScene() {
   });
 
   // --- occlusion fade (A.5): the car is never fully hidden -----------------------------------
-  // Each frame, cast one ray from the camera to the player and fade any registered occludable
-  // (named-building box or hero mesh) it passes through to ≤ 0.35 alpha within ~130 ms, restoring
-  // when the ray clears (occlusionFade.ts owns the pure timing; this is the raycast + material
-  // write). Runs at the default priority so opacities are set BEFORE fx/cameraRig's priority-1
-  // render. Cost is negligible: ~18 static meshes, one ray, no per-frame allocation in the hot
-  // path beyond the (tiny) hit list. Instanced filler is excluded this phase (shared material →
-  // needs a shader edit; recorded debt) — A.5's mandatory cases are all named/hero meshes.
+  // A.5: "any mesh between the lens and the car fades to ≤ 0.4 alpha within 150 ms" and restores
+  // when the view clears. Phase 36 (occlusion v2) makes that promise cover the whole city instead
+  // of the ~18 meshes that happen to own a material each. TWO paths run here, in one pass:
+  //
+  //   (1) NAMED/HERO — the original material-opacity path (occlusionFade.ts's registry + a
+  //       camera→car raycast over ~18 static meshes). Kept as-is because it is tested, it carries
+  //       A.5's mandatory cases (the financial-district banks, the CN Tower), and the
+  //       occlusionMinOpacity probe rides it. Phase 36 paid its one recorded debt: the restore used
+  //       to drive every material's opacity to 1, stomping any authored sub-1 opacity the first
+  //       time the camera passed behind it (a one-way trip — nothing remembered the original). The
+  //       base is now captured on first sight and the fade is applied as fade × base.
+  //   (2) BATCHED/INSTANCED — everything else (the pack streetwall, back lots, backdrop towers):
+  //       per-instance SCREEN-DOOR fade (cityPack/occlusionDither.ts), targeted by the AABB clip
+  //       index rather than a raycast (a BatchedMesh raycast would walk every instance's BVH per
+  //       frame; the bucket grid answers a segment query in about a cell). Path (2) can only ever
+  //       touch volumes the index gave a fade key, and named/hero volumes carry `fadeKey: null`
+  //       precisely so the two paths can never fight over one mesh.
+  //
+  // The v2 shape, per frame: 5 boresight segments (car centre + the four corners of the
+  // config/camera.ts probe box — one centre ray misses the corner-grazing wall that P35's census
+  // found on 187/1268 frames) → union of hit fade keys → 150 ms hysteresis hold (kills the
+  // graze-strobe in BOTH directions) → the fade state machine → per-instance writes.
+  //
+  // Runs at the default priority so every opacity/fade is set BEFORE fx/cameraRig's priority-1
+  // render. Cost: budgeted at ≤ 0.2 ms/frame and measured (dev) into occlusionStats.ts — see
+  // ditherActiveKeys above for the reason it stays there. Zero extra draw calls by construction.
   useFrame((state, delta) => {
     const model = playerVehicle.current;
-    const meshes = occlusionRegistry.meshes;
-    if (!model || meshes.length === 0) return;
+    if (!model) return;
+    const nowMs = performance.now();
     const car = model.readState().pose.position;
     const cam = state.camera;
-    occlusionDir.set(car.x - cam.position.x, car.y - cam.position.y, car.z - cam.position.z);
-    const dist = occlusionDir.length();
-    if (dist < 1e-3) return;
-    occlusionDir.multiplyScalar(1 / dist);
-    occlusionRay.set(cam.position, occlusionDir);
-    occlusionRay.near = 0;
-    occlusionRay.far = dist; // only occluders BETWEEN camera and car
-    const hits = occlusionRay.intersectObjects(meshes as Object3D[], false);
-    // Phase 33 clip instrumentation: the boresight occluder count is already computed right here,
-    // so the stat piggybacks the existing ray rather than casting a second one. DEV-folded.
-    if (import.meta.env.DEV) recordOcclusionHits(hits.length);
-    occlusionHitKeys.clear();
-    for (const h of hits) occlusionHitKeys.add(h.object.uuid);
-    occlusionKeyList.length = 0;
-    for (const m of meshes) occlusionKeyList.push(m.uuid);
     const dtMs = Math.min(delta * 1000, 100); // clamp big gaps (tab refocus) so a fade never jumps
-    occlusionFader.step(occlusionKeyList, occlusionHitKeys, dtMs);
-    for (const m of meshes) {
-      const opacity = occlusionFader.opacity(m.uuid);
-      const mat = (m as Mesh).material;
-      const transparent = needsTransparent(opacity);
-      if (Array.isArray(mat)) {
-        for (const mm of mat) applyFade(mm, opacity, transparent);
-      } else {
-        applyFade(mat, opacity, transparent);
+
+    // (1) named/hero meshes — raycast + material opacity.
+    const meshes = occlusionRegistry.meshes;
+    if (meshes.length > 0) {
+      occlusionDir.set(car.x - cam.position.x, car.y - cam.position.y, car.z - cam.position.z);
+      const dist = occlusionDir.length();
+      if (dist >= 1e-3) {
+        occlusionDir.multiplyScalar(1 / dist);
+        occlusionRay.set(cam.position, occlusionDir);
+        occlusionRay.near = 0;
+        occlusionRay.far = dist; // only occluders BETWEEN camera and car
+        const hits = occlusionRay.intersectObjects(meshes as Object3D[], false);
+        // Phase 33 clip instrumentation: the boresight occluder count is already computed right
+        // here, so the stat piggybacks the existing ray rather than casting a second one. DEV-folded.
+        if (import.meta.env.DEV) recordOcclusionHits(hits.length);
+        occlusionHitKeys.clear();
+        for (const h of hits) occlusionHitKeys.add(h.object.uuid);
+        occlusionKeyList.length = 0;
+        for (const m of meshes) occlusionKeyList.push(m.uuid);
+        occlusionFader.step(occlusionKeyList, occlusionHitKeys, dtMs);
+        for (const m of meshes) {
+          const mat = (m as Mesh).material;
+          // Capture the AUTHORED opacity before this pass has ever written to the material — the
+          // loop below is the only writer, and captureBaseOpacity is first-sight-only, so reading
+          // it here is always reading the original. Array materials capture from the first slot:
+          // the fade is a per-MESH decision, and no registered occluder ships a multi-material
+          // mesh with differing authored opacities (heroes' pod ring is its own mesh).
+          const first = Array.isArray(mat) ? mat[0] : mat;
+          if (first) occlusionFader.captureBaseOpacity(m.uuid, first.opacity);
+          const opacity = occlusionFader.appliedOpacity(m.uuid);
+          const transparent = needsTransparent(opacity);
+          if (Array.isArray(mat)) {
+            for (const mm of mat) applyFade(mm, opacity, transparent);
+          } else {
+            applyFade(mat, opacity, transparent);
+          }
+        }
       }
+    }
+
+    // (2) batched/instanced — 5 boresight segments against the clip index, then the dither writes.
+    const probe = CAMERA.occlusionProbe;
+    probeTargets[0] = car.x;
+    probeTargets[1] = car.y;
+    probeTargets[2] = car.z;
+    for (let i = 0; i < PROBE_CORNERS.length; i++) {
+      const [sx, sz, high] = PROBE_CORNERS[i]!;
+      const o = (i + 1) * 3;
+      probeTargets[o] = car.x + sx * probe.xzM;
+      probeTargets[o + 1] = car.y + (high ? probe.highM : probe.lowM);
+      probeTargets[o + 2] = car.z + sz * probe.xzM;
+    }
+    ditherHitKeys.clear();
+    for (let i = 0; i < PROBE_POINTS; i++) {
+      const o = i * 3;
+      segmentHitFadeKeys(
+        cam.position.x,
+        cam.position.y,
+        cam.position.z,
+        probeTargets[o]!,
+        probeTargets[o + 1]!,
+        probeTargets[o + 2]!,
+        ditherHitKeys,
+      );
+    }
+    occlusionGate.markHits(ditherHitKeys, nowMs);
+    occlusionGate.collectOccluded(ditherOccluded, nowMs);
+    for (const key of ditherOccluded) ditherActiveKeys.add(key);
+    if (ditherActiveKeys.size > 0) {
+      occlusionFader.step(ditherActiveKeys, ditherOccluded, dtMs);
+      applyFadesFor(ditherActiveKeys, ditherFadeOf);
+      // Retire keys that are BOTH clear and fully restored. The write above already pushed their
+      // final 1.0 through, so dropping them here (and forgetting their fader state) bounds both
+      // sets by "what is currently moving" rather than by session length.
+      for (const key of ditherActiveKeys) {
+        if (!ditherOccluded.has(key) && occlusionFader.opacity(key) >= FADE_MAX) {
+          ditherActiveKeys.delete(key);
+          occlusionFader.forget(key);
+        }
+      }
+    }
+
+    if (import.meta.env.DEV) {
+      let min: number = FADE_MAX;
+      let faded = 0;
+      for (const key of ditherActiveKeys) {
+        const f = occlusionFader.opacity(key);
+        if (f < FADE_MAX) faded++;
+        if (f < min) min = f;
+      }
+      recordOcclusionPass(faded, min, performance.now() - nowMs);
     }
   });
 
@@ -1159,26 +1309,68 @@ export function TorontoScene() {
     return () => setCameraPosConstraint(null);
   }, []);
 
-  // --- Phase 33 camera lab: static building AABB index (DEV-only) --------------------------
+  // --- camera anti-clip registration (Phase 36) --------------------------------------------
+  // The second prod-active rig seam, applied right after the clamp (fx/cameraRig.ts documents why
+  // that order is the safe one): if the eye ends up inside building volume — the death beat's
+  // measured excursions, a respawn beside a tower — pull it along the boresight to the first clear
+  // point. Same module-scope-fn + empty-deps discipline as the clamp above; the state reset on
+  // mount/unmount keeps a run restart from inheriting the previous run's ramp.
+  useEffect(() => {
+    resetAntiClip();
+    setCameraAntiClip(antiClipCameraPos);
+    return () => {
+      setCameraAntiClip(null);
+      resetAntiClip();
+    };
+  }, []);
+
+  // --- static building AABB index (Phase 33; PROD-ACTIVE since Phase 36) --------------------
   // Built from the layouts this component ALREADY memoizes — the index is a re-view of the
   // shipped placement, never a second generation pass (rebuilding frontage would cost seconds
-  // and could silently drift from what is on screen). Throwaway: Phase 40's placement arbiter
-  // replaces it (world/toronto/cameraClipIndex.ts's header).
+  // and could silently drift from what is on screen).
+  //
+  // PHASE 36 PROMOTED THIS OUT OF `import.meta.env.DEV`. It was Phase 33 instrumentation; it is
+  // now load-bearing production machinery, feeding two shipped systems: the occlusion pass's
+  // fade targeting (segmentHitFadeKeys, above) and the camera anti-clip guard (pointInsideAny).
+  // The cost it was DEV-gated for is a one-off ~few ms at world mount — the two hero geometries
+  // below plus the bucket-grid build — which is inside the same Suspense window the pack GLBs
+  // already spend far longer in. The DEV-only half (the clip STATISTICS sampler) is a separate
+  // pass below and stays gated.
+  //
+  // Still throwaway in the Phase 40 sense: the placement arbiter replaces this index and
+  // re-points its consumers (world/toronto/cameraClipIndex.ts's header) — there are now three of
+  // them, not one, and they are shipped features rather than instrumentation.
+  //
+  // Toggle-blind ON PURPOSE: it indexes the full frontage/infill layout regardless of the dev
+  // toggles that can hide layers from CityDress. A key the index knows but no renderer registered
+  // is simply skipped by applyFadesFor, whereas a toggle-shaped index would make the anti-clip
+  // guard's view of the world disagree with the colliders the car is actually hitting.
   useEffect(() => {
-    if (!import.meta.env.DEV) return;
     // heroes.ts publishes its base-collider hint only through a built model's `meta`, so build
-    // both geometries, read the hints and dispose immediately — a few ms once per world mount,
-    // dev-only (HeroesLayer keeps its own memoized copies for rendering).
+    // both geometries, read the hints and dispose immediately (HeroesLayer keeps its own memoized
+    // copies for rendering).
     const cn = buildCnTowerGeometry();
     const rogers = buildRogersGeometry();
     const heroBases = [
       { at: lotCenter(HERO_LOTS[0]), collider: cn.meta.collider },
       { at: lotCenter(HERO_LOTS[1]), collider: rogers.meta.collider },
+      // Phase 36: CN's taper-shaft bands join the index (heroes.ts's shaftColliders block explains
+      // the see-through hole they close — the eye could rest INSIDE the shaft, back-face-culled).
+      // Rogers' DOME is deliberately NOT indexed: a square AABB around a 33-wu-radius round dome
+      // would report false eye-inside across the whole rail-lands approach (up to ~14 wu of open
+      // air at the corners), polluting the eyeInside-must-read-0 metric, while the dome's real
+      // worst-case penetration is ~3 wu at maximum-pitch eye heights only. Residual recorded in
+      // the Phase 36 notes; Phase 45 rebuilds the dome and Phase 38's debt sweep re-audits.
+      ...cn.meta.shaftColliders.map((collider) => ({ at: lotCenter(HERO_LOTS[0]), collider })),
     ].map(({ at, collider }) => ({ x: at.x, z: at.z, ...collider }));
     cn.geometry.dispose();
     rogers.geometry.dispose();
+    // buildClipIndexEntries (not the fade-key-free buildClipAabbs) — the entries carry the fade
+    // identity the occlusion pass targets by. The frontage slots/corner fills come in as
+    // FrontageSlots (they carry `slotId`, the Phase 25.7 seam) and the infill items as themselves,
+    // so both families mint the SAME keys the CityDress renderers register under.
     setClipIndex(
-      buildClipAabbs({
+      buildClipIndexEntries({
         groundedBuildings: [...frontage.slots, ...frontage.cornerFills],
         centredBoxes: [...frontage.towerBoxes, ...infill.boxes],
         infillFixed: infill.fixed,
@@ -1186,7 +1378,13 @@ export function TorontoScene() {
         heroBases,
       }),
     );
-    return () => clearClipIndex();
+    return () => {
+      clearClipIndex();
+      // The occlusion pass's per-frame state is keyed to THIS index's keys — drop it with the
+      // index so a remount (run restart, StrictMode) can't leave a key faded forever with no
+      // segment able to re-hit it.
+      resetDitherPassState();
+    };
   }, [frontage, infill, named]);
 
   // --- Phase 33 camera lab: clip sampling (DEV-only, priority 2 = after the render) ---------

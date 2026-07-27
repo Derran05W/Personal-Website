@@ -146,6 +146,69 @@ export const CAMERA = {
     bustedPullback: -8,
     bustedPitchOffsetDeg: -22,
   },
+  // --- Phase 36: occlusion v2 boresight probe ------------------------------------------------
+  // The occlusion pass no longer casts ONE ray at the car's centre. A single centre ray answers
+  // "is the car's origin hidden?", but the failure players actually see is a wall grazing the
+  // FRAME — the car's near corner disappearing behind a streetwall corner while its centre stays
+  // clear (P35's census: 187/1268 frames had exactly that shape). So the pass casts five segments
+  // from the eye: one to the car centre and four to the corners of a small box around the car.
+  //
+  // The box is deliberately YAW-INVARIANT (a square in XZ, not the car's oriented footprint):
+  // reading the chassis' heading every frame would make the probe rotate — and therefore make a
+  // grazing wall pop in and out of the hit set — as the car drifts, which is the strobe the
+  // hysteresis hold exists to kill. A circumscribed square costs a few false positives at 45°
+  // headings, and a false positive fades a wall that was nearly occluding anyway; a false negative
+  // hides the car, which A.5 forbids. The asymmetry decides the trade.
+  //
+  // Values are the Rusty-Sedan reference chassis (config/vehicles.ts VEHICLE_TUNING.chassis:
+  // halfWidth 0.9 / halfHeight 0.35 / halfLength 2.0) rather than a live read of the selected
+  // car — a probe that changed size per garage pick would make the occlusion battery
+  // un-comparable between runs, and the six cars differ by well under a metre.
+  occlusionProbe: {
+    /** XZ half-extent (m) of the yaw-invariant square whose corners are probed = chassis halfLength. */
+    xzM: 2,
+    /** Lower probe height (m, relative to the car's render origin) = the collider floor / sill line. */
+    lowM: -0.35,
+    /** Upper probe height (m, relative to the car's render origin) ≈ a pack car's roofline. The
+     * collider box stops at +0.35, but the visible body (and therefore what a wall can hide) goes
+     * higher; under a 58° pitch the high corners are the ones a streetwall crosses first. */
+    highM: 0.9,
+  },
+  // --- Phase 36: camera anti-clip (last-resort eye guard) --------------------------------------
+  // The primary defences against "the camera phases through a building" are the eye-line law
+  // (CAMERA_EYE_MIN_WU below + config/cityPackScale.ts's streetwall cap) and the corridor-airspace
+  // margin the rig itself was picked on. Both are STATIC guarantees about normal play. This block
+  // covers what they deliberately do not: the death beat's measured excursions (BUSTED drops the
+  // eye below EYE_MIN by design — see `cinematic` above), a respawn beside a tower, and any future
+  // geometry that slips past the law. world/toronto/cameraAntiClip.ts is the solver; it pulls the
+  // eye along the boresight TOWARD the car until it is clear, and never pushes it back out (the
+  // rig's own damping does that, smoothly, for free).
+  antiClip: {
+    /** How far (m) outside every building volume the eye must be before it counts as clear. A
+     * lens flush with a facade already looks broken, so the guard trips slightly early. */
+    marginWu: 0.5,
+    /** Hard cap (m) on the pull. Sized to cover the deepest ESCAPE the shipped map can demand,
+     * not to keep the frame wide: the fattest street-facing towers (Aura's face sits ON Yonge)
+     * can swallow the eye ~8–9 wu deep on an ordinary drive-by, and the boresight's exit from
+     * such a box runs ~23–25 m (the Phase 36 drive census caught exactly this: 44 frames of
+     * eye-inside-Aura with near-plane slicing under an earlier 14 m cap — the solver found no
+     * clear point within the cap and declined, which read far worse than the resulting close-up
+     * does). 25 keeps the law-pinned `maxPullM < baseDist` headroom; a deep pull is a brief
+     * spring-arm close-up the rig's own lerp releases smoothly. The residual (a slice so deep
+     * even 25 m finds no clear point — solver returns 0, eye stays put) is documented in the
+     * Phase 36 notes for Phase 38's debt sweep. */
+    maxPullM: 25,
+    /** Rate cap (m/s) on how fast the pull may GROW. A wall the eye enters side-on can need most
+     * of maxPullM in a single frame; ramping it over ~0.5 s reads as a spring arm, not a cut.
+     * (The release direction is rate-limited too — by the rig's own position lerp, since this
+     * guard never pushes outward.) */
+    slewMPerSec: 30,
+    /** Sample spacing (m) along the boresight when searching for the first clear point. 0.5 m is
+     * well under the smallest indexed building footprint, so the search cannot step over a whole
+     * volume, and caps the search at maxPullM/0.5 = 28 point queries — paid ONLY on frames the
+     * eye is actually inside something (the clear fast path is a single query). */
+    probeStepM: 0.5,
+  },
 } as const;
 
 // --- THE ONE TRUE EYE LINE (Phase 35) ---------------------------------------------------------

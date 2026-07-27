@@ -8,7 +8,7 @@
 
 import { Suspense } from 'react';
 import { RigidBody } from '@react-three/rapier';
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Color, Object3D, type BatchedMesh, type InstancedMesh } from 'three';
 import { interactionGroups } from '../../../config';
 import { colliderHalfExtents } from '../../../config/cityPackScale';
@@ -23,6 +23,10 @@ import {
 } from '../torontoColliders';
 import { registerBatchedFurniture, unregisterBatchedFurniture } from './batchedRegistry';
 import { CityPackBatched } from './CityPackBatched';
+import { setBatchedFadeAt, setInstancedFadeAt, setupInstancedFade } from './occlusionDither';
+import { fixedItemFadeKey, type FadeKeyable } from './fadeKeys';
+import { backdropFadeKey } from '../cameraClipIndex';
+import { registerFadeTarget, unregisterFadeTarget, type FadeApply } from '../occlusionTargets';
 import { FurnitureDynamicsMount } from './FurnitureDynamicsMount';
 import { ParkedVehicles } from './ParkedVehicles';
 import { TrafficLampOverlay } from './TrafficLampOverlay';
@@ -50,7 +54,80 @@ function toPlacements(items: readonly { readonly modelId: string; readonly posit
 /** PlacedBox structurally widened with the districtId every real caller (FrontageSlot,
  * FixedInfillItem) actually carries — FixedPackInstances needs it for registry entries (Phase
  * 29 D1), but the bare PlacedBox shape (still used by BackdropBox's sibling paths) doesn't. */
-type RegistrablePlacedBox = PlacedBox & { readonly districtId: DistrictId };
+// Phase 36 adds `FadeKeyable`: the two real callers also carry the stable id their family's fade
+// key is minted from (FrontageSlot's `slotId`, FixedInfillItem's `id`), and both are OPTIONAL here
+// so a hand-built pre-36 harness still satisfies the type. fixedItemFadeKey resolves which family
+// an item belongs to from those fields alone — see cityPack/fadeKeys.ts.
+type RegistrablePlacedBox = PlacedBox & { readonly districtId: DistrictId } & FadeKeyable;
+
+/**
+ * Phase 36 (T3) — ONE model's batch plus its dither-fade registrations. Split out of
+ * FixedPackInstances because the registration has to happen where the mesh for THIS model id is,
+ * with THIS model's key list, and React needs a component boundary to give each group its own
+ * stable callback identity.
+ *
+ * LIFECYCLE, and the three hazards it is shaped around:
+ *   1. instanceId is per-BATCH. `fadeKeys[i]` is the key for instance i of this mesh — see
+ *      FixedPackInstances' note. Nothing here may index the merged item array.
+ *   2. StrictMode double-mount. CityPackBatched calls `onMesh(bm)` on every effect invocation and
+ *      `onMesh(null)` from every cleanup (its Phase 30 bug fix), so the sequence under React 19's
+ *      dev double-invoke is register → unregister → register. This handler is defensive on top of
+ *      that: it drops whatever it registered last before registering again, and
+ *      `unregisterFadeTarget` is identity-checked so a late cleanup can never delete a live
+ *      writer. Net effect: exactly one live writer per key, whichever mount is current.
+ *   3. Dev toggles reshaping the arrays (`packInfill`, `packBuildings`). Those change `items`,
+ *      which changes `placements`/`fadeKeys` identity, which re-runs CityPackBatched's populate
+ *      effect (placements is in its deps) and therefore re-runs this handler with the new keys.
+ *      Keys that vanished are unregistered by step (2)'s drop; the clip index may still name them
+ *      (TorontoScene builds it toggle-blind, deliberately), and an unregistered key is simply
+ *      skipped by the scene's `applyFadesFor`.
+ */
+function OccludableFixedBatch({
+  id,
+  placements,
+  fadeKeys,
+  occludable,
+  unlit,
+}: {
+  readonly id: string;
+  readonly placements: readonly CityPackPlacement[];
+  readonly fadeKeys: readonly (string | null)[];
+  readonly occludable: boolean;
+  readonly unlit: boolean;
+}) {
+  const registered = useRef<{ key: string; apply: FadeApply }[]>([]);
+  const onMesh = useCallback(
+    (mesh: BatchedMesh | null) => {
+      for (const r of registered.current) unregisterFadeTarget(r.key, r.apply);
+      registered.current = [];
+      if (mesh === null || !occludable) return;
+      fadeKeys.forEach((key, i) => {
+        if (key === null) return;
+        // Closes over (mesh, i) — the write is a single texel compare + a texture dirty flag; see
+        // occlusionDither.ts's setBatchedFadeAt for why N writes still cost one upload per frame.
+        const apply: FadeApply = (fade) => {
+          setBatchedFadeAt(mesh, i, fade);
+        };
+        registerFadeTarget(key, apply);
+        registered.current.push({ key, apply });
+      });
+    },
+    [fadeKeys, occludable],
+  );
+  // World teardown: CityPackBatched's own cleanup already calls onMesh(null), but that only fires
+  // while the mesh exists — a parent that unmounts this component before the batch ever populated
+  // (Suspense fallback, a toggle flipped during load) would otherwise strand registrations.
+  useEffect(
+    () => () => {
+      for (const r of registered.current) unregisterFadeTarget(r.key, r.apply);
+      registered.current = [];
+    },
+    [],
+  );
+  return (
+    <CityPackBatched id={id} placements={placements} unlit={unlit} occludable={occludable} onMesh={onMesh} />
+  );
+}
 
 /**
  * Generic batched pack-model renderer + fixed BUILDING colliders, keyed by modelId (Phase 28: the
@@ -63,20 +140,41 @@ type RegistrablePlacedBox = PlacedBox & { readonly districtId: DistrictId };
  * registers `kind: 'building'` (indestructible fixed collider) so ramming one deals damage to the
  * player instead of silently no-op'ing (combat/damage.ts requires both impact sides registered). */
 function FixedPackInstances({ items, unlit }: { items: readonly RegistrablePlacedBox[]; unlit: boolean }) {
+  // Phase 36 (T3): `fadeKeys` is built in the SAME walk as `placements`, so entry i of one is
+  // entry i of the other BY CONSTRUCTION — and CityPackBatched populates addInstance() in exactly
+  // that order, so index i is also this model's instanceId i. That chain is the whole correctness
+  // argument for the fade wiring, and it is why the keys are computed HERE (inside the per-model
+  // grouping) rather than over the merged `items` array: instanceId is an index within ONE
+  // model's batch, never into the merged list (the hazard that bit Phase 30's furniture registry
+  // from the other end).
   const byModel = useMemo(() => {
     const ids = [...new Set(items.map((s) => s.modelId))].sort();
-    return ids.map((id) => ({
-      id,
-      placements: items
-        .filter((s) => s.modelId === id)
-        .map((s): CityPackPlacement => ({ position: s.position, rotationY: s.rotationY, tint: s.tint })),
-    }));
+    return ids.map((id) => {
+      const group = items.filter((s) => s.modelId === id);
+      const fadeKeys = group.map(fixedItemFadeKey);
+      return {
+        id,
+        placements: group.map((s): CityPackPlacement => ({ position: s.position, rotationY: s.rotationY, tint: s.tint })),
+        fadeKeys,
+        // Only patch the shader for models that actually own fadeable volumes: a model id used
+        // solely by parking-lot cars / construction fences (fade key null everywhere) gets the
+        // stock material and no program variant.
+        occludable: fadeKeys.some((k) => k !== null),
+      };
+    });
   }, [items]);
 
   return (
     <Suspense fallback={null}>
-      {byModel.map(({ id, placements }) => (
-        <CityPackBatched key={id} id={id} placements={placements} unlit={unlit} />
+      {byModel.map(({ id, placements, fadeKeys, occludable }) => (
+        <OccludableFixedBatch
+          key={id}
+          id={id}
+          placements={placements}
+          fadeKeys={fadeKeys}
+          occludable={occludable}
+          unlit={unlit}
+        />
       ))}
       <RigidBody type="fixed" colliders={false} collisionGroups={BUILDING_GROUPS}>
         {items.map((s, i) => (
@@ -132,6 +230,30 @@ function BackdropTowers({ boxes }: { boxes: readonly BackdropBox[] }) {
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     mesh.computeBoundingSphere();
+    // Phase 36 (T1): these boxes are the biggest single class on the P35 crosser list (35 backdrop
+    // towers + 9 tower-district back-lot boxes), so the mesh opts into the screen-door occlusion
+    // fade: an `occFade` per-instance attribute (default 1 = untouched) + the Bayer-dither shader
+    // patch on this mesh's own material. Done imperatively here (matching this file's populate
+    // style) and BEFORE the first frame so the attribute exists by the time the patched shader that
+    // reads it compiles. Idempotent under StrictMode's double effect.
+    setupInstancedFade(mesh);
+    // Phase 36 (T3) — the scene wiring: one fade target per box, keyed by the box's own quantized
+    // centre (backdropFadeKey, the SAME function the clip index mints its keys with, so the two
+    // walks agree without ever sharing an array position). Registered in populate order, which IS
+    // instance order here — the forEach above writes matrix i for box i. The cleanup is
+    // identity-checked, so StrictMode's mount → cleanup → mount lands with the second mount's
+    // writers live rather than an empty registry (Phase 30's bug, in reverse).
+    const applies = boxes.map((b, i): { key: string; apply: FadeApply } => {
+      const key = backdropFadeKey(b);
+      const apply: FadeApply = (fade) => {
+        setInstancedFadeAt(mesh, i, fade);
+      };
+      registerFadeTarget(key, apply);
+      return { key, apply };
+    });
+    return () => {
+      for (const a of applies) unregisterFadeTarget(a.key, a.apply);
+    };
   }, [boxes]);
 
   if (boxes.length === 0) return null;

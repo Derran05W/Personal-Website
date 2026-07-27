@@ -10,9 +10,16 @@
 //      raycast + material write is live-only (a headless canvas can't prove alpha visually), so it
 //      lives in the scene and is verified by screenshot, not here.
 //
-// Instanced FILLER boxes are explicitly OUT of scope this phase (they share one material, so
+// Instanced FILLER boxes were explicitly OUT of scope at Phase 25 (they share one material, so
 // per-instance opacity needs a shader edit) — recorded debt. A.5's own mandatory cases (the
 // financial-district named banks + the CN Tower) are all named/hero meshes, which this covers.
+//
+// PHASE 36 STATUS: that debt is paid ELSEWHERE, not here. Batched/instanced geometry fades through
+// a per-instance DITHER channel (cityPack/occlusionDither.ts) driven by the AABB clip index
+// (cameraClipIndex.ts's fade keys) and the hold clock in occlusionTargets.ts; this module keeps its
+// original job — the ~18 individually-mounted named/hero meshes, whose material opacity really can
+// be written per mesh. The one in-file debt Phase 36 DID pay is the base-opacity capture below
+// (restore used to stomp any non-1 authored opacity to 1).
 
 import type { Object3D } from 'three';
 
@@ -53,9 +60,41 @@ export function needsTransparent(opacity: number): boolean {
  */
 export class OcclusionFader<K> {
   private readonly opacities = new Map<K, number>();
+  /** Phase 36 debt fix — per-key ORIGINAL (unfaded) material opacity. Absent = 1. */
+  private readonly bases = new Map<K, number>();
 
+  /** The key's fade FACTOR ∈ [FADE_MIN, FADE_MAX] (default full opacity for a never-seen key).
+   * This is the raw state machine's value and is deliberately independent of any captured base —
+   * every pre-Phase-36 caller reads exactly what it always read. */
   opacity(key: K): number {
     return this.opacities.get(key) ?? FADE_MAX;
+  }
+
+  /**
+   * Phase 36 debt fix (the debt recorded at the top of this file / in the Phase 35 notes): capture
+   * a surface's ORIGINAL opacity once, so restoring means "back to what the material shipped with",
+   * not "back to 1". TorontoScene's applyFade multiplied every restored material toward 1.0, which
+   * silently stomped any material authored below full opacity (glass, the hero pod ring) the first
+   * time the camera passed behind it — a one-way trip, since nothing remembered the original.
+   *
+   * Idempotent by contract: capture on first sight only. Callers may call it every frame; a later
+   * call with a different value is ignored, because after the first fade frame the material's live
+   * opacity is no longer its base and re-capturing would latch the faded value.
+   */
+  captureBaseOpacity(key: K, base: number): void {
+    if (!this.bases.has(key)) this.bases.set(key, base);
+  }
+
+  /** The key's captured base opacity (1 when nothing was captured). */
+  baseOpacity(key: K): number {
+    return this.bases.get(key) ?? FADE_MAX;
+  }
+
+  /** What to actually write to the material this frame: the fade factor scaled by the captured
+   * base. Identical to `opacity(key)` for every key that never captured a base (base = 1), which is
+   * every key in the shipped named/hero set today — hence bit-for-bit unchanged behaviour there. */
+  appliedOpacity(key: K): number {
+    return this.opacity(key) * this.baseOpacity(key);
   }
 
   /** Advance every key in `keys` toward FADE_MIN (if in `occluded`) or FADE_MAX (if not). */
@@ -66,9 +105,11 @@ export class OcclusionFader<K> {
     }
   }
 
-  /** Drop a key's tracked state (e.g. a mesh unregistered). */
+  /** Drop a key's tracked state, base capture included (e.g. a mesh unregistered) — the next mount
+   * must re-capture, since a remounted mesh gets a fresh material instance. */
   forget(key: K): void {
     this.opacities.delete(key);
+    this.bases.delete(key);
   }
 
   /** Lowest opacity currently tracked (1 if nothing is fading) — a headless proof-of-life for the

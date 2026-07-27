@@ -20,6 +20,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { Color, Matrix4, Quaternion, Vector3, type BatchedMesh } from 'three';
 import { toUnlit } from '../../../assets/cityPack';
 import { useBakedCityPackModel } from './cityPackBaked';
+import { patchBatchedFade } from './occlusionDither';
 import type { CityPackPlacement } from './CityPackInstances';
 
 const Y_AXIS = new Vector3(0, 1, 0);
@@ -37,9 +38,23 @@ export interface CityPackBatchedProps {
    * launchable categories pass this (see cityPack/batchedRegistry.ts's header for why it isn't
    * automatic for every CityPackBatched call site). */
   readonly onMesh?: (mesh: BatchedMesh | null) => void;
+  /** Phase 36 (T1): opt into the screen-door occlusion fade path (cityPack/occlusionDither.ts) —
+   * the render material gets the Bayer-dither shader patch, so this mesh's instances can be faded
+   * individually via `setBatchedFadeAt` (colors-texture alpha texel). Default FALSE: only
+   * building-class call sites (the streetwall the camera actually crosses) should pay the extra
+   * shader work + program variant; furniture/decor never occludes the boresight meaningfully.
+   * Opting in costs ZERO extra draw calls and zero extra buffers. */
+  readonly occludable?: boolean;
 }
 
-export function CityPackBatched({ id, placements, unlit, castShadow = false, onMesh }: CityPackBatchedProps) {
+export function CityPackBatched({
+  id,
+  placements,
+  unlit,
+  castShadow = false,
+  onMesh,
+  occludable = false,
+}: CityPackBatchedProps) {
   const { geometry, scale, lift, material } = useBakedCityPackModel(id);
 
   // D4 vertex-gradient bake: the baked geometry carries a per-vertex luminance `color` attribute
@@ -49,19 +64,31 @@ export function CityPackBatched({ id, placements, unlit, castShadow = false, onM
   // is baked into the material AT CREATION (never mutated post-hook): the unlit arm's toUnlit result
   // is fresh, and the lit arm clones only when it must flip (never mutating the shared source).
   const hasVertexColor = geometry.getAttribute('color') !== undefined;
+  //
+  // Phase 36 (T1): when `occludable`, the render material additionally gets the dither patch. The
+  // patch MUTATES the material object (onBeforeCompile + customProgramCacheKey), so it may only ever
+  // be applied to a material this component owns — the lit arm's "no flip needed" branch returns the
+  // SHARED source material, which is therefore cloned first (every other branch already hands back a
+  // fresh object). The existing dispose discipline below covers the extra clone unchanged: it
+  // disposes whatever `renderMaterial` is whenever it isn't the shared source.
   const renderMaterial = useMemo(() => {
+    const patch = (m: typeof material): typeof material => {
+      if (occludable) patchBatchedFade(m);
+      return m;
+    };
     if (unlit) {
       const m = toUnlit(material);
       m.vertexColors = hasVertexColor;
-      return m;
+      return patch(m);
     }
     if (material.vertexColors !== hasVertexColor) {
       const m = material.clone();
       m.vertexColors = hasVertexColor;
-      return m;
+      return patch(m);
     }
+    if (occludable) return patch(material.clone());
     return material;
-  }, [material, unlit, hasVertexColor]);
+  }, [material, unlit, hasVertexColor, occludable]);
   useEffect(
     () => () => {
       if (renderMaterial !== material) renderMaterial.dispose();

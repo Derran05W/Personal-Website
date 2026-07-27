@@ -13,12 +13,14 @@ import {
   easeSpeedZoom,
   getDeathCause,
   getDeathPullback,
+  getCameraAntiClip,
   getCameraPosConstraint,
   getFovKick,
   getShakeTrauma,
   getSourceTrauma,
   resetCameraRig,
   resetShake,
+  setCameraAntiClip,
   setCameraPosConstraint,
   setDeathCause,
   setDeathPullback,
@@ -923,6 +925,124 @@ describe('updateCameraRig — position constraint hook', () => {
       const solvedFrom2 = incoming[2];
       const idealPos = computeIdealCamPos(v3(), { x: 0, y: 0, z: 0 }, 0, 0);
       expect(solvedFrom2.x).toBeCloseTo(pinned.x + (idealPos.x - pinned.x) * dampingAlpha(CAMERA.lerp, 1 / 120), 9);
+    } finally {
+      setShakeEnabled(SHIPPED_SHAKE_ENABLED);
+    }
+  });
+});
+
+// --- anti-clip hook (Phase 36) ------------------------------------------------------------
+// The SECOND prod-active position seam. What matters here is not what the resolver does (that is
+// world/toronto/cameraAntiClip.test.ts's job) but the RIG's contract around it: it exists, it is
+// applied to the lerp state, and it always runs AFTER the polygon clamp — the order that makes a
+// pull-toward-the-car unable to undo the clamp, since the car is by definition inside the polygon.
+describe('updateCameraRig — anti-clip hook', () => {
+  beforeEach(() => {
+    resetCameraRig();
+    playerVehicle.current = makeStubModel();
+    setCameraPosConstraint(null);
+    setCameraAntiClip(null);
+  });
+
+  afterEach(() => {
+    setCameraPosConstraint(null);
+    setCameraAntiClip(null);
+    playerVehicle.current = null;
+    resetCameraRig();
+  });
+
+  it('is unregistered by default, and round-trips through the getter', () => {
+    expect(getCameraAntiClip()).toBeNull();
+    const fn = (): void => {};
+    setCameraAntiClip(fn);
+    expect(getCameraAntiClip()).toBe(fn);
+    setCameraAntiClip(null);
+    expect(getCameraAntiClip()).toBeNull();
+  });
+
+  it('a registered no-op guard changes nothing (bit-for-bit the unguarded sequence)', () => {
+    const cam = makeFakeCamera();
+    const unguarded: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60);
+      unguarded.push(cam.position.x, cam.position.y, cam.position.z);
+    }
+
+    resetCameraRig();
+    const cam2 = makeFakeCamera();
+    setCameraAntiClip(() => {}); // touches nothing
+    const guarded: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      updateCameraRig(cam2 as unknown as PerspectiveCamera, 1 / 60);
+      guarded.push(cam2.position.x, cam2.position.y, cam2.position.z);
+    }
+
+    expect(guarded).toEqual(unguarded);
+  });
+
+  it('runs AFTER the position constraint, on both the cold-start snap and the damping step', () => {
+    // THE ordering assertion. Each hook appends its name when called, so the recorded sequence is
+    // the frame order itself: snap(clamp, anti-clip) then step(clamp, anti-clip).
+    const cam = makeFakeCamera();
+    const order: string[] = [];
+    setCameraPosConstraint(() => order.push('clamp'));
+    setCameraAntiClip(() => order.push('anticlip'));
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60);
+    expect(order).toEqual(['clamp', 'anticlip', 'clamp', 'anticlip']);
+  });
+
+  it('sees the position the constraint already produced (composition, not a race)', () => {
+    const cam = makeFakeCamera();
+    let seen = Number.NaN;
+    setCameraPosConstraint((pos) => {
+      pos.y = 42;
+    });
+    setCameraAntiClip((pos) => {
+      seen = pos.y;
+    });
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60);
+    expect(seen).toBe(42);
+  });
+
+  it('feeds its result back into the lerp state (the rig converges, then damps back out)', () => {
+    // Same feedback property the clamp relies on — and the reason the resolver deliberately never
+    // pushes the eye back out: the release IS this lerp.
+    const cam = makeFakeCamera();
+    const ideal = computeIdealCamPos(v3(), { x: 0, y: 0, z: 0 }, 0, 0);
+    const PIN_Y = ideal.y - 5;
+    setCameraAntiClip((pos) => {
+      if (pos.y > PIN_Y) pos.y = PIN_Y;
+    });
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60);
+    expect(cam.position.y).toBeCloseTo(PIN_Y, 12);
+
+    // Unregister: the rig eases back to its own ideal from the pinned state, nothing latched.
+    setCameraAntiClip(null);
+    updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60);
+    expect(cam.position.y).toBeCloseTo(PIN_Y + (ideal.y - PIN_Y) * CAMERA.lerp, 9);
+    updateCameraRig(cam as unknown as PerspectiveCamera, 100); // big dt → alpha ≈ 1
+    expect(cam.position.y).toBeCloseTo(ideal.y, 6);
+  });
+
+  it('leaves the shake offset OUTSIDE the guarded state (same exemption the clamp gets)', () => {
+    setShakeEnabled(true);
+    try {
+      const cam = makeFakeCamera();
+      const solvedFrom: number[] = [];
+      setCameraAntiClip((pos) => {
+        solvedFrom.push(pos.y);
+        pos.y = 7;
+      });
+      updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 60);
+      addShake(10, 'ram');
+      updateCameraRig(cam as unknown as PerspectiveCamera, 1 / 120);
+      // The lens jittered off the pin...
+      expect(Math.abs(cam.position.y - 7)).toBeGreaterThan(0);
+      // ...but the next solve started from the clean pinned 7, not from the jittered lens: the
+      // damping step lerps 7 → ideal.y, which is what the guard is handed.
+      const ideal = computeIdealCamPos(v3(), { x: 0, y: 0, z: 0 }, 0, 0);
+      const last = solvedFrom[solvedFrom.length - 1]!;
+      expect(last).toBeCloseTo(7 + (ideal.y - 7) * dampingAlpha(CAMERA.lerp, 1 / 120), 9);
     } finally {
       setShakeEnabled(SHIPPED_SHAKE_ENABLED);
     }

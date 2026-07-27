@@ -57,6 +57,13 @@ import { liveCamera } from '../fx/cameraRef';
 import { setDeathCause, setDeathPullback } from '../fx/cameraRig';
 import { getClipIndexSize } from '../world/toronto/cameraClipIndex';
 import { readCameraClipStats, resetCameraClipStats, type CameraClipStats } from '../world/toronto/cameraClipStats';
+import {
+  readOcclusionPassStats,
+  resetOcclusionStats,
+  type OcclusionV2Stats,
+} from '../world/toronto/occlusionStats';
+import { fadeTargetCount } from '../world/toronto/occlusionTargets';
+import { getAntiClipPullM } from '../world/toronto/cameraAntiClip';
 import { cameraVantages, type CameraVantage } from '../world/toronto/cameraVantages';
 import { startCameraLabDrive, type CameraLabDriveReport } from '../ai/cameraLabDrive';
 
@@ -606,6 +613,18 @@ declare global {
        * occlusion raycast + fade (A.5) is live — the tight §5.3 camera setback makes a dramatic
        * see-through screenshot geometrically impossible, so this is the headless proof. */
       occlusionMinOpacity: () => number;
+      /** Phase 36: occlusion v2's acceptance evidence in one object — how much of the BATCHED/
+       * INSTANCED city is currently dither-faded (`fadedTargets`, `minFade`), what the whole
+       * per-frame occlusion pass costs (`passMsAvg` rolling over ~2 s, `passMsMax`, `passSamples`;
+       * budget ≤ 0.2 ms, DEV-measured only), how far the camera anti-clip guard is pulling the eye
+       * right now (`antiClipPullM`, 0 = the healthy reading), and the sanity denominator
+       * (`registeredTargets` — zero means the city never mounted, not that nothing occludes).
+       * Field-by-field meanings: world/toronto/occlusionStats.ts. Complements
+       * occlusionMinOpacity() above, which covers the ~18 named/hero meshes on the OTHER path. */
+      occlusionV2Stats: () => OcclusionV2Stats;
+      /** Phase 36: zero the occlusion-pass cost window + snapshots (call before a measured
+       * vantage/drive, exactly like resetCameraClipStats). */
+      resetOcclusionStats: () => void;
       /** Phase 33 camera lab: apply candidate rig `id` ('A'…'E', config/camera.ts's
        * CAMERA_PRESETS) live — writes yaw/pitch/baseDist into the runtime CAMERA block, pushes the
        * preset's FOV onto the live camera, and arms preset D's spring arm. False for an unknown
@@ -797,6 +816,12 @@ window.__smashy = {
   setReducedShake: (value) => getGameState().setReducedShake(value),
   getReducedShake,
   occlusionMinOpacity: () => occlusionFader.minOpacity(),
+  occlusionV2Stats: () => ({
+    ...readOcclusionPassStats(),
+    antiClipPullM: getAntiClipPullM(),
+    registeredTargets: fadeTargetCount(),
+  }),
+  resetOcclusionStats: () => resetOcclusionStats(),
   // Phase 33 camera lab. The live PerspectiveCamera is reached through fx/cameraRef's module ref
   // (playerRef/spawnPoseRef idiom) — world/toronto/TorontoScene.tsx's DEV-only clip-sampling pass
   // publishes it every frame, so it is populated from the first painted frame onward; a null ref

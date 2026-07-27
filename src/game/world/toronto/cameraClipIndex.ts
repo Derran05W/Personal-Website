@@ -34,6 +34,21 @@ export interface ClipAabb {
   readonly maxY: number;
   readonly minZ: number;
   readonly maxZ: number;
+  /**
+   * Phase 36 — the DITHER-FADE identity of this volume, or null/absent when the volume is not
+   * dither-fadeable (named-building boxes + hero bases: they ride the legacy material-opacity
+   * fader in occlusionFade.ts, so the dither pass must skip them or both paths would fight over
+   * the same mesh). Optional so every pre-Phase-36 construction site (tests, ad-hoc index writes)
+   * stays valid unchanged; `buildClipIndexEntries` below is the one place real keys are minted.
+   */
+  readonly fadeKey?: string | null;
+}
+
+/** A clip volume with its fade identity resolved — what `buildClipIndexEntries` produces and what
+ * `setClipIndex` is fed in production. Structurally a ClipAabb, so every existing query works on it
+ * untouched. */
+export interface ClipEntry extends ClipAabb {
+  readonly fadeKey: string | null;
 }
 
 // --- source shapes (structural — deliberately NOT importing the layout types) ------------------
@@ -41,12 +56,15 @@ export interface ClipAabb {
 // throwaway, and Phase 40's arbiter should be able to delete it without unpicking a type web.
 
 /** A ground-anchored placement: `position` = [x, 0, z], solid volume y ∈ [0, 2·hy]. Matches
- * frontage.ts's PlacedBox/FrontageSlot and infill.ts's FixedInfillItem. */
+ * frontage.ts's PlacedBox/FrontageSlot and infill.ts's FixedInfillItem. `slotId` is optional here
+ * only so the structural shape still admits a bare PlacedBox; every REAL frontage/corner-fill item
+ * carries one (it is the Phase 25.7 seam) and it becomes the volume's fade key. */
 export interface GroundedBoxLike {
   readonly position: readonly [number, number, number];
   readonly hx: number;
   readonly hy: number;
   readonly hz: number;
+  readonly slotId?: string;
 }
 
 /** A centre-x/z extruded box with its floor at y=0 (frontage.ts's BackdropBox). */
@@ -97,11 +115,64 @@ export interface ClipIndexSources {
   readonly heroBases: readonly HeroBaseLike[];
 }
 
+// --- fade keys (Phase 36) ----------------------------------------------------------------------
+// THE SINGLE-SOURCING RULE: the clip index (which decides WHAT the boresight hit) and the mesh side
+// (CityDress's batched/instanced renderers, which decide WHERE to write the fade) are two different
+// walks over the same layout arrays. They agree only if both call the SAME key function on the SAME
+// layout item — never on a shared array position, which drifts the moment a toggle (showInfill) or a
+// filter (the back-lot prefix below) changes one walk and not the other. Hence: keys are derived
+// from the item's own data, and these three functions are the only place that derivation exists.
+
+/** Fade key for a frontage streetwall slot or a corner fill (both FrontageSlot-shaped). `slotId` is
+ * already stable across seeds and occupancy (the Phase 25.7 seam), and corner fills carry their own
+ * `corner:` prefix, so the two families cannot collide. */
+export function frontageFadeKey(slot: { readonly slotId: string }): string {
+  return `frontage:${slot.slotId}`;
+}
+
+/** Fade key for an infill.ts `fixed` item (back-lot pack buildings — the only class this index
+ * keeps; see INFILL_BUILDING_ID_PREFIX). `id` is minted by the generator and unique per layout. */
+export function infillFadeKey(item: { readonly id: string }): string {
+  return `infill:${item.id}`;
+}
+
+/**
+ * Fade key for a centred extruded box — frontage.ts's backdrop-tower row and infill.ts's back-lot
+ * boxes, which share both a shape and (on the mesh side) ONE InstancedMesh.
+ *
+ * BackdropBox carries no id of its own, and adding one belongs to the generators (out of scope for
+ * this task), so the key is derived from the placement itself: centre XZ quantized to centimetres.
+ * That is deterministic per seed, identical on both walks, and — unlike an array position —
+ * immune to the two arrays being merged, filtered or toggled differently on either side. Boxes are
+ * placed non-overlapping by construction, so distinct boxes cannot share a centre (asserted against
+ * the real layout in this module's tests).
+ */
+export function backdropFadeKey(box: { readonly x: number; readonly z: number }): string {
+  return `backdrop:${Math.round(box.x * 100)}:${Math.round(box.z * 100)}`;
+}
+
 /** Flatten every building-class source into one AABB list. Pure — the whole index build is this
- * plus the bucket grid, so tests exercise exactly what the scene populates. */
+ * plus the bucket grid, so tests exercise exactly what the scene populates.
+ *
+ * Fade-key-free view of `buildClipIndexEntries` (kept as the pre-Phase-36 shape so the Phase 33
+ * lab's consumers and tests read exactly as before). */
 export function buildClipAabbs(sources: ClipIndexSources): ClipAabb[] {
-  const out: ClipAabb[] = [];
-  const pushGrounded = (b: GroundedBoxLike): void => {
+  return buildClipIndexEntries(sources).map((e) => ({
+    minX: e.minX,
+    maxX: e.maxX,
+    minY: e.minY,
+    maxY: e.maxY,
+    minZ: e.minZ,
+    maxZ: e.maxZ,
+  }));
+}
+
+/** Flatten every building-class source into one list of volumes WITH their fade identity — the
+ * production index build (Phase 36). Named boxes and hero bases get `fadeKey: null`: they fade
+ * through occlusionFade.ts's material-opacity path instead, and the dither pass skips them. */
+export function buildClipIndexEntries(sources: ClipIndexSources): ClipEntry[] {
+  const out: ClipEntry[] = [];
+  const pushGrounded = (b: GroundedBoxLike, fadeKey: string | null): void => {
     out.push({
       minX: b.position[0] - b.hx,
       maxX: b.position[0] + b.hx,
@@ -109,17 +180,36 @@ export function buildClipAabbs(sources: ClipIndexSources): ClipAabb[] {
       maxY: 2 * b.hy,
       minZ: b.position[2] - b.hz,
       maxZ: b.position[2] + b.hz,
+      fadeKey,
     });
   };
-  for (const b of sources.groundedBuildings) pushGrounded(b);
+  for (const b of sources.groundedBuildings) {
+    pushGrounded(b, b.slotId === undefined ? null : frontageFadeKey({ slotId: b.slotId }));
+  }
   for (const b of sources.infillFixed) {
-    if (b.id.startsWith(INFILL_BUILDING_ID_PREFIX)) pushGrounded(b);
+    if (b.id.startsWith(INFILL_BUILDING_ID_PREFIX)) pushGrounded(b, infillFadeKey(b));
   }
   for (const b of sources.centredBoxes) {
-    out.push({ minX: b.x - b.hx, maxX: b.x + b.hx, minY: 0, maxY: 2 * b.hy, minZ: b.z - b.hz, maxZ: b.z + b.hz });
+    out.push({
+      minX: b.x - b.hx,
+      maxX: b.x + b.hx,
+      minY: 0,
+      maxY: 2 * b.hy,
+      minZ: b.z - b.hz,
+      maxZ: b.z + b.hz,
+      fadeKey: backdropFadeKey(b),
+    });
   }
   for (const b of sources.namedBoxes) {
-    out.push({ minX: b.cx - b.hx, maxX: b.cx + b.hx, minY: 0, maxY: 2 * b.hy, minZ: b.cz - b.hz, maxZ: b.cz + b.hz });
+    out.push({
+      minX: b.cx - b.hx,
+      maxX: b.cx + b.hx,
+      minY: 0,
+      maxY: 2 * b.hy,
+      minZ: b.cz - b.hz,
+      maxZ: b.cz + b.hz,
+      fadeKey: null,
+    });
   }
   for (const h of sources.heroBases) {
     out.push({
@@ -129,6 +219,7 @@ export function buildClipAabbs(sources: ClipIndexSources): ClipAabb[] {
       maxY: h.centerY + h.halfHeight,
       minZ: h.z - h.radius,
       maxZ: h.z + h.radius,
+      fadeKey: null,
     });
   }
   return out;
@@ -166,7 +257,8 @@ function cellZOf(z: number): number {
   return c < 0 ? 0 : c >= cellsZ ? cellsZ - 1 : c;
 }
 
-/** Replace the index (and rebuild the bucket grid). Called once per world mount, dev-only. */
+/** Replace the index (and rebuild the bucket grid). Called once per world mount — PROD-ACTIVE
+ * since Phase 36 (the dither targeting + anti-clip guard consume it every frame). */
 export function setClipIndex(next: readonly ClipAabb[]): void {
   boxes = next;
   visited = new Int32Array(next.length);
@@ -332,4 +424,54 @@ export function segmentHitCount(
     }
   }
   return hits;
+}
+
+/**
+ * Phase 36 — the occluder-TARGETING query: add the fade key of every dither-fadeable volume the
+ * segment (x0,y0,z0)→(x1,y1,z1) passes through into `out`, and return how many keys the call added
+ * that were not already there.
+ *
+ * Same geometry, same boundary-inclusive rule and the same visited-stamp de-duplication as
+ * `segmentHitCount` — this is that function with a payload, not a second traversal strategy. Volumes
+ * with a null/absent key (named boxes, hero bases) are skipped: they fade through the legacy
+ * material-opacity path, and letting both paths claim one mesh would make them fight.
+ *
+ * The caller owns `out`, so the per-frame pass (5 boresight segments unioned into ONE set) allocates
+ * nothing: call this five times against the same set, then read it once.
+ */
+export function segmentHitFadeKeys(
+  x0: number,
+  y0: number,
+  z0: number,
+  x1: number,
+  y1: number,
+  z1: number,
+  out: Set<string>,
+): number {
+  if (boxes.length === 0) return 0;
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const dz = z1 - z0;
+  const cx0 = cellXOf(Math.min(x0, x1));
+  const cx1 = cellXOf(Math.max(x0, x1));
+  const cz0 = cellZOf(Math.min(z0, z1));
+  const cz1 = cellZOf(Math.max(z0, z1));
+  visitGen++;
+  let added = 0;
+  for (let cz = cz0; cz <= cz1; cz++) {
+    for (let cx = cx0; cx <= cx1; cx++) {
+      for (const i of buckets[cz * cellsX + cx]) {
+        if (visited[i] === visitGen) continue;
+        visited[i] = visitGen;
+        const key = boxes[i].fadeKey;
+        if (key === null || key === undefined) continue;
+        if (out.has(key)) continue;
+        if (segmentHitsBox(boxes[i], x0, y0, z0, dx, dy, dz)) {
+          out.add(key);
+          added++;
+        }
+      }
+    }
+  }
+  return added;
 }

@@ -4,15 +4,22 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   INFILL_BUILDING_ID_PREFIX,
+  backdropFadeKey,
   buildClipAabbs,
+  buildClipIndexEntries,
   clearClipIndex,
   eyeInsideAny,
+  frontageFadeKey,
   getClipIndexBoxes,
   getClipIndexSize,
+  infillFadeKey,
   pointInsideAny,
   segmentHitCount,
+  segmentHitFadeKeys,
   setClipIndex,
   type ClipAabb,
+  type ClipEntry,
+  type ClipIndexSources,
 } from './cameraClipIndex';
 import { buildFrontage } from './frontage';
 import { buildInfill } from './infill';
@@ -208,6 +215,217 @@ describe('segmentHitCount', () => {
     expect(segmentHitCount(-20, 5, 0, 60, 5, 0)).toBe(2);
     expect(segmentHitCount(-20, 5, 0, 60, 5, 0)).toBe(2);
     expect(segmentHitCount(-20, 5, 40, 60, 5, 40)).toBe(0);
+    expect(segmentHitCount(-20, 5, 0, 60, 5, 0)).toBe(2);
+  });
+});
+
+// --- Phase 36: fade keys + the targeting query --------------------------------------------------
+
+describe('fade-key derivation (single-sourced: the index and the mesh side both call these)', () => {
+  it('frontage/corner-fill keys come from the stable slotId, namespaced', () => {
+    expect(frontageFadeKey({ slotId: 'yonge:p:138' })).toBe('frontage:yonge:p:138');
+    expect(frontageFadeKey({ slotId: 'corner:yongexking:pn' })).toBe('frontage:corner:yongexking:pn');
+  });
+
+  it('infill keys come from the generator id, namespaced (so it cannot collide with a slotId)', () => {
+    expect(infillFadeKey({ id: 'backlot:king:hi:3' })).toBe('infill:backlot:king:hi:3');
+    expect(infillFadeKey({ id: 'backlot:king:hi:3' })).not.toBe(frontageFadeKey({ slotId: 'backlot:king:hi:3' }));
+  });
+
+  it('backdrop keys are centre-XZ derived — order-independent and stable to cm', () => {
+    expect(backdropFadeKey({ x: 1500.004, z: -22.5 })).toBe('backdrop:150000:-2250');
+    // The property that matters: the SAME box yields the same key on either walk, and two boxes at
+    // different centres never share one.
+    expect(backdropFadeKey({ x: 1500, z: 10 })).toBe(backdropFadeKey({ x: 1500, z: 10 }));
+    expect(backdropFadeKey({ x: 1500, z: 10 })).not.toBe(backdropFadeKey({ x: 1500, z: 10.5 }));
+  });
+});
+
+describe('buildClipIndexEntries — who is dither-fadeable', () => {
+  it('grounded frontage slots carry their slotId key; a bare PlacedBox (no slotId) carries none', () => {
+    const entries = buildClipIndexEntries({
+      ...EMPTY_SOURCES,
+      groundedBuildings: [
+        { position: [10, 0, 20], hx: 1, hy: 1, hz: 1, slotId: 'king:p:4' },
+        { position: [30, 0, 20], hx: 1, hy: 1, hz: 1 },
+      ],
+    });
+    expect(entries.map((e) => e.fadeKey)).toEqual(['frontage:king:p:4', null]);
+  });
+
+  it('back-lot infill buildings carry their id key (and the non-building classes stay filtered out)', () => {
+    const entries = buildClipIndexEntries({
+      ...EMPTY_SOURCES,
+      infillFixed: [
+        { id: `${INFILL_BUILDING_ID_PREFIX}king:hi:3`, position: [0, 0, 0], hx: 5, hy: 8, hz: 5 },
+        { id: 'lot-7-car-2', position: [20, 0, 0], hx: 1, hy: 0.7, hz: 2 },
+      ],
+    });
+    expect(entries.map((e) => e.fadeKey)).toEqual([`infill:${INFILL_BUILDING_ID_PREFIX}king:hi:3`]);
+  });
+
+  it('centred boxes carry a backdrop key; NAMED boxes and HERO bases carry null (legacy fader)', () => {
+    const entries = buildClipIndexEntries({
+      ...EMPTY_SOURCES,
+      centredBoxes: [{ x: -50, z: 25, hx: 6, hy: 12, hz: 8 }],
+      namedBoxes: [{ cx: 10, cz: 20, hx: 2, hy: 30, hz: 4 }],
+      heroBases: [{ x: 900, z: 3300, radius: 10.5, halfHeight: 3.5, centerY: 3.5 }],
+    });
+    expect(entries.map((e) => e.fadeKey)).toEqual([backdropFadeKey({ x: -50, z: 25 }), null, null]);
+  });
+
+  it('buildClipAabbs stays the fade-key-free view (the Phase 33 consumers are untouched)', () => {
+    const sources: ClipIndexSources = {
+      ...EMPTY_SOURCES,
+      groundedBuildings: [{ position: [10, 0, 20], hx: 1, hy: 1, hz: 1, slotId: 'king:p:4' }],
+    };
+    expect(buildClipAabbs(sources)).toEqual([{ minX: 9, maxX: 11, minY: 0, maxY: 2, minZ: 19, maxZ: 21 }]);
+    // …and it is the same geometry the keyed build produces, box for box.
+    const keyed = buildClipIndexEntries(sources);
+    expect(buildClipAabbs(sources)[0].minX).toBe(keyed[0].minX);
+  });
+
+  it('DRIFT GUARD: every fade key on the REAL layout is unique (no two volumes share a writer)', () => {
+    const frontage = buildFrontage(416);
+    const infill = buildInfill(416, frontage);
+    const entries = buildClipIndexEntries({
+      groundedBuildings: [...frontage.slots, ...frontage.cornerFills],
+      centredBoxes: [...frontage.towerBoxes, ...infill.boxes],
+      infillFixed: infill.fixed,
+      namedBoxes: [],
+      heroBases: [],
+    });
+    const keys = entries.map((e) => e.fadeKey).filter((k): k is string => k !== null);
+    expect(keys.length).toBe(entries.length); // every one of these classes IS fadeable
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+describe('segmentHitFadeKeys', () => {
+  /** A keyed box, so a test can assert which volumes a segment claimed. */
+  function keyed(key: string | null, x: number, z: number, hx = 5, hy = 10, hz = 5): ClipEntry {
+    return { ...boxAt(x, z, hx, hy, hz), fadeKey: key };
+  }
+
+  it('collects the keys of every keyed box the segment passes through', () => {
+    setClipIndex([keyed('a', 0, 0), keyed('b', 20, 0), keyed('c', 0, 40)]);
+    const out = new Set<string>();
+    expect(segmentHitFadeKeys(-20, 5, 0, 60, 5, 0, out)).toBe(2);
+    expect([...out].sort()).toEqual(['a', 'b']);
+  });
+
+  it('skips null-key volumes (named/hero ride the material-opacity fader instead)', () => {
+    setClipIndex([keyed(null, 0, 0), keyed('b', 20, 0)]);
+    const out = new Set<string>();
+    expect(segmentHitFadeKeys(-20, 5, 0, 60, 5, 0, out)).toBe(1);
+    expect([...out]).toEqual(['b']);
+  });
+
+  it('treats a key-less (pre-Phase-36) box as not fadeable rather than throwing', () => {
+    setClipIndex([boxAt(0, 0)]);
+    const out = new Set<string>();
+    expect(segmentHitFadeKeys(-20, 5, 0, 60, 5, 0, out)).toBe(0);
+    expect(out.size).toBe(0);
+  });
+
+  it('UNIONS across calls and reports only what each call newly added (the 5-segment pass)', () => {
+    setClipIndex([keyed('a', 0, 0), keyed('b', 20, 0)]);
+    const out = new Set<string>();
+    expect(segmentHitFadeKeys(-20, 5, 0, 10, 5, 0, out)).toBe(1); // 'a'
+    expect(segmentHitFadeKeys(-20, 5, 0, 60, 5, 0, out)).toBe(1); // 'a' already there, adds 'b'
+    expect([...out].sort()).toEqual(['a', 'b']);
+  });
+
+  it('counts a box spanning many grid cells once, and leaves an empty index alone', () => {
+    setClipIndex([{ minX: -200, maxX: 200, minY: 0, maxY: 40, minZ: -200, maxZ: 200, fadeKey: 'big' }]);
+    const out = new Set<string>();
+    expect(segmentHitFadeKeys(-400, 10, -400, 400, 10, 400, out)).toBe(1);
+    clearClipIndex();
+    out.clear();
+    expect(segmentHitFadeKeys(-400, 10, -400, 400, 10, 400, out)).toBe(0);
+  });
+
+  it('agrees with a brute-force scan over randomized boxes and segments (seeded)', () => {
+    // Tiny deterministic LCG — no rng import, so this test can never drift with the world seed.
+    let s = 20260726;
+    const rnd = (): number => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+    const span = (lo: number, hi: number): number => lo + rnd() * (hi - lo);
+
+    const entries: ClipEntry[] = [];
+    for (let i = 0; i < 120; i++) {
+      const x = span(-300, 300);
+      const z = span(-300, 300);
+      const hx = span(2, 30);
+      const hy = span(2, 25);
+      const hz = span(2, 30);
+      // A third of the population is null-keyed (named/hero-like) — the brute force must agree
+      // about those being invisible to this query too.
+      entries.push({ ...boxAt(x, z, hx, hy, hz), fadeKey: i % 3 === 0 ? null : `k${i}` });
+    }
+    setClipIndex(entries);
+
+    /** Reference: unaccelerated slab test over the whole list. */
+    const bruteKeys = (
+      x0: number,
+      y0: number,
+      z0: number,
+      x1: number,
+      y1: number,
+      z1: number,
+    ): Set<string> => {
+      const hit = new Set<string>();
+      for (const b of entries) {
+        if (b.fadeKey === null) continue;
+        let tMin = 0;
+        let tMax = 1;
+        let ok = true;
+        const axes: [number, number, number, number][] = [
+          [b.minX, b.maxX, x0, x1 - x0],
+          [b.minY, b.maxY, y0, y1 - y0],
+          [b.minZ, b.maxZ, z0, z1 - z0],
+        ];
+        for (const [lo, hi, o, d] of axes) {
+          if (d === 0) {
+            if (o < lo || o > hi) {
+              ok = false;
+              break;
+            }
+            continue;
+          }
+          let t1 = (lo - o) / d;
+          let t2 = (hi - o) / d;
+          if (t1 > t2) [t1, t2] = [t2, t1];
+          if (t1 > tMin) tMin = t1;
+          if (t2 < tMax) tMax = t2;
+          if (tMin > tMax) {
+            ok = false;
+            break;
+          }
+        }
+        if (ok) hit.add(b.fadeKey);
+      }
+      return hit;
+    };
+
+    const out = new Set<string>();
+    for (let i = 0; i < 400; i++) {
+      const x0 = span(-350, 350);
+      const y0 = span(0, 60);
+      const z0 = span(-350, 350);
+      const x1 = x0 + span(-120, 120);
+      const y1 = span(0, 60);
+      const z1 = z0 + span(-120, 120);
+      out.clear();
+      segmentHitFadeKeys(x0, y0, z0, x1, y1, z1, out);
+      expect([...out].sort()).toEqual([...bruteKeys(x0, y0, z0, x1, y1, z1)].sort());
+    }
+  });
+
+  it('does not disturb segmentHitCount running alongside it (shared visited stamp)', () => {
+    setClipIndex([keyed('a', 0, 0), keyed(null, 20, 0)]);
+    const out = new Set<string>();
+    expect(segmentHitCount(-20, 5, 0, 60, 5, 0)).toBe(2);
+    expect(segmentHitFadeKeys(-20, 5, 0, 60, 5, 0, out)).toBe(1);
     expect(segmentHitCount(-20, 5, 0, 60, 5, 0)).toBe(2);
   });
 });
