@@ -153,7 +153,7 @@
       "dome_diameter_wu": 66,
       "material": "precast_grey",
       "confidence": "high",
-      "notes": "86 m is roof height (no floor count applies \u2014 domed stadium); white/grey panels"
+      "notes": "86 m roof height (no floor count\u2014domed stadium). Retractable roof: 4 steel panels (3 slide south\u2192north, 1 fixed north end); nest like camera iris on electric-motor steel tracks. Integrated Toronto Marriott hotel tower (55 field-view rooms overlooking outfield/centre field). Exterior signage: Gardiner LED pylon (south side, 31 ft tall \u00d7 55 ft wide, 158 ft continuous LED video ribbon). Roof panels white/grey precast."
     },
     {
       "id": "north-york-civic-centre",
@@ -211,6 +211,30 @@
       "material": "storefront",
       "confidence": "high",
       "notes": "per-district \u2014 generic filler archetype; spec table lists footprint as '~8' (approximate), stored as 8"
+    },
+    {
+      "id": "aquarium-block",
+      "name": "Ripley's Aquarium of Canada",
+      "real_h_m": 11,
+      "floors": 2,
+      "expected_game_h_wu": 9,
+      "footprint_wu": 36,
+      "footprint_note": "Verified 12,500 sqm floor area over 2 floors -> ~6,250 sqm footprint, approximated as a ~110x57 m rectangle (aspect ~1.9). Long side 110 m / ~3.1 m per wu (CN cross-check: 66 m real base / 21 wu footprint) ~= 36 wu; short side ~= 19 wu -> ~36x19 wu footprint, long side stored as footprint_wu.",
+      "material": "glass_blue",
+      "confidence": "low",
+      "notes": "288 Bremner Blvd. Modern angular faceted form (glacial-formation inspired, wave-roof). Floor area 12,500 m\u00b2. Exact exterior height and material tint need verification. expected_game_h_wu recomputed via hGame(11) = 8.64 -> rounded to 9 (T0 phase-45)."
+    },
+    {
+      "id": "roundhouse",
+      "name": "John Street Roundhouse",
+      "real_h_m": 12,
+      "floors": null,
+      "expected_game_h_wu": 9,
+      "footprint_wu": 30,
+      "footprint_note": "Real building is a full semicircle ~120+ m diameter (32 bays around a 37 m turntable) -- far larger than the compacted rail-lands lot. footprint_wu 30 is a reduced-arc homage (fewer visible bays) sized to fit the lot, not a literal real-footprint conversion; real basis: 32 locomotive bays, dia 37 m turntable, built 1929-31.",
+      "material": "brick_red",
+      "confidence": "low",
+      "notes": "Red brick semicircular railway shed (1929\u201331), 32 locomotive bays, south of Bremner near Rogers Centre. Interior ceiling 34 ft (10.4 m). Turntable 120 ft (37 m) diameter. Exact exterior height need verification. Material corrected limestone -> brick_red (enum match for a red-brick shed; T0 phase-45). expected_game_h_wu recomputed via hGame(12) = 9.10 -> rounded to 9 (T0 phase-45)."
     }
   ]
 }

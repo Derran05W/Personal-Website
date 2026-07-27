@@ -7,7 +7,11 @@
 // Phase 26 grew the atlas from a 5×1 row of bank brands to a 7×3 grid of 21 cells (5 banks +
 // 16 retail/nostalgia brands, `discA`/`discB` counted separately for Sam the Record Man's
 // 2-frame spin) — the UV math below now covers both axes, matching world/palette.ts's
-// row/col + flipY convention (`paletteCellUv`).
+// row/col + flipY convention (`paletteCellUv`). Phase 45 grew it again to an 8×3 grid (24
+// slots, 2 spare) to fit the 22nd brand (Steam Whistle, rail-lands vibe kit) — only appended,
+// so every existing id keeps its LOGO_BRANDS index even though `alo`'s row/col position shifts
+// (row-major math depends on `cols`, which changed 7→8; the UV lookup is always derived from
+// the SAME layout at draw time, so nothing can drift out of sync — see logoAtlas.ts's comment).
 
 import { NearestFilter, SRGBColorSpace } from 'three';
 import { describe, expect, it } from 'vitest';
@@ -43,15 +47,16 @@ const EXPECTED_BRANDS = [
   'recroom',
   'apple',
   'alo',
+  'steamwhistle',
 ] as const;
 
 describe('LOGO_BRANDS — brand list', () => {
-  it('has exactly the five Phase-24 bank brands followed by the sixteen Phase-26 retail/nostalgia brands', () => {
+  it('has exactly the five Phase-24 bank brands, the sixteen Phase-26 retail/nostalgia brands, and the Phase-45 rail-lands brand', () => {
     expect(LOGO_BRANDS).toEqual(EXPECTED_BRANDS);
   });
 
-  it('has 21 entries total', () => {
-    expect(LOGO_BRANDS.length).toBe(21);
+  it('has 22 entries total', () => {
+    expect(LOGO_BRANDS.length).toBe(22);
   });
 
   it('is unique (no duplicate brand keys)', () => {
@@ -60,15 +65,17 @@ describe('LOGO_BRANDS — brand list', () => {
 });
 
 describe('LOGO_ATLAS_LAYOUT — atlas grid', () => {
-  it('is a 7×3 grid of 32×32 cells (21 cells for 21 brands)', () => {
+  it('is an 8×3 grid of 32×32 cells (24 slots, enough for 22 brands with room to spare)', () => {
     expect(LOGO_ATLAS_LAYOUT.cellSize).toBe(32);
-    expect(LOGO_ATLAS_LAYOUT.cols).toBe(7);
+    expect(LOGO_ATLAS_LAYOUT.cols).toBe(8);
     expect(LOGO_ATLAS_LAYOUT.rows).toBe(3);
-    expect(LOGO_ATLAS_LAYOUT.cols * LOGO_ATLAS_LAYOUT.rows).toBe(LOGO_BRANDS.length);
+    expect(LOGO_ATLAS_LAYOUT.cols * LOGO_ATLAS_LAYOUT.rows).toBeGreaterThanOrEqual(
+      LOGO_BRANDS.length,
+    );
   });
 
-  it('derives a 224×96 canvas (7 cols × 32px, 3 rows × 32px)', () => {
-    expect(LOGO_ATLAS_LAYOUT.width).toBe(224);
+  it('derives a 256×96 canvas (8 cols × 32px, 3 rows × 32px)', () => {
+    expect(LOGO_ATLAS_LAYOUT.width).toBe(256);
     expect(LOGO_ATLAS_LAYOUT.height).toBe(96);
   });
 });
@@ -92,6 +99,10 @@ describe('logoCellIndex — pure, no canvas', () => {
     expect(logoCellIndex('alo')).toBe(20);
   });
 
+  it('steamwhistle (the Phase-45 rail-lands brand) is index 21', () => {
+    expect(logoCellIndex('steamwhistle')).toBe(21);
+  });
+
   it('throws on an unknown brand', () => {
     expect(() => logoCellIndex('unknown' as LogoBrand)).toThrow(/unknown brand/);
   });
@@ -112,23 +123,31 @@ describe('logoCellUv — exact fractions per grid position', () => {
     });
   });
 
-  it('td (index 0: row 0, col 0) occupies u≈[0, 1/7], v≈[2/3, 1]', () => {
+  it('td (index 0: row 0, col 0) occupies u≈[0, 1/8], v≈[2/3, 1]', () => {
     const uv = logoCellUv('td');
     expect(uv.u0).toBeCloseTo(0, 12);
-    expect(uv.u1).toBeCloseTo(1 / 7, 12);
+    expect(uv.u1).toBeCloseTo(1 / 8, 12);
     expect(uv.v0).toBeCloseTo(2 / 3, 12);
     expect(uv.v1).toBeCloseTo(1, 12);
   });
 
-  it('alo (index 20: row 2, col 6) occupies u≈[6/7, 1], v≈[0, 1/3]', () => {
+  it('alo (index 20: row 2, col 4 under the Phase-45 8-col grid) occupies u≈[4/8, 5/8], v≈[0, 1/3]', () => {
     const uv = logoCellUv('alo');
-    expect(uv.u0).toBeCloseTo(6 / 7, 12);
-    expect(uv.u1).toBeCloseTo(1, 12);
+    expect(uv.u0).toBeCloseTo(4 / 8, 12);
+    expect(uv.u1).toBeCloseTo(5 / 8, 12);
     expect(uv.v0).toBeCloseTo(0, 12);
     expect(uv.v1).toBeCloseTo(1 / 3, 12);
   });
 
-  it('cells within a row are horizontally contiguous, spanning u [0,1] end to end', () => {
+  it('steamwhistle (index 21: row 2, col 5) occupies u≈[5/8, 6/8], v≈[0, 1/3]', () => {
+    const uv = logoCellUv('steamwhistle');
+    expect(uv.u0).toBeCloseTo(5 / 8, 12);
+    expect(uv.u1).toBeCloseTo(6 / 8, 12);
+    expect(uv.v0).toBeCloseTo(0, 12);
+    expect(uv.v1).toBeCloseTo(1 / 3, 12);
+  });
+
+  it('cells within a row are horizontally contiguous, starting at u=0 (spanning u [0,1] end to end for fully-packed rows; the Phase-45 last row is only partially filled — 6 of 8 cols — so it stops short of u=1 instead of overflowing into a 25th slot)', () => {
     for (let row = 0; row < rows; row++) {
       const rowBrands = LOGO_BRANDS.filter((_, i) => Math.floor(i / cols) === row);
       const sorted = [...rowBrands].sort((a, b) => logoCellIndex(a) - logoCellIndex(b));
@@ -136,7 +155,9 @@ describe('logoCellUv — exact fractions per grid position', () => {
         expect(logoCellUv(sorted[i]).u0).toBeCloseTo(logoCellUv(sorted[i - 1]).u1, 12);
       }
       expect(logoCellUv(sorted[0]).u0).toBe(0);
-      expect(logoCellUv(sorted[sorted.length - 1]).u1).toBe(1);
+      const isFullyPacked = sorted.length === cols;
+      const expectedLastU1 = isFullyPacked ? 1 : sorted.length / cols;
+      expect(logoCellUv(sorted[sorted.length - 1]).u1).toBeCloseTo(expectedLastU1, 12);
     }
   });
 

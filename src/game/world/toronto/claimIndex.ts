@@ -159,6 +159,10 @@ export type ClaimSource =
   /** Polygon-level facts that belong to no layer (the water band). */
   | 'world'
   | 'named'
+  /** Phase 45's rail-lands block (aquarium / roundhouse / locomotive / patio props). Its own
+   * source rather than 'named' so a sweep failure names the layer that authored the claim — the
+   * only reason this union exists. It introduces no new KIND and no new sanction rule. */
+  | 'railLands'
   | 'places'
   | 'parks'
   | 'worldEdge'

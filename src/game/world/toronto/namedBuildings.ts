@@ -28,6 +28,7 @@ import { CROWN_DECAL, lookForMaterial, type MaterialLook } from '../../config/to
 import { hGame } from './heightCurve';
 import { PLAYABLE_POLYGON, pointInPolygon, scaleAboutYonge } from './polygon';
 import { scaleBaseY, TORONTO_PROJECTION } from './projection';
+import { RAIL_LANDS_SPEC_IDS, railLandsZones } from './railLands';
 import { buildStreets, type MapRect, type Street } from './streets';
 import { type LogoBrand } from './logoAtlas';
 
@@ -73,10 +74,14 @@ export interface NamedPlacement {
 
 export interface NamedBuildings {
   readonly placements: readonly NamedPlacement[];
-  /** Footprints (+ margin) + the two hero lots — massing.ts rejects candidates intersecting these. */
+  /** Footprints (+ margin) + the hero lots + the Phase-45 rail-lands zones — every building-class
+   * placer rejects candidates intersecting these (worldContext registers them as `namedExclusion`). */
   readonly exclusions: readonly MapRect[];
   /** The two Phase-25 hero lots (subset of `exclusions`), exposed for tests + the P25 handoff. */
   readonly heroLots: readonly MapRect[];
+  /** The Phase-45 rail-lands zones (subset of `exclusions`): the aquarium lot, the roundhouse lot
+   * and the reserved rail-corridor strip. Same contract as `heroLots`. */
+  readonly railLandsZones: readonly MapRect[];
 }
 
 // --- spec data -----------------------------------------------------------------------------
@@ -99,9 +104,19 @@ function spec(id: string): BuildingSpec {
   return s;
 }
 
-/** Heroes (Phase 25) + Casa Loma (dropped — off-polygon). Exactly these three are excluded from
- * placement; the test pins the set. */
-export const NAMED_EXCLUDED_IDS = ['cn-tower', 'rogers-centre', 'casa-loma'] as const;
+/**
+ * Heroes (Phase 25) + Casa Loma (dropped — off-polygon) + the Phase-45 rail-lands pair. Exactly
+ * these ids are excluded from BOX placement here; the test pins the set.
+ *
+ * Phase 45: `aquarium-block` and `roundhouse` are NAMED-class spec rows like everything else in
+ * this module, but neither reads as a box — the aquarium is a faceted glass massing with a
+ * wave-form roof and the roundhouse is a brick ARC around a turntable — so both ship as bespoke
+ * merged meshes from world/toronto/railLands.ts, on their own reserved lots, exactly the way the
+ * two heroes have since Phase 25. (Phase 46 builds the general `namedGeometryBuilders` seam that
+ * lets a spec row carry bespoke geometry WITHOUT leaving this module; these two predate it by one
+ * phase and are deliberately not pre-building it.)
+ */
+export const NAMED_EXCLUDED_IDS = ['cn-tower', 'rogers-centre', 'casa-loma', ...RAIL_LANDS_SPEC_IDS] as const;
 /** Filler archetype (a per-district stock building, not a landmark placement). */
 export const NAMED_FILLER_ARCHETYPE_IDS = ['two-storey-shop'] as const;
 
@@ -377,6 +392,11 @@ export function buildNamedBuildings(): NamedBuildings {
   for (const p of placements) for (const b of p.boxes) exclusions.push(inflate(boxRect(b), EXCLUSION_MARGIN_WU));
   const heroLots = HERO_LOTS.map(clampRectInside);
   for (const lot of heroLots) exclusions.push(lot);
+  // Phase 45: the rail-lands lots + the reserved corridor strip ride the SAME channel the hero
+  // lots have used since Phase 24 — no new arbiter taxonomy, one registration site in
+  // worldContext.ts. railLands.ts does its own polygon clamp-check on all three.
+  const railLands = railLandsZones(streets);
+  for (const zone of railLands) exclusions.push(zone);
 
-  return { placements, exclusions, heroLots };
+  return { placements, exclusions, heroLots, railLandsZones: railLands };
 }

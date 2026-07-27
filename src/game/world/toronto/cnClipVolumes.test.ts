@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { buildCnTowerGeometry } from './heroes';
-import { cnBaseBandCuts, cnBaseClipVolumes, cnShaftClipVolumes, heroCylinderClipVolume } from './cnClipVolumes';
+import { buildCnTowerGeometry, buildRogersGeometry } from './heroes';
+import {
+  cnBaseBandCuts,
+  cnBaseClipVolumes,
+  cnShaftClipVolumes,
+  heroCylinderClipVolume,
+  rogersDomeClipVolumes,
+  domeCoverFraction,
+} from './cnClipVolumes';
 import type { ClipAabb } from './cameraClipIndex';
 import { solveAntiClipPull } from './cameraAntiClip';
-import { CAMERA } from '../../config/camera';
+import { CAMERA, CAMERA_EYE_MAX_WU, CAMERA_EYE_MIN_WU } from '../../config/camera';
 
 /** Where the tower stands in these tests. Arbitrary and non-zero on purpose: every assertion below
  * is written in tower-local coordinates and translated through `at`, so a translation bug cannot
@@ -272,5 +279,151 @@ describe('the Phase 43 parked-dead-behind defect, solved through the real anti-c
     const eye = eyeFor(car);
     expect(test(ALL)(eye.x, eye.y, eye.z)).toBe(true);
     expect(solveAntiClipPull(eye, car, test(ALL), CAMERA.antiClip)).toBe(0);
+  });
+});
+
+// --- Phase 45: the Rogers dome ------------------------------------------------------------------
+// The volume Phase 36 refused to ship and Phase 38 filed as a debt. Its acceptance test IS the old
+// TODO's own warning, turned into assertions: a square AABB around a 33-wu-radius shell would
+// "report false eye-inside across the whole rail-lands approach", so the open approach must stay
+// UNCOVERED while a pose genuinely inside the upper roof must be caught.
+describe('rogersDomeClipVolumes — enclosure, not containment', () => {
+  const rogers = buildRogersGeometry();
+  const RG = { x: 902, z: 3448 }; // arbitrary + non-zero, like AT above
+  const DOME = rogersDomeClipVolumes(rogers.meta.domeBands, RG);
+  const domeR = rogers.meta.domeDiameter / 2;
+  /** The shell's height above ground at horizontal distance `d` from the axis (the §5 profile). */
+  const shellYAt = (d: number): number => {
+    const u = Math.max(0, Math.min(1, d / domeR));
+    return rogers.meta.ringBaseTopY + (rogers.meta.height - rogers.meta.ringBaseTopY) * Math.sqrt(1 - u * u);
+  };
+  /** …and its inverse: the shell's radius at a height (what the dome ENCLOSES there). */
+  const shellRadiusAt = (y: number): number => {
+    const u = Math.max(0, Math.min(1, (y - rogers.meta.ringBaseTopY) / (rogers.meta.height - rogers.meta.ringBaseTopY)));
+    return domeR * Math.sqrt(Math.max(0, 1 - u * u));
+  };
+  /** A point `d` wu from the dome axis along compass bearing `az` (0 = south, +Z), at height y. */
+  const pose = (az: number, d: number, y: number) => ({
+    x: RG.x + d * Math.sin(az),
+    y,
+    z: RG.z + d * Math.cos(az),
+  });
+
+  it('emits volumes only for bands the rig\'s eye can physically reach', () => {
+    expect(DOME.length).toBeGreaterThan(0);
+    for (const b of DOME) {
+      expect(b.maxY).toBeGreaterThan(CAMERA_EYE_MIN_WU - 3);
+      expect(b.fadeKey).toBeNull(); // heroes fade through material opacity, not the dither channel
+    }
+    // The springing bands — the widest, most over-claiming boxes — are gone entirely.
+    const widest = Math.max(...DOME.map((b) => b.maxX - b.minX)) / 2;
+    expect(widest).toBeLessThan(domeR - 5);
+  });
+
+  it('does NOT cover the open rail-lands approach (the exact defect the old TODO warned about)', () => {
+    // Exhaustive, both in bearing and in height: EVERY covered point must be under the shell. The
+    // inscribed-box construction makes that a theorem (no corner reaches past its band's enclosure
+    // radius, and that radius is the smallest anywhere in the band) — this is the proof by
+    // enumeration, swept at 5° over the full circle and 0.5 wu in radius across the whole legal
+    // eye band. A single false flag here would be the old TODO's defect, shipped.
+    let checked = 0;
+    for (let deg = 0; deg < 360; deg += 5) {
+      const az = (deg * Math.PI) / 180;
+      for (let d = 8; d <= 45; d += 0.5) {
+        for (let y = CAMERA_EYE_MIN_WU; y <= CAMERA_EYE_MAX_WU; y += 1) {
+          if (y <= shellYAt(d) + 1e-6) continue; // genuinely under the roof — covering it is correct
+          const p = pose(az, d, y);
+          expect(inside(DOME, p.x, p.y, p.z)).toBe(false);
+          checked++;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(10_000);
+  });
+
+  it('the cover NEVER reaches past its band\'s enclosure radius, on any bearing', () => {
+    // The same theorem stated on the boxes themselves: each band's boxes have their corners ON the
+    // circle of that band's radius, so the union's farthest point is exactly that radius. (The
+    // two-box "plus" CN uses would reach 1.2247x here — 5 wu of open air on a 23 wu band, in eight
+    // lobes, right at the heights the approach is driven at. That is why the dome doesn't use it.)
+    const radii = rogers.meta.domeBands.map((b) => b.radius);
+    for (const b of DOME) {
+      const hx = (b.maxX - b.minX) / 2;
+      const hz = (b.maxZ - b.minZ) / 2;
+      const corner = Math.hypot(hx, hz);
+      const band = radii.find((r) => Math.abs(r - corner) < 1e-6);
+      expect(band).toBeDefined();
+    }
+  });
+
+  it('provably covers at least sqrt(K/(K+1)) of each band — the documented trade, enumerated', () => {
+    const fraction = domeCoverFraction();
+    expect(fraction).toBeGreaterThan(0.9);
+    for (const band of rogers.meta.domeBands) {
+      if (band.maxY < CAMERA_EYE_MIN_WU - 3 || band.radius < 2) continue;
+      const y = (band.minY + band.maxY) / 2;
+      for (let deg = 0; deg < 360; deg += 3) {
+        const az = (deg * Math.PI) / 180;
+        const p = pose(az, band.radius * fraction - 1e-6, y);
+        expect(inside(DOME, p.x, p.y, p.z)).toBe(true);
+      }
+    }
+  });
+
+  it('a car parked 25 wu south of the dome leaves the eye uncovered, front and back', () => {
+    // The brief's named pose, spelled out: 25 wu south of centre at rest-eye height is OUTSIDE the
+    // roof (the shell is already below 22 wu out there) — the whole approach must stay clean.
+    for (const d of [25, 30, 36, 42]) {
+      const p = pose(0, d, CAMERA_EYE_MIN_WU);
+      expect(inside(DOME, p.x, p.y, p.z)).toBe(false);
+    }
+  });
+
+  it('DOES cover poses genuinely inside the upper dome (the see-through the debt was about)', () => {
+    // Under the roof and above the eye line: the camera there is inside a back-face-culled shell,
+    // which reads as an empty lot with a car in it — the CN-shaft defect, one hero over.
+    for (const y of [CAMERA_EYE_MIN_WU, 24, 26]) {
+      for (let deg = 0; deg < 360; deg += 45) {
+        const az = (deg * Math.PI) / 180;
+        for (let d = 0; d <= 8; d += 2) {
+          if (y >= shellYAt(d)) continue; // above the roof at that radius — not an inside pose
+          const p = pose(az, d, y);
+          expect(inside(DOME, p.x, p.y, p.z)).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('catches the WORST REACHABLE pose: a car pressed against the wall, eye under the roof', () => {
+    // The pose class that motivated the filing. The car cannot come closer than the ring base
+    // (radius 33) plus its own half-width; the eye then sits CAMERA.baseDist·cos(pitch) further
+    // along the SE diagonal — i.e. ~13.8 wu TOWARD the axis when the car is north-west of it — at
+    // CAMERA_EYE_MIN_WU. That lands the eye ~20 wu out and 22 wu up: under the shell, inside the
+    // hero, back-face-culled. It must be covered, on every bearing a car can park on.
+    const p = (CAMERA.pitchDeg * Math.PI) / 180;
+    const eyeInset = CAMERA.baseDist * Math.cos(p) * Math.SQRT1_2 * Math.SQRT2; // the full XZ radius
+    const carRing = domeR + 1.5; // a car's half-width outside the ring base collider
+    const eyeD = carRing - eyeInset;
+    expect(eyeD).toBeLessThan(shellRadiusAt(CAMERA_EYE_MIN_WU)); // sanity: it really is inside
+    for (let deg = 0; deg < 360; deg += 15) {
+      const az = (deg * Math.PI) / 180;
+      const q = pose(az, eyeD, CAMERA_EYE_MIN_WU);
+      expect(inside(DOME, q.x, q.y, q.z)).toBe(true);
+    }
+  });
+
+  it('is translation-clean and degenerate-free (no zero/NaN boxes from the apex band)', () => {
+    const atOrigin = rogersDomeClipVolumes(rogers.meta.domeBands, { x: 0, z: 0 });
+    expect(atOrigin).toHaveLength(DOME.length);
+    for (let i = 0; i < DOME.length; i++) {
+      expect(DOME[i]!.minX - RG.x).toBeCloseTo(atOrigin[i]!.minX, 9);
+      expect(DOME[i]!.minZ - RG.z).toBeCloseTo(atOrigin[i]!.minZ, 9);
+    }
+    for (const b of atOrigin) {
+      expect(b.maxX - b.minX).toBeGreaterThan(1);
+      expect(b.maxZ - b.minZ).toBeGreaterThan(1);
+      expect(b.maxY).toBeGreaterThan(b.minY);
+      expect(Number.isFinite(b.minX + b.maxX + b.minY + b.maxY + b.minZ + b.maxZ)).toBe(true);
+    }
   });
 });

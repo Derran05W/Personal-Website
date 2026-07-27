@@ -435,6 +435,30 @@ export const CREDITS: CreditsContent = {
       ].join(' '),
     },
     {
+      name: 'Steam Whistle Brewing',
+      note: [
+        "Referenced as an original 32×32 pixel-art homage (a retro-green circular badge, cream",
+        'ring, a small pixel whistle glyph, and an "SW" wordmark — the exact brand colours were',
+        'unverifiable, so the palette is an approximate retro-green/cream family) on a sign',
+        "near the John Street Roundhouse in the rail-lands block, for Toronto-cityscape flavour",
+        "— a simplified, hand-drawn glyph, never a traced or exact reproduction of the real",
+        "mark. Steam Whistle Brewing's trademarks belong to its owner; no affiliation,",
+        'sponsorship, or endorsement is implied, and no official Steam Whistle assets were used.',
+      ].join(' '),
+    },
+    {
+      name: "Ripley's Aquarium of Canada",
+      note: [
+        "Referenced by name via the rail-lands block's building-massing homage (a low-poly,",
+        "faceted-glass volume evoking the aquarium's real angular form) and a generic in-game",
+        '"AQUARIUM" fascia sign — unlike this project\'s other 32×32 pixel-art brand-atlas',
+        "homages, Ripley's Aquarium of Canada has no logo cell of its own, never a traced or",
+        "exact reproduction of the real building or mark. Ripley's Aquarium's trademarks",
+        'belong to its owner; no affiliation, sponsorship, or endorsement is implied, and no',
+        "official Ripley's Aquarium assets were used.",
+      ].join(' '),
+    },
+    {
       name: 'TTC (Toronto Transit Commission)',
       note: [
         'Referenced as an original, nearest-neighbour pixel-art-style homage: real TTC route',

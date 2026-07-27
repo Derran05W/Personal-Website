@@ -193,6 +193,34 @@ arcs with visible seams, closed position**, one panel drawn as the sliding secti
 Grey-white, never brand-coloured. Adjacent placement rule from v1 stands:
 tower and dome touching, south of Front, west of the rail corridor.
 
+> **EXTENDED (Rogers v2) 2026-07-27, Phase 45:** the height (29.68 wu via `hGame(86)`), the ⌀66
+> dome, the 15% h ring base, the grey-white rule and the adjacency rule all STAND unchanged. What
+> v2 adds, from a map-researcher round the same day:
+> - **roof panels 4 → 6 latitude bands**, each closed by a proud up-facing **seam lip** (geometry,
+>   never a painted line — the Phase 42 anti-coplanar law). The real roof is **4 steel panels: 3
+>   slide south→north and nest under a FIXED panel at the north end**, riding electric-motor steel
+>   tracks on the stadium walls. A lathe of revolution cannot translate, so the homage is: the eight
+>   dome segments straddling SOUTH carry the sliding tint AND ride 0.45 wu **proud** of the fixed
+>   shell (the nesting read), with raised ribs on their two edge meridians (the leading-edge
+>   trusses) and matching **track rails on the east/west meridians**.
+> - **entrance gates** — five recessed bays between ten ring-base piers, lintel strips program-lit.
+> - **hotel window strip on the NORTH face** (Toronto Marriott City Centre, 55 field-view rooms):
+>   emissive window grid, camera-invisible on-rig by the fixed bearing, for the north elevation.
+> - **exterior LED jumbotron on the SOUTH face** (verified: the large pylon board + LED ribbon are
+>   on the south side — one of the two faces the fixed rig ever sees), as a mounted board of 12
+>   colour-block columns driven by its own night program (`config/rogersCentre.ts`,
+>   `rogersProgram.ts`, `rogersNightMaterial.ts` — the Phase 44 CN architecture, own cache key,
+>   +0 draw calls). Generic colour blocks only: no team or league marks.
+> - **two segmented helix ramp ribbons** on the shoulders flanking the south face. HOMAGE, stated
+>   plainly: the researcher round could NOT verify the real ramps' count or corners.
+> - **Blackout policy (differs from the CN Tower on purpose):** Rogers' emissives DIM with the
+>   harbourfront district's power. CN's structural "always lit through DARK CITY" ban is CN-only —
+>   a lit stadium beside a dark skyline would dilute that money shot.
+> - The **collider class is unchanged** (§5's ring-base cylinder): every new element either sits on
+>   the ring base or starts above 5 wu, so nothing the car can reach moved.
+> - The dome now also publishes per-band **enclosure hints** so the camera clip index can finally
+>   cover it (the Phase 36 residual / Phase 38 filed debt) — see `cnClipVolumes.ts`.
+
 **Apple Maps screenshot protocol** (yes — useful, bring these back):
 1. CN Tower from SW, ~30° elevation — shaft taper + pod height check
 2. Rogers roof, top-down — panel seam layout
@@ -322,6 +350,12 @@ Smashy Road) or rotate with the car?
   > `CN_TOWER_MAX_TRIS` in `heroes.ts`, pinned by `heroes.test.ts`.
 - **Rogers Centre ≤ 500 tris:** ring base (15% h) + lathed dome cap +
   4 roof-panel bands with visible seam edges, closed position.
+  > **RE-PINNED 2026-07-27, Phase 45 (Part 11 tri-budget addendum):** Rogers Centre v2 ≤ **1,500**
+  > tris (actual 1,342) — panelized dome (6 bands + proud seam lips), legible retractable sector
+  > (tinted + lifted, leading-edge ribs) with east/west track rails, articulated ring base with five
+  > recessed entrance gates, north-face hotel window strip, south-face LED jumbotron, two helix ramp
+  > ribbons. Budget exported as `ROGERS_MAX_TRIS` in `heroes.ts`; `heroes.test.ts` pins both the
+  > ceiling and a > 900 FLOOR (so a silent revert to the v1 mesh fails loudly).
 - **Bank towers = plain boxes** + crown decal. Their identity is colour +
   height + logo, not silhouette.
 - Sketchfab CC models (42k–87k tris) are hereby **reference-only**: they clash
@@ -338,6 +372,7 @@ art time.
 car is never fully hidden: meshes on the camera→car ray fade to ≤0.4 alpha within 150 ms
 decal textures sample with nearest-neighbour, mipmaps disabled
 CN Tower ≤ 600 tris; Rogers ≤ 500; no filler box > 12 tris
+  (hero budgets re-pinned in Part 11: CN ≤ 2,500 at Phase 43, Rogers ≤ 1,500 at Phase 45)
 fixed-bearing branch only: every decal face lies in the visible half-space
 ```
 

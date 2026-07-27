@@ -63,10 +63,33 @@ describe('composeWorld — the count table (seed 416), pinned', () => {
   //     on the REAL rotated model footprint (the same footprint the claim registers) instead of a
   //     0.6 wu stand-in, and one pile dumpster that had been reaching into already-claimed ground
   //     is now rejected (infill.ts's buildDeepScatter, Phase 40 comment).
+  //
+  // PHASE 45 RE-PIN — the rail-lands strip claim (world/toronto/railLands.ts). The block south of
+  // Front between Spadina and Bay is now RESERVED: its two lots plus the whole corridor interior
+  // enter as `namedExclusion` zones with the seed-independent prefix, so every seed-dependent
+  // placer rejects inside it. Measured deltas, each attributed:
+  //   • claims 8053 → 8056. +16 registered (3 rail-lands zones + 8 building volumes + 5 patio prop
+  //     footprints), −13 net from the placements the strip displaced (below).
+  //   • clipVolumes 2363 → 2373 (+10): the 8 new `namedBuilding` volumes plus the +2 net
+  //     back-lot boxes below (clipVolumes is exactly the building-class claim projection).
+  //   • infill.backlotBox 309 → 311 (+2) and infill.deepScatterGreenhouses 7 → 8 (+1): the strip
+  //     rejects candidates inside the corridor, and the deterministic per-candidate rng forks make
+  //     the WALK continue rather than stop — a rejected candidate frees the budget for later ones,
+  //     so two back-lot boxes and one greenhouse that used to be trimmed now land elsewhere.
+  //   • infill.deepScatterTrees 442 → 426 (−16): the deep-interior scatter's biggest single
+  //     catchment WAS the empty rail-lands block. Those 16 trees are exactly the "generic downtown"
+  //     dressing the phase set out to remove — the corridor now reads as ballast, track and
+  //     turntable instead of scrub.
+  //   • infill.fixedTotal 1189 → 1174 = the sum of the three above (+2 +1 −16 = −13).
+  //   • frontage.* ALL UNCHANGED, by design: the strip is inset from every bounding street by the
+  //     sidewalk band plus one pack-streetwall depth, so Front's south wall, Bremner's north wall
+  //     and the Spadina/Bay flanks survive the claim intact (railLands.ts's STREETWALL_RESERVE_WU).
+  //   • Verified after the fact: a blocking-claim census of the strip returns ONLY the 13
+  //     rail-lands claims — nothing generic is left inside the corridor.
   it('matches the measured seed-416 counts exactly', () => {
     expect(world.counts).toEqual({
-      claims: 8053,
-      clipVolumes: 2363,
+      claims: 8056,
+      clipVolumes: 2373,
       'frontage.total': 1400,
       'frontage.towerBoxes': 90,
       'frontage.cornerFills': 47,
@@ -96,7 +119,7 @@ describe('composeWorld — the count table (seed 416), pinned', () => {
       'furniture.manholes': 220,
       'furniture.parked': 200,
       'infill.backlotPack': 500,
-      'infill.backlotBox': 309,
+      'infill.backlotBox': 311,
       'infill.laneway': 350,
       'infill.parkingLots': 16,
       'infill.parkingCars': 115,
@@ -105,10 +128,10 @@ describe('composeWorld — the count table (seed 416), pinned', () => {
       'infill.constructionDecor': 182,
       'infill.laneClosures': 5,
       'infill.laneClosureCones': 31,
-      'infill.deepScatterTrees': 442,
-      'infill.deepScatterGreenhouses': 7,
+      'infill.deepScatterTrees': 426,
+      'infill.deepScatterGreenhouses': 8,
       'infill.deepScatterPiles': 12,
-      'infill.fixedTotal': 1189,
+      'infill.fixedTotal': 1174,
       'infill.decorTotal': 548,
       'dress.bands': 27,
       'dress.awnings': 14,
@@ -131,9 +154,9 @@ describe('composeWorld — the count table (seed 416), pinned', () => {
     ['furniture.parked', 200],
     ['furniture.trafficLights', 227],
     ['furniture.powerBoxes', 74],
-    ['infill.backlotBox', 309],
+    ['infill.backlotBox', 311],
     ['infill.backlotPack', 500],
-    ['infill.deepScatterTrees', 442],
+    ['infill.deepScatterTrees', 426],
     ['infill.laneway', 350],
     ['frontage.total', 1400],
     ['frontage.towerBoxes', 90],

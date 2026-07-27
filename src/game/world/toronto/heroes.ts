@@ -53,6 +53,28 @@
 // bright ring would be light that no palette/mode/blackout could ever turn off — so the channel is
 // now baked as its dark housing (#2a2e33) and every photon comes from the program.
 //
+// PHASE 45 (Part 11) — ROGERS CENTRE v2. The v1 stadium was 240 tris: a plain grey cylinder with a
+// 4-band lathed cap. It read as "a dome", not as THE dome. v2 rebuilds it around the features the
+// real building is recognized by (all researcher-verified 2026-07-27 except where noted):
+//   • a PANELIZED dome — six latitude bands, each closed by a proud horizontal SEAM LIP, so the
+//     roof reads as assembled sections instead of a smooth shell (the lips are geometry, never
+//     painted overlays — the Phase 42 anti-coplanar law);
+//   • the RETRACTABLE quarter, legible at last: the eight segments straddling SOUTH carry their own
+//     tint AND ride 0.45 wu proud of the fixed shell (the real panels nest ON TOP of each other as
+//     they slide north under the fixed north panel), with a raised RIB along each of its two edge
+//     meridians — the leading-edge trusses;
+//   • TRACK RAILS on the east and west meridians (the real panels ride motor-driven steel tracks on
+//     the stadium walls), same rib treatment;
+//   • a ring base with articulation PIERS and recessed ENTRANCE GATES whose lintel strips glow
+//     (program-tagged, Phase-44 architecture);
+//   • the gondola-HOTEL window strip on the NORTH face (55 field-view rooms — the strip is
+//     camera-invisible on-rig by the fixed bearing and pays off in the off-rig postcard);
+//   • the exterior LED JUMBOTRON on the SOUTH face — which IS a camera-visible face — as a mounted
+//     board of colour-block columns driven by its own night program;
+//   • two segmented helix RAMP ribbons on the shoulders flanking the south face (the ramps' corner
+//     count could NOT be verified in the researcher round — they ship as an explicit HOMAGE).
+// Tri budget rises 500 → 1,500 deliberately (overview tri-budget addendum, Part 11 rule 2).
+//
 // Pure geometry: three's BufferGeometry/Color are pure JS (no WebGL), so this whole module runs
 // in the vitest/jsdom env and its tri budgets + proportions are unit-testable without a canvas.
 
@@ -62,12 +84,14 @@ import { hGame } from './heightCurve';
 
 /**
  * A.3 tri budgets — exported so the test and any future perf audit share one source.
- * CN's rises 600 → 2,500 at Phase 43 (the overview's tri-budget addendum: budgets in Parts 11–12
- * rise DELIBERATELY and get re-pinned, never silently). The actual mesh lands well under it —
- * the headroom is Phase 44's (night program) and the segment counts below are the knob.
+ * CN's rises 600 → 2,500 at Phase 43 and Rogers' 500 → 1,500 at Phase 45 (the overview's
+ * tri-budget addendum: budgets in Parts 11–12 rise DELIBERATELY and get re-pinned, never
+ * silently — the spec's own A.3 lines carry dated addenda for both). Each mesh lands well under
+ * its ceiling; the segment counts below are the knob, and heroes.test.ts pins a FLOOR too so a
+ * regression that quietly reverted either v2 fails loudly instead of passing on the ceiling.
  */
 export const CN_TOWER_MAX_TRIS = 2500 as const;
-export const ROGERS_MAX_TRIS = 500 as const;
+export const ROGERS_MAX_TRIS = 1500 as const;
 
 interface HeroSpecRow {
   readonly id: string;
@@ -95,10 +119,22 @@ const POD_CREAM = '#d8d4c9'; // cream tier bands between pod levels
 const MECH_GREY = '#7d838c'; // upper mechanical ring (the LED channel's housing)
 const RING_CHANNEL = '#2a2e33'; // Phase 44: the LED channel's HOUSING — dark. The light is the program.
 const BEACON_RED = '#ff5a4a'; // aircraft-beacon housings (needle stub + pod-corner strobes)
+// --- Rogers Centre palette (grey-white ONLY — §5: the stadium is never brand-coloured) ---------
 const ROGERS_RING = '#9aa0ab'; // stadium outer ring base (grey precast)
-// Four nested roof-panel greys (visible seams between adjacent bands, §5) + the retractable panel.
-const DOME_BANDS = ['#c6c6cc', '#b6b6be', '#a6a6b0', '#9a9aa4'] as const;
-const DOME_PANEL = '#7f8894'; // the one sliding-section band-slice, a distinct darker grey
+const ROGERS_PIER = '#aab0ba'; // the ring's articulation pilasters — a shade lighter so they read
+const ROGERS_GATE = '#4e545d'; // recessed entrance-bay face (dark = the opening reads as a hole)
+const ROGERS_GATE_HOUSING = '#3a332a'; // the gate lintel's glow-strip housing — the light is the program
+const ROGERS_HOTEL_BAND = '#b3b7be'; // the north-face hotel strip's precast frame
+const ROGERS_HOTEL_GLASS = '#2c313a'; // its window glass; LIT rooms come from the program, not the bake
+const ROGERS_JUMBO_HOUSING = '#3c4149'; // the south LED board's mounting box
+const ROGERS_JUMBO_PANEL = '#15181c'; // the board itself, baked dark (Phase-44 rule: light ≠ paint)
+const ROGERS_RAMP_DECK = '#a4aab4';
+const ROGERS_RAMP_FASCIA = '#8f959f';
+const ROGERS_RAIL = '#878d97'; // track rails + the sliding assembly's leading-edge ribs (steel)
+const ROGERS_SEAM = '#ccd0d6'; // the proud lip between roof panels — up-facing, so it catches the key
+// Six nested roof-panel greys (visible seams between adjacent bands, §5) + the retractable panel.
+const DOME_BANDS = ['#c6c6cc', '#bcbcc5', '#b2b2bc', '#a8a8b3', '#9e9ea9', '#94949f'] as const;
+const DOME_PANEL = '#7f8894'; // the sliding (retractable) sector, a distinct darker grey
 
 // Baked directional light — a fixed dusk key over +x / up / +z (roughly the §5.3 camera bearing),
 // so the facets the camera sees catch the most light. shade ∈ [SHADE_MIN, 1].
@@ -118,8 +154,16 @@ function shadeFor(nx: number, ny: number, nz: number): number {
  * WHICH light the fragment patch adds to a surface. One float per vertex; the shader branches on
  * it with 0.5-wide windows, so the ids must stay small consecutive integers.
  *
- * STATIC is the default for EVERY existing call site (Rogers included), which is why adding the
- * tags changed no other geometry: an untagged vertex carries (0, 0) and the patch adds nothing.
+ * STATIC is the default for EVERY call site, which is why adding the tags changed no other
+ * geometry: an untagged vertex carries (0, 0) and the patch adds nothing.
+ *
+ * PHASE 45 — the alphabet is now SHARED HERO-WIDE, not CN's alone (the name is kept because the
+ * export is imported in five places and the ids are a single numbering space by design). Each hero
+ * has its OWN patched material with its own program cache key, and each material implements only
+ * the ids its own geometry carries; ids 1–4 are the CN Tower's, 5–6 are the Rogers Centre's. The
+ * two patches are written so an id they don't implement falls through and adds NOTHING (CN's FLOOD
+ * branch is bounded above at 4.5 for exactly this reason), so the pairing rule stays a safety net
+ * rather than a load-bearing assumption.
  */
 export const CN_PROGRAM = {
   /** Unlit by the program — plain baked vertex colour. */
@@ -134,8 +178,20 @@ export const CN_PROGRAM = {
   /** Base floodwash receivers (skirt / soffit / trunk / fin flanks). `aProgramT` = wash strength,
    *  1 at the ground → 0 at the leg merge, so the gradient is baked, not computed per frame. */
   FLOOD: 4,
+  /** Phase 45 — the Rogers Centre's south-face LED board. `aProgramT` = that COLUMN's centre
+   *  fraction across the board (the ring-cell idiom: flat per column, so the shader's `floor`
+   *  re-derives an exact cell index and no discretization seam can land mid-column). */
+  JUMBO: 5,
+  /** Phase 45 — Rogers' plain emissive surfaces. `aProgramT` selects WHICH one: 0 = the entrance
+   *  gates' lintel glow strips, 1 = the north hotel strip's lit windows. One id with a selector
+   *  beats two ids: the shader mixes colour+intensity off the same varying it already reads. */
+  EMISS: 6,
 } as const;
 export type CnProgramId = (typeof CN_PROGRAM)[keyof typeof CN_PROGRAM];
+
+/** `aProgramT` selector values for CN_PROGRAM.EMISS (see above). Exported so the material's mix
+ *  threshold and the geometry's tags can never drift apart. */
+export const ROGERS_EMISS_T = { gate: 0, hotel: 1 } as const;
 
 // --- geometry accumulator (non-indexed, flat-shaded, per-vertex colour) ----------------------
 type Vec3 = readonly [number, number, number];
@@ -929,6 +985,23 @@ export function buildCnTowerGeometry(): CnTowerModel {
 
 // --- Rogers Centre ---------------------------------------------------------------------------
 
+/** One dome latitude band, published as a camera-volume hint (the `shaftColliders` precedent). */
+export interface RogersDomeBand {
+  /**
+   * The dome profile's radius at `maxY` — i.e. the SMALLEST radius anywhere in the band, which is
+   * the widest cylinder the shell ENCLOSES across the band's whole height.
+   *
+   * Deliberately NOT the band's widest (bottom) radius, which is what a containment hint would
+   * publish. The dome is a SHELL over air: what the camera can be "inside" is the enclosed volume,
+   * and a bottom-radius box would claim a ring of OPEN AIR outside the sloping skin — the exact
+   * false eye-inside the Phase 36 TODO refused to ship ("a square AABB around a 33-wu-radius dome
+   * reports false eye-inside across the whole rail-lands approach"). See rogersDomeClipVolumes.
+   */
+  readonly radius: number;
+  readonly minY: number;
+  readonly maxY: number;
+}
+
 export interface RogersMeta {
   readonly triangles: number;
   readonly height: number;
@@ -937,6 +1010,46 @@ export interface RogersMeta {
   readonly apexY: number;
   /** Ring-base cylinder collider hint (radius / half-height / centre-y) for the scene. */
   readonly collider: { readonly radius: number; readonly halfHeight: number; readonly centerY: number };
+  /** Phase 45 — per-band enclosure hints for the camera clip index (see RogersDomeBand). */
+  readonly domeBands: readonly RogersDomeBand[];
+  /**
+   * The south-face LED board, in the mesh's LOCAL frame: `z` is the panel plane (+Z = south = a
+   * camera-visible face), `cells` the column count the night program discretizes `aProgramT` by.
+   * GEOMETRY-DERIVED, exactly like CnTowerMeta.ringCells — config never re-types it.
+   */
+  readonly jumbotron: {
+    readonly minX: number;
+    readonly maxX: number;
+    readonly minY: number;
+    readonly maxY: number;
+    readonly z: number;
+    readonly cells: number;
+  };
+  /** Shorthand for `jumbotron.cells` (what createRogersNightMaterial takes). */
+  readonly jumboCells: number;
+  /** Entrance gates: azimuths (rad, from +Z toward +X) + the lintel glow strip's height band. */
+  readonly gates: {
+    readonly azimuths: readonly number[];
+    readonly glowMinY: number;
+    readonly glowMaxY: number;
+  };
+  /** The north-face hotel window strip's band (azimuths wrap-free: minAz < maxAz around π). */
+  readonly hotel: {
+    readonly minY: number;
+    readonly maxY: number;
+    readonly radius: number;
+    readonly minAz: number;
+    readonly maxAz: number;
+  };
+  /** The retractable assembly: half-angle about SOUTH (az 0) and how proud it rides. */
+  readonly slideSector: { readonly halfAngle: number; readonly lift: number };
+  /** The two helix ramp ribbons (azimuth span + height span), for tests and future dressing. */
+  readonly ramps: readonly {
+    readonly minAz: number;
+    readonly maxAz: number;
+    readonly minY: number;
+    readonly maxY: number;
+  }[];
 }
 
 export interface RogersModel {
@@ -944,9 +1057,56 @@ export interface RogersModel {
   readonly meta: RogersMeta;
 }
 
-/** Rogers Centre: a grey precast ring base (15%·h) + a squashed lathed half-dome cap built as 4
- * nested roof-panel bands with visible grey seams, one azimuthal slice drawn as the sliding
- * (retractable) panel in a distinct grey. Grey-white only, never brand-coloured. ≤ 500 tris. */
+// --- Rogers Centre v2 geometry laws (Phase 45) -------------------------------------------------
+// Every count/offset the builder below runs on, named once. The tri count is (SIDES, BANDS, RAMP
+// segments) — those three are the budget knob; everything else is proportion.
+
+/** Dome + ring segments. 30 = 12° per facet ≈ 6.9 wu of arc on a ⌀66 dome — chunky on purpose
+ *  (flat-shaded low-poly IS the look), and 12° divides the slide sector, gates and piers exactly. */
+const ROGERS_SIDES = 30;
+/** Latitude bands (§5's "nested roof-panel arcs", now six). The top one closes as a cone. */
+const ROGERS_DOME_BANDS = 6;
+/** How proud each band's closing lip stands. Geometry, never a painted line (Phase 42). */
+const ROGERS_SEAM_RIDGE = 0.35;
+/** The retractable sector: 4 segments each side of SOUTH = 96°, i.e. §5's "panel quarter". */
+const ROGERS_SLIDE_SEGS = 4;
+/** How far the sliding assembly rides ON TOP of the fixed shell (the nesting read). */
+const ROGERS_SLIDE_LIFT = 0.45;
+/** Rails/leading-edge ribs: half-width in azimuth (≈2.9° ⇒ ~1.6 wu each side) and how proud they
+ *  stand. The lift MUST exceed ROGERS_SLIDE_LIFT — a rib flush with the panels it guides would be
+ *  invisible on the lifted side and near-coplanar with it, which is the z-fight this project hunts. */
+const ROGERS_RIB_HALF_AZ = 0.05;
+const ROGERS_RIB_LIFT = 0.78;
+/** The ribs start at band 1: below that is the "wall" band the ramps wrap, and a rail through a
+ *  ramp deck is a defect, not a detail. */
+const ROGERS_RIB_FIRST_BAND = 1;
+const ROGERS_PIERS = 10;
+const ROGERS_GATES = 5;
+/** Board columns — the night program's colour blocks are one per column. */
+const ROGERS_JUMBO_CELLS = 12;
+const ROGERS_RAMP_SEGS = 14;
+
+/**
+ * Rogers Centre v2 (Phase 45). Bottom to top:
+ *  • a grey precast RING BASE (15%·h — spec §5) articulated by ten pilasters, with five recessed
+ *    ENTRANCE BAYS whose lintel strips are program-lit (the bay face sits barely proud of the wall
+ *    while the piers stand well proud, so the opening reads as recessed WITHOUT cutting a hole in
+ *    a closed cylinder — geometry the collider and the tri budget can both afford);
+ *  • the SOUTH-face LED JUMBOTRON: a mounted board of `ROGERS_JUMBO_CELLS` column quads, each
+ *    tagged JUMBO with its own flat cell fraction, on a housing box that buries itself in the shell;
+ *  • the NORTH-face gondola-HOTEL strip: a proud precast band with two rows of window quads, the
+ *    lit ones tagged EMISS (55 field-view rooms — researcher-verified north face);
+ *  • the PANELIZED DOME: six latitude bands on §5's quarter-ellipse profile, each closed by an
+ *    up-facing SEAM LIP that stands `ROGERS_SEAM_RIDGE` proud, so the roof reads as sections;
+ *  • the RETRACTABLE quarter: the eight segments straddling SOUTH, tinted AND lifted so they ride
+ *    on top of the fixed shell (the real panels slide south→north and nest under the fixed north
+ *    panel), with raised RIBS along their two edge meridians — the leading-edge trusses — plus the
+ *    east/west TRACK RAILS the panels ride;
+ *  • two segmented helix RAMP ribbons wrapping the wall band on the shoulders that flank the south
+ *    face. HOMAGE, stated plainly: the researcher round could not verify the real ramps' count or
+ *    corners, and the south corner itself is the board's, so the two go east and west of it.
+ * ONE merged non-indexed geometry (one draw call), grey-white only, ≤ 1,500 tris — all test-pinned.
+ */
 export function buildRogersGeometry(): RogersModel {
   const s = heroSpec('rogers-centre');
   const h = hGame(s.real_h_m);
@@ -954,24 +1114,326 @@ export function buildRogersGeometry(): RogersModel {
   const ringBaseTopY = 0.15 * h;
 
   const acc = createAccum();
-  const SIDES = 24;
+  const SIDES = ROGERS_SIDES;
+  const BANDS = ROGERS_DOME_BANDS;
+  const step = (Math.PI * 2) / SIDES;
 
-  // Ring base — a short precast cylinder wall (no bottom cap: it sits on the ground).
-  addPrismFrustum(acc, SIDES, 0, ringBaseTopY, domeR, domeR, ROGERS_RING);
+  /** A point at (azimuth, radius, height) in the builder's frame (az from +Z toward +X). */
+  const at = (az: number, r: number, y: number): Vec3 => [r * Math.sin(az), y, r * Math.cos(az)];
 
-  // Half-dome cap — a squashed quarter-ellipse profile (radius domeR at the base → 0 at the apex),
-  // sampled into 4 nested latitude bands so the seams between adjacent greys read as roof panels.
-  // One azimuthal quarter (the panel slice) is drawn in the sliding-panel grey across every band.
-  const BANDS = 4;
+  // §5's squashed quarter-ellipse: radius domeR at the springing → 0 at the apex.
   const profileR = (t: number): number => domeR * Math.cos((t * Math.PI) / 2);
   const profileY = (t: number): number => ringBaseTopY + (h - ringBaseTopY) * Math.sin((t * Math.PI) / 2);
-  const panelSlice = (i: number, sides: number): boolean => i < Math.round(sides / 4); // one quarter = the retractable roof
-  for (let bnd = 0; bnd < BANDS; bnd++) {
-    const t0 = bnd / BANDS;
-    const t1 = (bnd + 1) / BANDS;
-    addPrismFrustum(acc, SIDES, profileY(t0), profileY(t1), profileR(t0), profileR(t1), DOME_BANDS[bnd], {
-      colorAt: (i, sides) => (panelSlice(i, sides) ? DOME_PANEL : DOME_BANDS[bnd]),
+  /** The same profile solved the other way: the shell's radius at a world height. Used by the
+   *  ramps and the hotel band so neither has to re-type the curve (the P41 anchor-derivation rule). */
+  const radiusAtY = (y: number): number => {
+    const u = Math.max(0, Math.min(1, (y - ringBaseTopY) / (h - ringBaseTopY)));
+    return domeR * Math.sqrt(Math.max(0, 1 - u * u));
+  };
+
+  // --- the retractable sector ------------------------------------------------------------------
+  // Classified by SEGMENT INDEX, not by an angular distance test: the sector's edges then land
+  // exactly on segment boundaries, which is what lets the leading-edge ribs sit on them without a
+  // rounding-dependent sliver, and what makes the lifted/fixed radial step a clean seam the rib
+  // covers rather than a crack.
+  const isSlide = (i: number): boolean => i < ROGERS_SLIDE_SEGS || i >= SIDES - ROGERS_SLIDE_SEGS;
+  const liftAt = (i: number): number => (isSlide(i) ? ROGERS_SLIDE_LIFT : 0);
+  const liftAtAz = (az: number): number => {
+    const tau = Math.PI * 2;
+    const norm = ((az % tau) + tau) % tau;
+    return liftAt(Math.floor(norm / step) % SIDES);
+  };
+  const slideEdgeAz = ROGERS_SLIDE_SEGS * step; // ±48° — the sector's own boundary meridians
+
+  // --- ring base: wall, piers, recessed gate bays ------------------------------------------------
+  addPrismFrustum(acc, SIDES, 0, ringBaseTopY, domeR, domeR, ROGERS_RING);
+  for (let k = 0; k < ROGERS_PIERS; k++) {
+    // Half-offset so the piers sit at facet CENTRES and the gates (below) land exactly midway
+    // between two of them — no pier/gate overlap is possible by construction.
+    const az = ((k + 0.5) * Math.PI * 2) / ROGERS_PIERS;
+    addRadialBox(acc, az, domeR - 0.5, domeR + 0.55, 1.1, 0, ringBaseTopY + 0.35, ROGERS_PIER);
+  }
+  const GATE_TOP_Y = 3.2;
+  const GATE_GLOW_MIN_Y = 3.3;
+  const GATE_GLOW_MAX_Y = 3.75;
+  const GATE_TAG: ProgramTag = { id: CN_PROGRAM.EMISS, t: ROGERS_EMISS_T.gate };
+  const gateAzimuths = Array.from(
+    { length: ROGERS_GATES },
+    (_, k) => ((k + 0.5) * Math.PI * 2) / ROGERS_GATES,
+  );
+  for (const az of gateAzimuths) {
+    // The bay: barely proud of the wall (0.14) between piers that stand 0.55 proud — the eye reads
+    // the difference as depth. Its inner face is buried, so no face of it is coplanar with the wall.
+    addRadialBox(acc, az, domeR - 0.6, domeR + 0.14, 2.6, 0, GATE_TOP_Y, ROGERS_GATE);
+    // The lintel glow strip, standing proud of the bay again (program-lit; baked dark warm).
+    addRadialBox(acc, az, domeR - 0.2, domeR + 0.42, 2.2, GATE_GLOW_MIN_Y, GATE_GLOW_MAX_Y, ROGERS_GATE_HOUSING, GATE_TAG);
+  }
+
+  // --- the panelized dome ------------------------------------------------------------------------
+  const domeBands: RogersDomeBand[] = [];
+  for (let b = 0; b < BANDS; b++) {
+    const t0 = b / BANDS;
+    const t1 = (b + 1) / BANDS;
+    const y0 = profileY(t0);
+    const y1 = profileY(t1);
+    const r0 = profileR(t0);
+    const r1 = profileR(t1);
+    const isApex = b === BANDS - 1;
+    for (let i = 0; i < SIDES; i++) {
+      const lift = liftAt(i);
+      const hex = isSlide(i) ? DOME_PANEL : DOME_BANDS[b];
+      const a0 = i * step;
+      const a1 = a0 + step;
+      if (isApex) {
+        addTri(acc, at(a0, r0 + lift, y0), at(a1, r0 + lift, y0), [0, y1, 0], hex);
+        continue;
+      }
+      // The band flares 0.35 past its own top radius, then a flat annulus steps back in: that
+      // annulus IS the seam. A zero-height inward step winds UP-facing (see LatheBand), so every
+      // seam catches the baked key light and the roof reads as stacked sections at any distance.
+      const rTop = r1 + ROGERS_SEAM_RIDGE + lift;
+      addQuad(acc, [at(a0, r0 + lift, y0), at(a1, r0 + lift, y0), at(a1, rTop, y1), at(a0, rTop, y1)], hex);
+      addQuad(acc, [at(a0, rTop, y1), at(a1, rTop, y1), at(a1, r1 + lift, y1), at(a0, r1 + lift, y1)], ROGERS_SEAM);
+    }
+    domeBands.push({ radius: r1, minY: y0, maxY: y1 });
+  }
+  // The sliding assembly's underside at the springing — a down-facing skirt closing the 0.45 wu
+  // step between the lifted panels and the ring base they overhang. Cheap insurance: without it a
+  // low off-rig vantage sees straight through the gap into the back-face-culled interior.
+  for (let i = 0; i < SIDES; i++) {
+    if (!isSlide(i)) continue;
+    const a0 = i * step;
+    const a1 = a0 + step;
+    addQuad(
+      acc,
+      [
+        at(a0, domeR, ringBaseTopY),
+        at(a1, domeR, ringBaseTopY),
+        at(a1, domeR + ROGERS_SLIDE_LIFT, ringBaseTopY),
+        at(a0, domeR + ROGERS_SLIDE_LIFT, ringBaseTopY),
+      ],
+      DOME_PANEL,
+    );
+  }
+
+  // --- track rails + the sliding assembly's leading-edge ribs -------------------------------------
+  // Four raised meridian ribs: the sector's own two edges (the leading-edge trusses, which also
+  // hide the lifted/fixed radial step) and the east/west meridians (the tracks the real panels ride
+  // on the stadium walls). Each side wall drops to ITS OWN neighbour's surface, so the rib closes
+  // the step from both sides whatever the lift there is.
+  const ribAzimuths = [slideEdgeAz, -slideEdgeAz, Math.PI / 2, -Math.PI / 2];
+  for (const A of ribAzimuths) {
+    const w = ROGERS_RIB_HALF_AZ;
+    const outward: Vec3 = [Math.sin(A), 0, Math.cos(A)];
+    const lowSide: Vec3 = [-Math.cos(A - w), 0, Math.sin(A - w)];
+    const highSide: Vec3 = [Math.cos(A + w), 0, -Math.sin(A + w)];
+    const footLow = liftAtAz(A - w);
+    const footHigh = liftAtAz(A + w);
+    for (let b = ROGERS_RIB_FIRST_BAND; b < BANDS - 1; b++) {
+      const y0 = profileY(b / BANDS);
+      const y1 = profileY((b + 1) / BANDS);
+      const base0 = profileR(b / BANDS);
+      const base1 = profileR((b + 1) / BANDS);
+      const out0 = base0 + ROGERS_RIB_LIFT;
+      const out1 = base1 + ROGERS_RIB_LIFT;
+      addQuadOriented(
+        acc,
+        [at(A - w, out0, y0), at(A + w, out0, y0), at(A + w, out1, y1), at(A - w, out1, y1)],
+        outward,
+        ROGERS_RAIL,
+      );
+      addQuadOriented(
+        acc,
+        [at(A - w, base0 + footLow, y0), at(A - w, out0, y0), at(A - w, out1, y1), at(A - w, base1 + footLow, y1)],
+        lowSide,
+        ROGERS_RAIL,
+      );
+      addQuadOriented(
+        acc,
+        [at(A + w, base0 + footHigh, y0), at(A + w, out0, y0), at(A + w, out1, y1), at(A + w, base1 + footHigh, y1)],
+        highSide,
+        ROGERS_RAIL,
+      );
+    }
+  }
+
+  // --- the north-face hotel window strip ----------------------------------------------------------
+  // Six segments centred on NORTH (az π): 12·(SIDES/2 − 3) … so the arc is symmetric about the
+  // north meridian whatever SIDES is. Camera-invisible on-rig by the fixed bearing — it exists for
+  // the off-rig postcard and for the honest north elevation.
+  const HOTEL_SEGS = 6;
+  const HOTEL_SEG_START = SIDES / 2 - HOTEL_SEGS / 2;
+  const HOTEL_R = domeR + 0.8;
+  const HOTEL_MIN_Y = 4.6;
+  const HOTEL_MAX_Y = 7.4;
+  const HOTEL_TAG: ProgramTag = { id: CN_PROGRAM.EMISS, t: ROGERS_EMISS_T.hotel };
+  const hotelRows: readonly { y0: number; y1: number; hex: string; window: boolean }[] = [
+    { y0: HOTEL_MIN_Y, y1: 4.9, hex: ROGERS_HOTEL_BAND, window: false },
+    { y0: 4.9, y1: 5.7, hex: ROGERS_HOTEL_GLASS, window: true },
+    { y0: 5.7, y1: 6.0, hex: ROGERS_HOTEL_BAND, window: false },
+    { y0: 6.0, y1: 6.8, hex: ROGERS_HOTEL_GLASS, window: true },
+    { y0: 6.8, y1: HOTEL_MAX_Y, hex: ROGERS_HOTEL_BAND, window: false },
+  ];
+  /** Which rooms have their lights on — a fixed, deterministic pattern (no rng: the hero mesh is
+   *  built once per process and must be byte-identical on repeat). */
+  const roomLit = (segment: number, row: number): boolean => (segment * 3 + row * 5) % 4 !== 0;
+  for (let j = 0; j < HOTEL_SEGS; j++) {
+    const a0 = (HOTEL_SEG_START + j) * step;
+    const a1 = a0 + step;
+    hotelRows.forEach((row, rowIndex) => {
+      const lit = row.window && roomLit(j, rowIndex);
+      addQuad(
+        acc,
+        [at(a0, HOTEL_R, row.y0), at(a1, HOTEL_R, row.y0), at(a1, HOTEL_R, row.y1), at(a0, HOTEL_R, row.y1)],
+        row.hex,
+        false,
+        lit ? HOTEL_TAG : STATIC_TAG,
+      );
     });
+    // Top (up-facing) and bottom (down-facing) lips, each running 0.6 wu INTO the shell so no
+    // hairline gap can open between the band and the faceted surface it is mounted on (the facets
+    // cut up to ~0.27 wu inside the smooth profile `radiusAtY` returns — azimuthal chord plus the
+    // band's own vertical chord).
+    const rTop = radiusAtY(HOTEL_MAX_Y) - 0.6;
+    const rBot = radiusAtY(HOTEL_MIN_Y) - 0.6;
+    addQuad(
+      acc,
+      [at(a0, HOTEL_R, HOTEL_MAX_Y), at(a1, HOTEL_R, HOTEL_MAX_Y), at(a1, rTop, HOTEL_MAX_Y), at(a0, rTop, HOTEL_MAX_Y)],
+      ROGERS_HOTEL_BAND,
+    );
+    addQuad(
+      acc,
+      [at(a0, rBot, HOTEL_MIN_Y), at(a1, rBot, HOTEL_MIN_Y), at(a1, HOTEL_R, HOTEL_MIN_Y), at(a0, HOTEL_R, HOTEL_MIN_Y)],
+      ROGERS_HOTEL_BAND,
+    );
+  }
+  // The strip's two end returns.
+  for (const end of [0, HOTEL_SEGS]) {
+    const az = (HOTEL_SEG_START + end) * step;
+    const outward: Vec3 =
+      end === 0 ? [-Math.cos(az), 0, Math.sin(az)] : [Math.cos(az), 0, -Math.sin(az)];
+    addQuadOriented(
+      acc,
+      [
+        at(az, radiusAtY(HOTEL_MIN_Y) - 0.6, HOTEL_MIN_Y),
+        at(az, HOTEL_R, HOTEL_MIN_Y),
+        at(az, HOTEL_R, HOTEL_MAX_Y),
+        at(az, radiusAtY(HOTEL_MAX_Y) - 0.6, HOTEL_MAX_Y),
+      ],
+      outward,
+      ROGERS_HOTEL_BAND,
+    );
+  }
+
+  // --- the south-face LED jumbotron ----------------------------------------------------------------
+  // SOUTH (+Z) is one of the two faces the fixed rig ever sees, and the real building's exterior LED
+  // board is on the south face — so this is the one program element that plays to the lens.
+  const JUMBO_HALF_W = 8;
+  const JUMBO_MIN_Y = 5;
+  const JUMBO_MAX_Y = 9.4;
+  const JUMBO_Z = domeR + 1.3; // the panel plane, standing clear of the shell's inward curve
+  addRadialBox(
+    acc,
+    0,
+    // Deep enough that even the housing's TOP corners (widest x, highest y, where the shell has
+    // curved furthest in) stay buried: at x = ±8.6, y = 9.9 the shell is already at z ≈ 31.1.
+    domeR - 3.4,
+    JUMBO_Z - 0.4, // the housing's face, 0.4 behind the panel — never coplanar with it
+    JUMBO_HALF_W + 0.6,
+    JUMBO_MIN_Y - 0.5,
+    JUMBO_MAX_Y + 0.5,
+    ROGERS_JUMBO_HOUSING,
+  );
+  for (let c = 0; c < ROGERS_JUMBO_CELLS; c++) {
+    const x0 = -JUMBO_HALF_W + (2 * JUMBO_HALF_W * c) / ROGERS_JUMBO_CELLS;
+    const x1 = -JUMBO_HALF_W + (2 * JUMBO_HALF_W * (c + 1)) / ROGERS_JUMBO_CELLS;
+    addQuad(
+      acc,
+      [
+        [x0, JUMBO_MIN_Y, JUMBO_Z],
+        [x1, JUMBO_MIN_Y, JUMBO_Z],
+        [x1, JUMBO_MAX_Y, JUMBO_Z],
+        [x0, JUMBO_MAX_Y, JUMBO_Z],
+      ],
+      ROGERS_JUMBO_PANEL,
+      true, // literal dark board — the baked directional shade would fight the program
+      { id: CN_PROGRAM.JUMBO, t: (c + 0.5) / ROGERS_JUMBO_CELLS },
+    );
+  }
+
+  // --- the two helix ramp ribbons -------------------------------------------------------------------
+  // They wrap the dome's lowest ("wall") band, above the ring base's piers and gate lintels and
+  // below the first rail band, so the ramp crosses nothing. The inner edge is buried 0.55 wu inside
+  // the shell — the faceted band cuts inside the smooth profile by up to ~0.27 wu, and a ribbon
+  // hovering off its own wall is worse than one slightly sunk into it.
+  const RAMP_MIN_Y = 5.4;
+  const RAMP_MAX_Y = 10.6;
+  const RAMP_INNER_OFFSET = -0.55;
+  const RAMP_WIDTH = 2.9;
+  const RAMP_THICKNESS = 0.45;
+  const DEG = Math.PI / 180;
+  const ramps = [
+    { minAz: 22 * DEG, maxAz: 98 * DEG, minY: RAMP_MIN_Y, maxY: RAMP_MAX_Y }, // east of the board
+    { minAz: -98 * DEG, maxAz: -22 * DEG, minY: RAMP_MIN_Y, maxY: RAMP_MAX_Y }, // west of the board
+  ] as const;
+  for (const ramp of ramps) {
+    // The west ribbon climbs the other way, so both rise AWAY from the south face they flank.
+    const climbsWithAzimuth = ramp.minAz >= 0;
+    const sample = (f: number) => {
+      const az = ramp.minAz + (ramp.maxAz - ramp.minAz) * f;
+      const y = climbsWithAzimuth ? ramp.minY + (ramp.maxY - ramp.minY) * f : ramp.maxY - (ramp.maxY - ramp.minY) * f;
+      const rIn = radiusAtY(y) + RAMP_INNER_OFFSET;
+      return { az, y, rIn, rOut: rIn + RAMP_WIDTH };
+    };
+    for (let k = 0; k < ROGERS_RAMP_SEGS; k++) {
+      const a = sample(k / ROGERS_RAMP_SEGS);
+      const b = sample((k + 1) / ROGERS_RAMP_SEGS);
+      const mid: Vec3 = [Math.sin((a.az + b.az) / 2), 0, Math.cos((a.az + b.az) / 2)];
+      addQuadOriented(
+        acc,
+        [at(a.az, a.rIn, a.y), at(a.az, a.rOut, a.y), at(b.az, b.rOut, b.y), at(b.az, b.rIn, b.y)],
+        [0, 1, 0],
+        ROGERS_RAMP_DECK,
+      );
+      addQuadOriented(
+        acc,
+        [
+          at(a.az, a.rOut, a.y - RAMP_THICKNESS),
+          at(b.az, b.rOut, b.y - RAMP_THICKNESS),
+          at(b.az, b.rOut, b.y),
+          at(a.az, a.rOut, a.y),
+        ],
+        mid,
+        ROGERS_RAMP_FASCIA,
+      );
+      addQuadOriented(
+        acc,
+        [
+          at(a.az, a.rIn, a.y - RAMP_THICKNESS),
+          at(a.az, a.rOut, a.y - RAMP_THICKNESS),
+          at(b.az, b.rOut, b.y - RAMP_THICKNESS),
+          at(b.az, b.rIn, b.y - RAMP_THICKNESS),
+        ],
+        [0, -1, 0],
+        ROGERS_RAMP_FASCIA,
+      );
+    }
+    for (const f of [0, 1]) {
+      const e = sample(f);
+      const outward: Vec3 =
+        f === 0 ? [-Math.cos(e.az), 0, Math.sin(e.az)] : [Math.cos(e.az), 0, -Math.sin(e.az)];
+      addQuadOriented(
+        acc,
+        [
+          at(e.az, e.rIn, e.y - RAMP_THICKNESS),
+          at(e.az, e.rOut, e.y - RAMP_THICKNESS),
+          at(e.az, e.rOut, e.y),
+          at(e.az, e.rIn, e.y),
+        ],
+        outward,
+        ROGERS_RAMP_FASCIA,
+      );
+    }
   }
 
   return {
@@ -982,7 +1444,29 @@ export function buildRogersGeometry(): RogersModel {
       domeDiameter: domeR * 2,
       ringBaseTopY,
       apexY: h,
+      // Same collider CLASS as v1 (§5's ring-base cylinder) — v2 adds nothing the car can reach:
+      // every new element either sits on the ring base (piers, gates) or starts above 5 wu.
       collider: { radius: domeR, halfHeight: ringBaseTopY / 2 + 0.1, centerY: ringBaseTopY / 2 + 0.1 },
+      domeBands,
+      jumbotron: {
+        minX: -JUMBO_HALF_W,
+        maxX: JUMBO_HALF_W,
+        minY: JUMBO_MIN_Y,
+        maxY: JUMBO_MAX_Y,
+        z: JUMBO_Z,
+        cells: ROGERS_JUMBO_CELLS,
+      },
+      jumboCells: ROGERS_JUMBO_CELLS,
+      gates: { azimuths: gateAzimuths, glowMinY: GATE_GLOW_MIN_Y, glowMaxY: GATE_GLOW_MAX_Y },
+      hotel: {
+        minY: HOTEL_MIN_Y,
+        maxY: HOTEL_MAX_Y,
+        radius: HOTEL_R,
+        minAz: HOTEL_SEG_START * step,
+        maxAz: (HOTEL_SEG_START + HOTEL_SEGS) * step,
+      },
+      slideSector: { halfAngle: slideEdgeAz, lift: ROGERS_SLIDE_LIFT },
+      ramps,
     },
   };
 }

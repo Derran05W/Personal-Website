@@ -13,8 +13,11 @@
 //
 // WHY IT'S SAFE TO PATCH THIS MATERIAL:
 //   • `customProgramCacheKey` is set, so three caches this program separately and can never hand
-//     the patched shader to Rogers' plain material (world/palette.ts's own patch documents the
-//     same pairing rule).
+//     the patched shader to another material (world/palette.ts's own patch documents the same
+//     pairing rule). Since Phase 45 the Rogers Centre has a patch of its own — its own cache key,
+//     its own uniforms, its own slice of the shared hero program alphabet (ids 5–6 to CN's 1–4) —
+//     so the two must never be confused; the branch below is bounded at both ends so that even if
+//     they were, neither would light the other's geometry.
 //   • The injection sits immediately after `<color_fragment>` and touches `diffuseColor.rgb` ONLY.
 //     `diffuseColor.a` — which is `opacity`, the channel the A.5 occlusion fade writes for named/
 //     hero meshes — is untouched, so a faded tower still fades, lights and all.
@@ -205,8 +208,13 @@ export function createCnNightMaterial(ringCells: number): {
             float d = abs( vProgramT - uCrestPhase );
             float band = 1.0 - smoothstep( 0.0, max( uCrestBandWidth, 1e-4 ), d );
             diffuseColor.rgb += uCrestColor * uCrestIntensity * ( uCrestBase + ( 1.0 - uCrestBase ) * band );
-          } else if ( pid > 3.5 ) {
+          } else if ( pid > 3.5 && pid < 4.5 ) {
             // FLOOD — the gradient is baked into aProgramT (1 at the ground, 0 at the leg merge).
+            // PHASE 45: the upper bound is new. It was an open "pid > 3.5", correct while 4 was the
+            // alphabet's last id, but it would have flooded the Rogers ids (5/6) had this material
+            // ever been bound to that geometry. Behaviour for CN is bit-identical (its
+            // vertices only ever carry 0–4); what changed is that "a patch ignores ids it doesn't
+            // implement" is now TRUE rather than merely unreached.
             diffuseColor.rgb += uFloodColor * uFloodIntensity * vProgramT;
           }
         }`,

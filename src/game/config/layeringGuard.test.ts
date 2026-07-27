@@ -23,14 +23,22 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-/** The eight producers the Phase 39 plan names as migration targets. Paths are relative to the
- * repo root (`process.cwd()` under vitest — same convention as data.test.ts's `readJson`). */
+/** The eight producers the Phase 39 plan names as migration targets, plus every producer added
+ * since (the plan's own instruction: EXTEND this list whenever a new module puts a flat surface,
+ * a road decal or a facade decal on the map). Paths are relative to the repo root (`process.cwd()`
+ * under vitest — same convention as data.test.ts's `readJson`).
+ *
+ * Phase 45 additions: the rail-lands ground dressing (ballast beds, tie bands, the turntable deck
+ * and its bridge girder) and its scene mount — the first producers of the new `railBallast` /
+ * `railTrack` rungs. */
 const SCANNED_FILES: readonly string[] = [
   'src/game/world/toronto/TorontoScene.tsx',
   'src/game/world/toronto/roadPaint.ts',
   'src/game/world/toronto/placesLayer.ts',
   'src/game/world/toronto/venueDress.ts',
   'src/game/world/toronto/worldEdgeGeometry.ts',
+  'src/game/world/toronto/railLands.ts',
+  'src/game/world/toronto/cityPack/RailLandsLayer.tsx',
   'src/game/config/fx.ts',
   'src/game/config/torontoMaterials.ts',
   'src/game/config/world.ts',

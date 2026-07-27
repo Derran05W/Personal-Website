@@ -36,14 +36,12 @@
 // and reads every layer off the result, including `clipVolumes` — the camera clip index is now
 // literally a projection of the placed world (see claimIndex.buildingClipVolumes).
 
-import { colliderHalfExtents } from '../../config/cityPackScale';
-import { TRAFFIC_LIGHT, TREE_ROW, TORONTO_TIER_IDENTITY, type TorontoTierParams } from '../../config/torontoDress';
+import { TORONTO_TIER_IDENTITY, type TorontoTierParams } from '../../config/torontoDress';
 import { VENUE_QUEUE } from '../../config/venueDressing';
 import { backdropFadeKey, frontageFadeKey, infillFadeKey, type ClipEntry } from './cameraClipIndex';
 import {
   aabbAround,
   buildingClipVolumes,
-  footprintHalfExtents,
   type ClaimIndex,
   type ClaimIndexView,
   type ClaimInput,
@@ -59,7 +57,7 @@ import {
   type InfillLayout,
 } from './infill';
 import { buildVenueDress, type VenueDress } from './venueDress';
-import { createPlacementContext, type WorldPrefix } from './worldContext';
+import { createPlacementContext, propFootprint, type WorldPrefix } from './worldContext';
 
 /** Everything the scene (and the tests, and the invariant sweep) needs from one world build. */
 export interface ComposedWorld extends WorldPrefix {
@@ -88,28 +86,10 @@ function groundedClaim(item: PlacedBox & { readonly hy: number }): { aabb: Retur
   };
 }
 
-/**
- * The claim footprint of a furniture/prop placement. Model half-extents come from the SAME
- * `colliderHalfExtents` resolver the renderer and the collider mounts use, with two documented
- * "claim the trunk, not the canopy" exceptions:
- *   • `tree` — TREE_ROW.trunkHalfWidthWu, matching the D12 trunk-collider convention (a canopy
- *     box would claim ~3 wu of sidewalk the player drives straight through).
- *   • `traffic-light` — TRAFFIC_LIGHT.postHalfWidthWu, because the model's width is the ARM
- *     reaching out over the roadway at 3.78 wu height, not anything standing on the corner.
- */
-function propHalfExtents(modelId: string): { hx: number; hz: number } {
-  if (modelId === 'tree') return { hx: TREE_ROW.trunkHalfWidthWu, hz: TREE_ROW.trunkHalfWidthWu };
-  if (modelId === 'traffic-light') return { hx: TRAFFIC_LIGHT.postHalfWidthWu, hz: TRAFFIC_LIGHT.postHalfWidthWu };
-  const half = colliderHalfExtents(modelId);
-  return { hx: half.hx, hz: half.hz };
-}
-
-/** Footprint of a prop placed at (x, z) with `yawRad`, through the shared rotation rule. */
-export function propFootprint(modelId: string, x: number, z: number, yawRad: number) {
-  const { hx, hz } = propHalfExtents(modelId);
-  const rotated = footprintHalfExtents(hx, hz, yawRad);
-  return aabbAround(x, z, rotated.hx, rotated.hz);
-}
+/** Phase 45 moved `propFootprint` (and its "claim the trunk, not the canopy" exception table) down
+ * into worldContext.ts, which now registers prop claims of its own — the rail-lands patio dressing.
+ * Re-exported here so every existing call site and import path is unchanged. */
+export { propFootprint } from './worldContext';
 
 /** A parking-lot / construction-site item's owning lot, parsed off the generator id
  * (`construction:3-fence-1`, `parking:7-car-2`, `construction:3-dumpster`). Shared-owner pairs are

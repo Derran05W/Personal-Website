@@ -272,9 +272,14 @@ describe('buildingClipVolumes — who is dither-fadeable', () => {
     const world = composeWorld(416);
     const keys = world.clipVolumes.map((e) => e.fadeKey).filter((k): k is string => k !== null);
     expect(new Set(keys).size).toBe(keys.length);
-    // Only the named boxes are un-keyed; every batched class IS fadeable.
+    // Only the material-path volumes are un-keyed; every batched class IS dither-fadeable.
+    // Phase 45 re-pin (17 → 25): the rail-lands block registers 8 more `namedBuilding` volumes —
+    // 2 aquarium cuboids, 4 roundhouse arc chords, the annex, the locomotive — all `fadeKey: null`
+    // for the same reason the named boxes are (they render as ONE merged mesh with a material of
+    // its own, so occlusionFade.ts's opacity path owns them, not the dither pass).
     const named = world.named.placements.reduce((n, p) => n + p.boxes.length, 0);
-    expect(world.clipVolumes.length - keys.length).toBe(named);
+    const railLands = world.railLands.colliders.length;
+    expect(world.clipVolumes.length - keys.length).toBe(named + railLands);
   });
 });
 

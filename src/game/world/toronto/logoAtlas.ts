@@ -1,13 +1,15 @@
 // Phase 24 bank-logo pixel atlas (TORONTO-MAP-SPEC-v2.md §4 + Addendum A.5), extended in
 // Phase 26 with the retail/nostalgia cells from places.json (§4's "new additions needed"
-// list + §8's places layer). ONE shared CanvasTexture — a 7×3 grid of 32×32 pixel-art
-// HOMAGE cells (21 cells: the 5 Phase-24 bank brands + 16 Phase-26 retail/nostalgia brands,
-// counting `discA`/`discB` separately for Sam the Record Man's 2-frame spin) — sampled by
-// the CROWN decal quads namedBuildings.ts/TorontoScene.tsx author on the financial-cluster
-// towers, and (from Phase 26) the FASCIA retail decals placesLayer.ts authors on storefront
-// boxes (scene integration for those lands in the same phase this atlas grew in). NearestFilter
-// both ways + mipmaps OFF (A.5's "decal textures sample with nearest-neighbour, mipmaps
-// disabled") so the pixel art stays crunchy up close instead of blurring into a smear.
+// list + §8's places layer), and grown again in Phase 45 for the rail-lands vibe kit. ONE
+// shared CanvasTexture — an 8×3 grid of 32×32 pixel-art HOMAGE cells (22 used, 2 spare: the
+// 5 Phase-24 bank brands + 16 Phase-26 retail/nostalgia brands, counting `discA`/`discB`
+// separately for Sam the Record Man's 2-frame spin, + 1 Phase-45 brand (Steam Whistle)) —
+// sampled by the CROWN decal quads namedBuildings.ts/TorontoScene.tsx author on the
+// financial-cluster towers, and (from Phase 26) the FASCIA retail decals placesLayer.ts
+// authors on storefront boxes (scene integration for those lands in the same phase this atlas
+// grew in). NearestFilter both ways + mipmaps OFF (A.5's "decal textures sample with
+// nearest-neighbour, mipmaps disabled") so the pixel art stays crunchy up close instead of
+// blurring into a smear.
 //
 // These are deliberately simplified, stylized wordmark/glyph cells — never a traced or exact
 // reproduction of a real mark — per CLAUDE.md's locked "Brand logos (map layer)" decision
@@ -23,7 +25,7 @@
 // RESOLVED (was an open integration warning through Phase 26): TorontoScene.tsx's
 // `makeDecalGeometry()` (~:530) and `makeDiscGeometry()` (~:728) both remap the PlaneGeometry/
 // CircleGeometry UVs on U *and* V using the `u0`/`u1`/`v0`/`v1` this module's `logoCellUv`
-// returns, so brands outside row 0 of the 7×3 grid sample correctly. The constraint still
+// returns, so brands outside row 0 of the 8×3 grid sample correctly. The constraint still
 // stands for any *new* decal consumer: remap both axes or you'll sample the full atlas height
 // (all 3 rows) into one decal — use `makeDecalGeometry` as the reference implementation.
 
@@ -59,15 +61,22 @@ export const LOGO_BRANDS = [
   'recroom', // The Rec Room
   'apple', // Apple
   'alo', // Alo
+  // Phase 45 — rail-lands vibe kit (row 3, col 0)
+  'steamwhistle', // Steam Whistle Brewing (referenced at the Roundhouse)
 ] as const;
 
 export type LogoBrand = (typeof LOGO_BRANDS)[number];
 
-/** Atlas layout: a 7×3 grid of 32×32 cells (224×96 canvas) — 21 cells for LOGO_BRANDS.length
- * (21) brands, row-major (`col = index % cols`, `row = floor(index / cols)`). */
+/** Atlas layout: an 8×3 grid of 32×32 cells (256×96 canvas) — grown in Phase 45 from 7×3 to
+ * fit the 22nd brand (Steam Whistle); 2 cells stay unused. Row-major (`col = index % cols`,
+ * `row = floor(index / cols)`). The 22nd id is only ever APPENDED to LOGO_BRANDS — its
+ * index (and every existing id's index) never changes — and every consumer looks up its
+ * UV through logoCellUv()/cellRowCol() against THIS layout at draw time, so growing `cols`
+ * re-derives every cell's pixel position and UV together, consistently, with no baked
+ * coordinates anywhere to drift out of sync. */
 export const LOGO_ATLAS_LAYOUT = {
   cellSize: 32,
-  cols: 7,
+  cols: 8,
   rows: 3,
   get width(): number {
     return this.cellSize * this.cols;
@@ -614,6 +623,30 @@ function drawAlo(ctx: CanvasRenderingContext2D, x: number, y: number, size: numb
   drawPixelText(ctx, 'ALO', x + size / 2, y + size / 2, 1.2, '#e8dcc8');
 }
 
+/** Steam Whistle Brewing — round retro-green badge (approximate palette; the exact brand hex
+ * was unverifiable per research, see credits.ts) with a cream ring, a tiny pixel whistle
+ * silhouette above, and a bright "SW" wordmark. Referenced by the Roundhouse rail-lands prop,
+ * not a bank/retail tower. */
+function drawSteamwhistle(ctx: CanvasRenderingContext2D, x: number, y: number, size: number): void {
+  fillCellBacking(ctx, x, y, size);
+  const cx = x + size / 2;
+  const cy = y + size / 2 + 2;
+
+  fillCircle(ctx, cx, cy, size * 0.36, '#1f6b3a'); // retro green badge body
+  ctx.strokeStyle = '#f0e6c8'; // cream ring
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.arc(cx, cy, size * 0.36 - 1, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Tiny whistle silhouette: a short barrel + a round mouthpiece, sitting above the wordmark.
+  ctx.fillStyle = '#f0e6c8';
+  ctx.fillRect(cx - 5, y + size * 0.24, 8, 3);
+  fillCircle(ctx, cx + 5, y + size * 0.255, 2.2, '#f0e6c8');
+
+  drawPixelText(ctx, 'SW', cx, cy + size * 0.14, 1.3, '#f5d576'); // gold-cream accent
+}
+
 const BRAND_DRAWERS: Readonly<
   Record<LogoBrand, (ctx: CanvasRenderingContext2D, x: number, y: number, size: number) => void>
 > = {
@@ -638,6 +671,7 @@ const BRAND_DRAWERS: Readonly<
   recroom: drawRecroom,
   apple: drawApple,
   alo: drawAlo,
+  steamwhistle: drawSteamwhistle,
 };
 
 // --- The shared atlas -------------------------------------------------------------------------

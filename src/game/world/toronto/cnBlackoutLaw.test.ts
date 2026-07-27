@@ -80,6 +80,25 @@ describe('CN Tower blackout law (Phase 44) — the night program cannot import p
     expect(offenses.length).toBeGreaterThan(0);
   });
 
+  it('positive control #2 (Phase 45): the ROGERS night material may — and does — import powergrid', () => {
+    // The law is CN-ONLY, and this is the file that proves the distinction is deliberate rather
+    // than an oversight. The Rogers Centre DIMS with its district (a lit stadium beside a dark
+    // skyline would dilute the very money shot CN's law exists to protect), so
+    // rogersNightMaterial.ts reads the grid's dark state and drives its own `uDark` uniform.
+    // If someone ever "fixes" this by cutting that import, this control fails and asks why.
+    const offenses = scanFileForPowergridImports('src/game/world/toronto/rogersNightMaterial.ts');
+    expect(offenses.length).toBeGreaterThan(0);
+  });
+
+  it('the Rogers program BRAIN stays pure even though its material may read the grid', () => {
+    // The split that keeps every timing function unit-testable: rogersProgram.ts takes the dark
+    // state as an argument and imports nothing from powergrid/ (rogersProgram.test.ts scans the
+    // same file for `three` and clock reads too — this assertion is the grid half, kept here next
+    // to its CN sibling so the two hero policies read as one story).
+    expect(scanFileForPowergridImports('src/game/world/toronto/rogersProgram.ts')).toEqual([]);
+    expect(scanFileForPowergridImports('src/game/config/rogersCentre.ts')).toEqual([]);
+  });
+
   it('positive control: a commented-out mention of the word does NOT trip the scanner', () => {
     // heroes.ts and cnNightProgram.ts both explain this law in prose using the words
     // "powergrid"/"grid" — confirm those files are readable and the comment-stripping actually

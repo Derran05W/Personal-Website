@@ -16,7 +16,14 @@ import { resolve } from 'node:path';
 import type { BufferGeometry } from 'three';
 import { describe, expect, it } from 'vitest';
 import { hGame } from './heightCurve';
-import { buildCnTowerGeometry, buildRogersGeometry, CN_PROGRAM, CN_TOWER_MAX_TRIS, ROGERS_MAX_TRIS } from './heroes';
+import {
+  buildCnTowerGeometry,
+  buildRogersGeometry,
+  CN_PROGRAM,
+  CN_TOWER_MAX_TRIS,
+  ROGERS_EMISS_T,
+  ROGERS_MAX_TRIS,
+} from './heroes';
 
 interface SpecRow {
   id: string;
@@ -178,16 +185,190 @@ describe('night-program vertex attributes exist on both heroes (Phase 44)', () =
     expect(programT.count).toBe(pos.count);
   });
 
-  it('Rogers carries the same pair, but every vertex is STATIC (untagged — no night program there)', () => {
+  it('Rogers carries the same pair, one value per vertex (Phase 45: it has a program of its own)', () => {
+    // PIN MOVED AT PHASE 45 (was: "every Rogers vertex is STATIC"). The stadium now runs its own
+    // night program — the south LED board and the gate/hotel emissives — off the same two
+    // attributes and the same alphabet, so "untagged" is no longer the claim. What still holds,
+    // and is asserted by the census below, is that Rogers carries ONLY its own ids (5/6) plus
+    // STATIC: none of CN's ring/beacon/crest/flood tags leak onto it.
     const { geometry } = buildRogersGeometry();
     const pos = geometry.attributes.position;
     const program = geometry.attributes.aProgram;
     const programT = geometry.attributes.aProgramT;
     expect(program.count).toBe(pos.count);
     expect(programT.count).toBe(pos.count);
+  });
+});
+
+describe('Rogers night-program element census (Phase 45)', () => {
+  const { geometry, meta } = buildRogersGeometry();
+  const pos = geometry.attributes.position;
+  const program = geometry.attributes.aProgram;
+  const programT = geometry.attributes.aProgramT;
+  const counts = new Map<number, number>();
+  for (let i = 0; i < program.count; i++) {
+    const id = program.getX(i);
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  const get = (id: number) => counts.get(id) ?? 0;
+
+  it('carries exactly STATIC + JUMBO + EMISS — no CN element ever leaks onto the stadium', () => {
+    expect([...counts.keys()].sort((a, b) => a - b)).toEqual([
+      CN_PROGRAM.STATIC,
+      CN_PROGRAM.JUMBO,
+      CN_PROGRAM.EMISS,
+    ]);
+    expect(get(CN_PROGRAM.STATIC)).toBeGreaterThan(get(CN_PROGRAM.JUMBO) + get(CN_PROGRAM.EMISS));
+    expect(get(CN_PROGRAM.STATIC) + get(CN_PROGRAM.JUMBO) + get(CN_PROGRAM.EMISS)).toBe(program.count);
+  });
+
+  it('JUMBO is exactly the board: one flat aProgramT per column, all of it inside the panel bounds', () => {
+    const board = meta.jumbotron;
+    // 12 columns × 6 verts per column quad-pair (structural, not a guess — the ring-cell idiom).
+    expect(get(CN_PROGRAM.JUMBO)).toBe(board.cells * 6);
+    expect(meta.jumboCells).toBe(board.cells);
+    const centres = Array.from({ length: board.cells }, (_, i) => (i + 0.5) / board.cells);
+    const cells = new Set<number>();
     for (let i = 0; i < program.count; i++) {
-      expect(program.getX(i)).toBe(CN_PROGRAM.STATIC);
+      if (program.getX(i) !== CN_PROGRAM.JUMBO) continue;
+      // Every board vertex sits ON the panel plane and inside its rectangle…
+      expect(pos.getZ(i)).toBeCloseTo(board.z, 4); // float32 buffer: ~1e-6 at z ≈ 34
+      expect(pos.getX(i)).toBeGreaterThanOrEqual(board.minX - 1e-6);
+      expect(pos.getX(i)).toBeLessThanOrEqual(board.maxX + 1e-6);
+      expect(pos.getY(i)).toBeGreaterThanOrEqual(board.minY - 1e-6);
+      expect(pos.getY(i)).toBeLessThanOrEqual(board.maxY + 1e-6);
+      // …and carries one of the exact column-centre fractions (flat per column: an interpolated
+      // coord would put a discretization seam inside every block).
+      const t = programT.getX(i);
+      expect(Math.min(...centres.map((c) => Math.abs(c - t)))).toBeLessThan(1e-6);
+      cells.add(Math.floor(t * board.cells));
     }
+    expect(cells.size).toBe(board.cells);
+  });
+
+  it('the board is baked DARK — the light is the program, not the vertex colour', () => {
+    const col = geometry.attributes.color;
+    for (let i = 0; i < program.count; i++) {
+      if (program.getX(i) !== CN_PROGRAM.JUMBO) continue;
+      expect(Math.max(col.getX(i), col.getY(i), col.getZ(i))).toBeLessThan(0.1);
+    }
+  });
+
+  it('EMISS splits into gate lintels (t=0) and hotel windows (t=1), each where its feature is', () => {
+    const azOf = (i: number) => {
+      const a = Math.atan2(pos.getX(i), pos.getZ(i));
+      return a < 0 ? a + Math.PI * 2 : a;
+    };
+    const angDist = (a: number, b: number) => {
+      const d = Math.abs(a - b) % (Math.PI * 2);
+      return d > Math.PI ? Math.PI * 2 - d : d;
+    };
+    let gateVerts = 0;
+    let hotelVerts = 0;
+    for (let i = 0; i < program.count; i++) {
+      if (program.getX(i) !== CN_PROGRAM.EMISS) continue;
+      const t = programT.getX(i);
+      expect([ROGERS_EMISS_T.gate, ROGERS_EMISS_T.hotel]).toContain(t);
+      if (t === ROGERS_EMISS_T.gate) {
+        gateVerts++;
+        // In the lintel band, and at one of the five gate azimuths.
+        expect(pos.getY(i)).toBeGreaterThanOrEqual(meta.gates.glowMinY - 1e-6);
+        expect(pos.getY(i)).toBeLessThanOrEqual(meta.gates.glowMaxY + 1e-6);
+        const nearest = Math.min(...meta.gates.azimuths.map((g) => angDist(azOf(i), g)));
+        expect(nearest).toBeLessThan(0.12); // the bay is ±2.6 wu ≈ ±4.5° at r 33
+      } else {
+        hotelVerts++;
+        // In the hotel band's height range, on the NORTH arc, standing proud of the shell.
+        expect(pos.getY(i)).toBeGreaterThanOrEqual(meta.hotel.minY - 1e-6);
+        expect(pos.getY(i)).toBeLessThanOrEqual(meta.hotel.maxY + 1e-6);
+        expect(azOf(i)).toBeGreaterThanOrEqual(meta.hotel.minAz - 1e-6);
+        expect(azOf(i)).toBeLessThanOrEqual(meta.hotel.maxAz + 1e-6);
+        expect(pos.getZ(i)).toBeLessThan(0); // −Z is map NORTH (projection.ts)
+        expect(Math.hypot(pos.getX(i), pos.getZ(i))).toBeCloseTo(meta.hotel.radius, 4);
+      }
+    }
+    // Five gates × 36 verts (a 6-quad box each), and SOME but not all of the 12 hotel rooms lit.
+    expect(gateVerts).toBe(meta.gates.azimuths.length * 36);
+    expect(hotelVerts).toBeGreaterThan(0);
+    expect(hotelVerts).toBeLessThan(12 * 6);
+  });
+});
+
+// The v2 features are geometry, not metadata — same rule as the CN v2 probes above.
+describe('Rogers Centre v2 — the features are in the MESH (vertex probes, Phase 45)', () => {
+  const { geometry, meta } = buildRogersGeometry();
+  const pos = geometry.attributes.position;
+  const radialAt = (i: number) => Math.hypot(pos.getX(i), pos.getZ(i));
+  const azOf = (i: number) => Math.atan2(pos.getX(i), pos.getZ(i)); // (−π, π], 0 = SOUTH
+  const maxRadialWhere = (keep: (i: number) => boolean) => {
+    let max = -Infinity;
+    for (let i = 0; i < pos.count; i++) if (keep(i)) max = Math.max(max, radialAt(i));
+    return max;
+  };
+
+  it('every band boundary carries a proud SEAM LIP (the roof reads as panels, not a shell)', () => {
+    // At each internal band top the mesh must be WIDER than the profile radius there — that extra
+    // is the lip. Measured away from the slide sector and the ribs so only the lip can explain it.
+    const fixedAz = (i: number) => Math.abs(azOf(i)) > meta.slideSector.halfAngle + 0.1;
+    for (let b = 0; b < meta.domeBands.length - 1; b++) {
+      const band = meta.domeBands[b]!;
+      const widest = maxRadialWhere((i) => Math.abs(pos.getY(i) - band.maxY) <= 1e-3 && fixedAz(i));
+      expect(widest).toBeGreaterThan(band.radius + 0.2);
+      expect(widest).toBeLessThan(band.radius + 1); // a lip, not a shelf
+    }
+  });
+
+  it('the retractable sector rides PROUD of the fixed shell (the nesting read)', () => {
+    const band = meta.domeBands[0]!;
+    const atY = (i: number) => Math.abs(pos.getY(i) - band.minY) <= 1e-3;
+    const inSector = maxRadialWhere((i) => atY(i) && Math.abs(azOf(i)) < meta.slideSector.halfAngle - 0.05);
+    const outside = maxRadialWhere((i) => atY(i) && Math.abs(azOf(i)) > meta.slideSector.halfAngle + 0.05);
+    expect(outside).toBeGreaterThan(0);
+    expect(inSector).toBeGreaterThan(outside + meta.slideSector.lift - 1e-6);
+    expect(meta.slideSector.lift).toBeGreaterThan(0.2);
+  });
+
+  it('the sector straddles SOUTH and is about a quarter of the dome (panels stack toward the north)', () => {
+    // South (+Z, azimuth 0) is a camera-visible face; the fixed panel is the north half by
+    // construction, which is what the researcher round describes (3 panels slide S→N and nest
+    // under a fixed north panel).
+    expect(meta.slideSector.halfAngle).toBeGreaterThan(Math.PI / 5);
+    expect(meta.slideSector.halfAngle).toBeLessThan(Math.PI / 3);
+  });
+
+  it('the ring base is articulated: piers stand proud, gate bays sit back between them', () => {
+    const inRing = (i: number) => pos.getY(i) > 0.5 && pos.getY(i) < meta.ringBaseTopY - 0.2;
+    const domeR = meta.domeDiameter / 2;
+    const widest = maxRadialWhere(inRing);
+    expect(widest).toBeGreaterThan(domeR + 0.4); // the piers
+    // …and at a gate azimuth the mesh is barely past the wall — the bay reads recessed.
+    const gateAz = meta.gates.azimuths[0]!;
+    const nearGate = maxRadialWhere(
+      (i) => inRing(i) && Math.abs(Math.atan2(pos.getX(i), pos.getZ(i)) - gateAz) < 0.03,
+    );
+    expect(nearGate).toBeLessThan(widest - 0.2);
+  });
+
+  it('two helix ramps wrap the wall band, clear of the gates below and the rails above', () => {
+    for (const ramp of meta.ramps) {
+      expect(ramp.minY).toBeGreaterThan(meta.gates.glowMaxY); // nothing to crash into below
+      expect(ramp.maxY).toBeLessThan(meta.domeBands[0]!.maxY); // the ribs start above this band
+      expect(ramp.maxAz - ramp.minAz).toBeGreaterThan(Math.PI / 4); // an actual spiral, not a stub
+    }
+    expect(meta.ramps).toHaveLength(2);
+    // The ribbons stand proud of the shell at their own heights (they are outside geometry).
+    const domeR = meta.domeDiameter / 2;
+    const rampBand = maxRadialWhere((i) => pos.getY(i) > 5 && pos.getY(i) < 10.6);
+    expect(rampBand).toBeGreaterThan(domeR + 1.5);
+  });
+
+  it('nothing the CAR can reach pokes outside the ring-base collider', () => {
+    // The collider class is unchanged from v1 (§5's ring-base cylinder), so every new element must
+    // either sit inside its radius or start above the height a car can touch.
+    const REACHABLE_Y = 4;
+    const widestLow = maxRadialWhere((i) => pos.getY(i) <= REACHABLE_Y);
+    expect(widestLow).toBeLessThanOrEqual(meta.collider.radius + 0.6); // piers, 0.55 proud
+    expect(meta.collider.radius).toBeCloseTo(meta.domeDiameter / 2, 9);
   });
 });
 
@@ -201,10 +382,15 @@ describe('CN night-program element census — sanity, not brittle totals (Phase 
   }
   const get = (id: number) => counts.get(id) ?? 0;
 
-  it('every element class (STATIC/RING/BEACON/CREST/FLOOD) is present', () => {
-    for (const id of Object.values(CN_PROGRAM)) {
+  it('every CN element class (STATIC/RING/BEACON/CREST/FLOOD) is present — and no Rogers id is', () => {
+    // Phase 45 turned the alphabet hero-wide, so this can no longer loop Object.values(CN_PROGRAM):
+    // JUMBO/EMISS belong to the stadium. Listing CN's own five and asserting the other two are
+    // ABSENT is strictly stronger than the old loop — it pins the split, not just the presence.
+    for (const id of [CN_PROGRAM.STATIC, CN_PROGRAM.RING, CN_PROGRAM.BEACON, CN_PROGRAM.CREST, CN_PROGRAM.FLOOD]) {
       expect(get(id)).toBeGreaterThan(0);
     }
+    expect(get(CN_PROGRAM.JUMBO)).toBe(0);
+    expect(get(CN_PROGRAM.EMISS)).toBe(0);
   });
 
   it('RING is exactly 96 vertices — 16 cells × 6 verts per cell quad-pair (structural, not a guess)', () => {
@@ -436,11 +622,17 @@ describe('CN Tower v2 — the features are in the MESH (vertex probes, Phase 43)
   });
 });
 
-describe('Rogers Centre hero mesh — tri budget (A.3: ≤ 500)', () => {
+describe('Rogers Centre hero mesh — tri budget (A.3, re-pinned at Phase 45: ≤ 1,500)', () => {
   const { geometry, meta } = buildRogersGeometry();
-  it('is within the 500-triangle budget', () => {
+  it('is within the 1,500-triangle budget', () => {
     expect(meta.triangles).toBeLessThanOrEqual(ROGERS_MAX_TRIS);
-    expect(ROGERS_MAX_TRIS).toBe(500);
+    expect(ROGERS_MAX_TRIS).toBe(1500);
+  });
+  it('actually spends the budget — this is v2, not a token pass', () => {
+    // The v1 mesh was 240 tris: a plain cylinder plus a 4-band cap. A regression that quietly
+    // reverted the panelized dome / slide sector / gates / board / ramps would still pass every
+    // proportion pin below, so the FLOOR is a test too (the CN v2 precedent above).
+    expect(meta.triangles).toBeGreaterThan(900);
   });
   it('meta.triangles equals the geometry triangle count', () => {
     expect(meta.triangles).toBe(triCountOf(geometry));
@@ -480,5 +672,14 @@ describe('hero meshes — deterministic (no random)', () => {
     const b = buildCnTowerGeometry().geometry;
     expect(Array.from(a.attributes.aProgram.array)).toEqual(Array.from(b.attributes.aProgram.array));
     expect(Array.from(a.attributes.aProgramT.array)).toEqual(Array.from(b.attributes.aProgramT.array));
+  });
+  it('Rogers night-program attributes are byte-identical on repeat too (Phase 45)', () => {
+    // The lit-room pattern is a fixed arithmetic rule, NOT an rng roll — this is the test that
+    // would catch someone "improving" it with a seeded shuffle inside a per-process builder.
+    const a = buildRogersGeometry().geometry;
+    const b = buildRogersGeometry().geometry;
+    expect(Array.from(a.attributes.aProgram.array)).toEqual(Array.from(b.attributes.aProgram.array));
+    expect(Array.from(a.attributes.aProgramT.array)).toEqual(Array.from(b.attributes.aProgramT.array));
+    expect(Array.from(a.attributes.color.array)).toEqual(Array.from(b.attributes.color.array));
   });
 });

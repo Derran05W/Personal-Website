@@ -31,6 +31,7 @@ import { composeWorld } from './composeWorld';
 import { buildNamedBuildings } from './namedBuildings';
 import { buildPlacesLayer } from './placesLayer';
 import { buildCnTowerGeometry, buildRogersGeometry } from './heroes';
+import { buildRailLandsLayout, buildRailLandsSolids } from './railLands';
 import { hGame } from './heightCurve';
 
 /** The seed the whole Toronto layer is verified against (the P27-P32 gate seed). */
@@ -238,8 +239,33 @@ describe('eye-line law — (d) THE CROSSER LIST (Phase 36 occlusion work order)'
     // boxes interpenetrating a backdrop tower inside a skyline district (ablation-proven — removing
     // the new `blocked(fp)` check from buildBacklotRow alone restores all three). See
     // phase-40-notes.md.
-    expect(batched.backdropTowerBoxes).toBe(35);
+    //
+    // Phase 45: 35 -> 38. The rail-lands strip claim (world/toronto/railLands.ts) reserves the whole
+    // corridor south of Front between Spadina and Bay, so the backdrop walk's candidates inside it
+    // are rejected — and because the row is CAPPED map-wide (BACKDROP_TOWER.capMapWide 90, still
+    // 90 placed), the freed budget is spent further along the walk, in the financial and
+    // North-York-Centre stretches where the district height ranges roll taller. Three more of the
+    // same 90 boxes therefore cross the eye line. They are backdrop boxes like the other 35 — the
+    // same class, the same dither-fade work order, no new occlusion obligation.
+    expect(batched.backdropTowerBoxes).toBe(38);
     expect(batched.backLotBoxes).toBe(6);
+  });
+
+  it('the Phase-45 rail-lands buildings stay UNDER the eye line (the dither-path tripwire)', () => {
+    // aquarium-block / roundhouse are NAMED-class spec rows (hGame × NAMED_HEIGHT_SCALE) and the
+    // locomotive is a prop, so all three are far below CAMERA_EYE_MIN_WU and correctly ride
+    // occlusionFade.ts's material path (fadeKey null) rather than Phase 36's dither pass. If a
+    // future edit pushes one over the line, THIS test is the tripwire: the answer is to register it
+    // with the dither path, not to raise the number.
+    const solids = buildRailLandsSolids();
+    for (const part of solids.parts) {
+      expect(part.heightWu, `${part.id} height`).toBeLessThan(CAMERA_EYE_MIN_WU);
+    }
+    // …and their claim volumes agree with the geometry (the arbiter publishes yRange from the
+    // collider half-heights, which the camera clip projection then reads).
+    for (const c of buildRailLandsLayout().colliders) {
+      expect(2 * c.hy, `${c.id} collider height`).toBeLessThan(CAMERA_EYE_MIN_WU);
+    }
   });
 
   it('NAMED crossers, enumerated by id + final height (wu)', () => {

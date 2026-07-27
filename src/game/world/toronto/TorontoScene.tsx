@@ -67,6 +67,8 @@ import { HERO_LOTS, type CrownDecal, type NamedBox, type NamedPlacement } from '
 import { buildCnTowerGeometry, buildRogersGeometry } from './heroes';
 import { createCnNightMaterial, writeCnNightUniforms } from './cnNightMaterial';
 import { resolveNightProgram } from './cnNightProgram';
+import { createRogersNightMaterial, isHeroDistrictDark, writeRogersNightUniforms } from './rogersNightMaterial';
+import { resolveRogersProgram } from './rogersProgram';
 import { FADE_MAX, needsTransparent, occlusionFader, occlusionRegistry } from './occlusionFade';
 import {
   clearClipIndex,
@@ -76,7 +78,12 @@ import {
   segmentHitFadeKeys,
   setClipIndex,
 } from './cameraClipIndex';
-import { cnBaseClipVolumes, cnShaftClipVolumes, heroCylinderClipVolume } from './cnClipVolumes';
+import {
+  cnBaseClipVolumes,
+  cnShaftClipVolumes,
+  heroCylinderClipVolume,
+  rogersDomeClipVolumes,
+} from './cnClipVolumes';
 import { applyFadesFor, occlusionGate } from './occlusionTargets';
 import { recordOcclusionPass } from './occlusionStats';
 import { antiClipCameraPos, resetAntiClip } from './cameraAntiClip';
@@ -110,6 +117,7 @@ import { isWorldFrozen, simNowMs } from '../../core/simClock';
 import { preloadCityPack } from '../../assets/cityPack';
 import { CityPackPreview } from './cityPack/CityPackPreview';
 import { CityDress } from './cityPack/CityDress';
+import { RailLandsLayer } from './cityPack/RailLandsLayer';
 import {
   GROUND_RECTS,
   SIGNPOSTS,
@@ -675,35 +683,54 @@ function HeroesLayer() {
 
   // Phase 44 — the night program. The CN mesh keeps its ONE unlit vertex-coloured material; the
   // patch (cnNightMaterial.ts) adds the LED ring / crest wash / floodwash / beacon strobe on top of
-  // the baked colours, so the whole show is +0 draw calls. Rogers keeps the stock JSX material —
-  // the patched program is cache-keyed, so three can never confuse the two.
+  // the baked colours, so the whole show is +0 draw calls.
+  // Phase 45 — Rogers gets the SAME treatment through its own patched material (jumbotron colour
+  // blocks / gate lintels / hotel windows): separate cache key, separate uniforms, separate slice
+  // of the shared program alphabet, so three can never confuse the two and neither hero's shader
+  // can light the other's geometry.
   const cnNight = useMemo(() => createCnNightMaterial(cn.meta.ringCells), [cn]);
-  // Tonight's mode + palette are a pure function of the RUN SEED (the same seed that keys the
-  // world), so a retry replays the same tower. Memoized because resolving allocates an rng.
+  const rogersNight = useMemo(() => createRogersNightMaterial(rogers.meta.jumboCells), [rogers]);
+  // Tonight's mode + palette (CN) and colour-block scheme (Rogers) are pure functions of the RUN
+  // SEED (the same seed that keys the world), so a retry replays the same show. Memoized because
+  // resolving allocates an rng.
   const seed = useGameStore((s) => s.seed);
   const nightProgram = useMemo(() => resolveNightProgram(seed), [seed]);
+  const rogersProgram = useMemo(() => resolveRogersProgram(seed), [seed]);
 
   useEffect(
     () => () => {
       cn.geometry.dispose();
       rogers.geometry.dispose();
       cnNight.material.dispose();
+      rogersNight.material.dispose();
     },
-    [cn, rogers, cnNight],
+    [cn, rogers, cnNight, rogersNight],
   );
 
-  // The one live seam: sim time in, uniforms out. `simNowMs()` (never wall clock, never useFrame's
-  // own delta) is what makes the program stop dead when the Phase 42 flicker harness freezes the
-  // world — an animated tower that ignored the freeze would (correctly) trip the detector.
-  useFrame(() => {
-    writeCnNightUniforms(cnNight.uniforms, nightProgram, simNowMs());
-  });
   // Phase 29 (D1): only two lots, spatial lookup is cheap — same district-resolution idiom as
-  // NamedBuildingsLayer above.
+  // NamedBuildingsLayer above. Resolved BEFORE the frame loop because the Rogers program needs its
+  // district id every frame (the blackout read) and a per-frame rect walk would be waste.
   const districts = useMemo(() => buildDistricts(), []);
 
   const cnAt = lotCenter(HERO_LOTS[0]); // CN Tower (Part-8: BASE ≈ (950, 3390), compacted live)
   const rgAt = lotCenter(HERO_LOTS[1]); // Rogers Centre (Part-8: BASE ≈ (860, 3450), compacted live)
+  const rogersDistrictId = useMemo(
+    () => torontoDistrictIndexAt(rgAt.x, rgAt.z, districts),
+    [rgAt.x, rgAt.z, districts],
+  );
+
+  // The one live seam: sim time in, uniforms out. `simNowMs()` (never wall clock, never useFrame's
+  // own delta) is what makes the programs stop dead when the Phase 42 flicker harness freezes the
+  // world — an animated hero that ignored the freeze would (correctly) trip the detector. BOTH
+  // heroes read the SAME timestamp, so the two shows can never drift apart by a frame.
+  // The stadium also takes its district's power state: unlike the tower — which is structurally
+  // forbidden from knowing the grid exists, because a lit CN over a dark city IS the money shot —
+  // Rogers DIMS with harbourfront, on a config-driven fade stepped by this same sim clock.
+  useFrame(() => {
+    const tMs = simNowMs();
+    writeCnNightUniforms(cnNight.uniforms, nightProgram, tMs);
+    writeRogersNightUniforms(rogersNight.uniforms, rogersProgram, tMs, isHeroDistrictDark(rogersDistrictId));
+  });
 
   const cnRef = useRef<Mesh>(null);
   const rgRef = useRef<Mesh>(null);
@@ -723,9 +750,14 @@ function HeroesLayer() {
         castShadow
         frustumCulled={false}
       />
-      <mesh ref={rgRef} geometry={rogers.geometry} position={[rgAt.x, 0, rgAt.z]} castShadow frustumCulled={false}>
-        <meshBasicMaterial vertexColors toneMapped={false} />
-      </mesh>
+      <mesh
+        ref={rgRef}
+        geometry={rogers.geometry}
+        material={rogersNight.material}
+        position={[rgAt.x, 0, rgAt.z]}
+        castShadow
+        frustumCulled={false}
+      />
       {/* Base-cylinder colliders (§5 precedent from the P19 legacy tower): CN over the leg zone,
           Rogers a ring-base wall the car crashes into. Indestructible fixed BUILDING bodies.
           Phase 29 (D1): registered (spatial districtId lookup — both lots sit in harbourfront). */}
@@ -1127,7 +1159,7 @@ export function TorontoScene() {
   // Dependencies are (seed, tierParams) exactly as before — tierParams is mount-captured and
   // stable, so a re-render never rebuilds the city and a run restart reproduces it exactly.
   const world = useMemo(() => composeWorld(seed, tierParams), [seed, tierParams]);
-  const { parks, named, places, worldEdge, frontage, furniture, infill, dress } = world;
+  const { parks, named, places, worldEdge, frontage, furniture, infill, dress, railLands } = world;
 
   // Phase 25.8 (D7): parks — the grass mesh + tree ring. The same rects gate the streetwall via
   // the arbiter's `parkRect` zone claims, so the streetwall gaps exactly where the mesh fills.
@@ -1453,6 +1485,7 @@ export function TorontoScene() {
     const cn = buildCnTowerGeometry();
     const rogers = buildRogersGeometry();
     const cnAt = lotCenter(HERO_LOTS[0]);
+    const rgAt = lotCenter(HERO_LOTS[1]);
     const heroVolumes = [
       // Phase 44 (T3): CN's base is SHAPED, not blocked out. It used to enter the index as one
       // 21×21×20 wu box — the leg splay's bounding box, which also swallowed the arch void and the
@@ -1465,12 +1498,17 @@ export function TorontoScene() {
       // the see-through hole they close — the eye could rest INSIDE the shaft, back-face-culled).
       // Phase 44 re-expresses each band as the same two-box plus, for the same diagonal reason.
       ...cnShaftClipVolumes(cn.meta.shaftColliders, cnAt),
-      // Rogers' DOME is deliberately NOT indexed: a square AABB around a 33-wu-radius round dome
-      // would report false eye-inside across the whole rail-lands approach (up to ~14 wu of open
-      // air at the corners), polluting the eyeInside-must-read-0 metric, while the dome's real
-      // worst-case penetration is ~3 wu at maximum-pitch eye heights only. Residual recorded in
-      // the Phase 36 notes; Phase 45 rebuilds the dome and Phase 38's debt sweep re-audits.
-      heroCylinderClipVolume(rogers.meta.collider, lotCenter(HERO_LOTS[1])),
+      // Rogers: the ring base as one cylinder box (it sits entirely below the eye line — it exists
+      // for boresight blocking, not for eye-inside), plus — NEW at Phase 45 — the DOME.
+      // The dome was the one hero volume left out since Phase 36, because a square AABB around a
+      // 33-wu-radius shell false-flags the whole rail-lands approach. cnClipVolumes.ts's
+      // `rogersDomeClipVolumes` solves that properly off the rebuilt dome's own per-band ENCLOSURE
+      // hints: boxes INSCRIBED in each band (corners on the circle, so nothing ever reaches past
+      // it), sized to what the shell encloses rather than to its skin, and only for the bands the
+      // rig's eye can physically reach. The open approach stays untouched; an eye
+      // that climbs inside the roof is now seen (and the anti-clip guard can pull it out).
+      heroCylinderClipVolume(rogers.meta.collider, rgAt),
+      ...rogersDomeClipVolumes(rogers.meta.domeBands, rgAt),
     ];
     cn.geometry.dispose();
     rogers.geometry.dispose();
@@ -1630,6 +1668,11 @@ export function TorontoScene() {
       {/* Hero landmarks (Phase 25): the CN Tower + Rogers Centre primitive meshes on the reserved
           rail-lands lots, south of the named financial cluster (§5 adjacency rule). */}
       <HeroesLayer />
+
+      {/* Rail lands (Phase 45): the aquarium + roundhouse + turntable + museum locomotive on their
+          reserved lots, the ballast/tie ground dressing across the claimed corridor strip, the
+          brewery patio, and the AQUARIUM / STEAM WHISTLE signs. */}
+      <RailLandsLayer layout={railLands} unlit={cityPackUnlit} />
 
       {/* Places / nostalgia layer (Phase 26): places.json storefronts + §4 FASCIA sign-bands, the
           Uncle Tetsu / Konjiki-Elm lineups, Sam the Record Man's spinning discs, and §6 vibe props

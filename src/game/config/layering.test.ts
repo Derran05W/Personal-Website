@@ -28,20 +28,29 @@ import { GROUND_STACK, MIN_GROUND_SEP_WU, MIN_WALL_SEP_WU, SURFACE_ANCHOR, WALL_
 const EPS = 1e-9;
 
 describe('GROUND_STACK — every rung pinned exactly', () => {
-  it('matches the Phase 39 law values', () => {
+  // PHASE 45 RE-PIN (deliberate, per the ladder's own "spliced deliberately, moving neighbours as
+  // needed" rule — see layering.ts's Phase 45 note): the rail lands needed two new ground surfaces
+  // between `parkGround` and the road (a gravel BALLAST bed, and the TIE/turntable marks painted
+  // INSIDE that bed's own footprint — two surfaces, therefore two rungs, because one shared rung
+  // would be a guaranteed coplanar pair). The 0.004 wu gap available there could not hold them, so
+  // `railBallast` 0.016 / `railTrack` 0.020 were spliced in and EVERY rung above moved +0.008 wu.
+  // Nothing outside this file re-types a rung value, so the whole migration is this pin.
+  it('matches the law values (Phase 39, re-pinned at Phase 45 for the rail-lands splice)', () => {
     expect(GROUND_STACK).toEqual({
       ground: 0.0,
       districtTint: 0.008,
       parkGround: 0.012,
-      edgeBoxBase: 0.016,
-      roadSurface: 0.02,
-      roadPaint: 0.026,
-      crosswalk: 0.032,
-      placesRoadArt: 0.038,
-      skid: 0.048,
-      scorch: 0.054,
-      water: 0.06,
-      groundFx: 0.066,
+      railBallast: 0.016,
+      railTrack: 0.02,
+      edgeBoxBase: 0.024,
+      roadSurface: 0.028,
+      roadPaint: 0.034,
+      crosswalk: 0.04,
+      placesRoadArt: 0.046,
+      skid: 0.056,
+      scorch: 0.062,
+      water: 0.068,
+      groundFx: 0.074,
     });
   });
 
@@ -94,10 +103,14 @@ describe('SURFACE_ANCHOR — the road/ground placement-lift rule', () => {
     expect(SURFACE_ANCHOR.road).toBeCloseTo(GROUND_STACK.roadSurface + MIN_GROUND_SEP_WU, 9);
   });
 
-  it('ground anchor sits strictly between districtTint and edgeBoxBase, and deliberately dodges the parkGround rung', () => {
+  it('ground anchor sits strictly between districtTint and edgeBoxBase, and deliberately dodges the parkGround + railBallast rungs', () => {
     expect(SURFACE_ANCHOR.ground).toBeGreaterThan(GROUND_STACK.districtTint);
     expect(SURFACE_ANCHOR.ground).toBeLessThan(GROUND_STACK.edgeBoxBase);
     expect(Math.abs(SURFACE_ANCHOR.ground - GROUND_STACK.parkGround)).toBeGreaterThan(EPS);
+    // Phase 45: the splice put `railBallast` between this anchor and `edgeBoxBase`. A flat prop
+    // resting on bare dirt must still dodge it — the anchor is an ANCHOR, not a rung, so it is
+    // allowed to sit inside a rung gap, but never ON a rung.
+    expect(Math.abs(SURFACE_ANCHOR.ground - GROUND_STACK.railBallast)).toBeGreaterThan(EPS);
   });
 });
 

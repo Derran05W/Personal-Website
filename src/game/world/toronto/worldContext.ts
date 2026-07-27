@@ -24,9 +24,12 @@
 // construction — every input here is a pure function of the street table.
 
 import { colliderHalfExtents } from '../../config/cityPackScale';
+import { TRAFFIC_LIGHT, TREE_ROW } from '../../config/torontoDress';
 import { BARRIER, SIDEWALK } from '../../config/torontoMap';
 import {
+  aabbAround,
   createClaimIndex,
+  footprintHalfExtents,
   type Aabb,
   type ClaimIndex,
   type ClaimIndexView,
@@ -40,6 +43,7 @@ import { buildParks, type ParksLayout } from './parks';
 import { buildPlacesLayer, type PlacesLayer } from './placesLayer';
 import { PLAYABLE_POLYGON } from './polygon';
 import { ZONE_BOUNDARIES } from './projection';
+import { buildRailLandsLayout, type RailLandsLayout } from './railLands';
 import { listIntersections, type Intersection } from './roadGraph';
 import { buildStreets, type MapRect, type Street } from './streets';
 import { buildWorldEdge, type BarrierDressingKind, type WorldEdgeLayout } from './worldEdge';
@@ -55,6 +59,10 @@ export interface WorldPrefix {
   readonly places: PlacesLayer;
   readonly parks: ParksLayout;
   readonly worldEdge: WorldEdgeLayout;
+  /** Phase 45 — the rail-lands block (aquarium / roundhouse / locomotive / ground dressing /
+   * patio) as PURE PLACEMENT DATA. Its geometry is built by the scene layer, never here: the
+   * composition root must stay free of three objects. */
+  readonly railLands: RailLandsLayout;
 }
 
 /** What a placer receives: the skeleton plus a READ-ONLY view of the claim index. Builders never
@@ -103,7 +111,37 @@ export function buildWorldPrefix(): WorldPrefix {
   const places = buildPlacesLayer(named);
   const parks = buildParks();
   const worldEdge = buildWorldEdge();
-  return { streets, intersections, districts, named, places, parks, worldEdge };
+  const railLands = buildRailLandsLayout(streets);
+  return { streets, intersections, districts, named, places, parks, worldEdge, railLands };
+}
+
+// --- prop footprints (shared by composeWorld's seed-dependent layers and the rail-lands props) --------
+
+/**
+ * The claim footprint of a furniture/prop placement. Model half-extents come from the SAME
+ * `colliderHalfExtents` resolver the renderer and the collider mounts use, with two documented
+ * "claim the trunk, not the canopy" exceptions:
+ *   • `tree` — TREE_ROW.trunkHalfWidthWu, matching the D12 trunk-collider convention (a canopy box
+ *     would claim ~3 wu of sidewalk the player drives straight through).
+ *   • `traffic-light` — TRAFFIC_LIGHT.postHalfWidthWu, because the model's width is the ARM
+ *     reaching out over the roadway at 3.78 wu height, not anything standing on the corner.
+ *
+ * Phase 45 moved this pair down from composeWorld.ts (which still re-exports `propFootprint`)
+ * because worldContext now registers prop claims of its own — the rail-lands patio dressing — and
+ * a second copy of the rule is exactly the drift the Phase 40 arbiter exists to prevent.
+ */
+function propHalfExtents(modelId: string): { hx: number; hz: number } {
+  if (modelId === 'tree') return { hx: TREE_ROW.trunkHalfWidthWu, hz: TREE_ROW.trunkHalfWidthWu };
+  if (modelId === 'traffic-light') return { hx: TRAFFIC_LIGHT.postHalfWidthWu, hz: TRAFFIC_LIGHT.postHalfWidthWu };
+  const half = colliderHalfExtents(modelId);
+  return { hx: half.hx, hz: half.hz };
+}
+
+/** Footprint of a prop placed at (x, z) with `yawRad`, through the shared rotation rule. */
+export function propFootprint(modelId: string, x: number, z: number, yawRad: number): Aabb {
+  const { hx, hz } = propHalfExtents(modelId);
+  const rotated = footprintHalfExtents(hx, hz, yawRad);
+  return aabbAround(x, z, rotated.hx, rotated.hz);
 }
 
 // --- world-edge dressing footprints ---------------------------------------------------------------
@@ -158,8 +196,9 @@ function dressingHalfExtents(kind: BarrierDressingKind, yawRad: number): { hx: n
  *
  * Registration order (= claim ordinal order, which is what makes every query deterministic):
  *   1. street ribbons + sidewalk bands + crosswalk bands + the water band   (ZONE)
- *   2. named-building exclusion rects (hero lots included)                  (ZONE)
+ *   2. named-building exclusion rects (hero + rail-lands lots/strip incl.)  (ZONE)
  *   3. named-building boxes                                                 (BLOCKING, building)
+ *   3b. rail-lands building volumes + patio prop footprints                 (BLOCKING)
  *   4. places-layer exclusion rects                                         (ZONE)
  *   5. park rects                                                           (ZONE)
  *   6. world-edge barrier boxes + dressing + notch cones                    (BLOCKING)
@@ -241,6 +280,38 @@ export function createPlacementContext(): WritablePlacementContext {
       });
     });
   }
+
+  // 3b) Phase 45 — the rail-lands block. Its ZONES (the two lots + the reserved corridor strip)
+  // already arrived above inside `named.exclusions`; what registers here are the real VOLUMES the
+  // camera and every later placer must respect. Kind `namedBuilding` (no new taxonomy — they are
+  // named-class landmarks and the camera clip projection picks them up for free through
+  // buildingClipVolumes) with a per-building OWNER, which is what sanctions a building's own
+  // multi-box collider set against itself (the roundhouse arc is four chords). `fadeKey: null`
+  // puts them on occlusionFade.ts's material path like every other named box.
+  for (const collider of prefix.railLands.colliders) {
+    const rotated = footprintHalfExtents(collider.hx, collider.hz, collider.yawRad);
+    index.register({
+      id: `rail-lands:${collider.id}`,
+      kind: 'namedBuilding',
+      source: 'railLands',
+      owner: `railLands:${collider.owner}`,
+      aabb: aabbAround(collider.cx, collider.cz, rotated.hx, rotated.hz),
+      yRange: [0, 2 * collider.hy],
+      fadeKey: null,
+    });
+  }
+  // The brewery patio's pack props: cosmetic and colliderless (the venueProp precedent), but their
+  // footprints claim so nothing else lands on them. ONE shared owner — the cluster is authored to
+  // sit together, exactly like venueDress's per-venue prop groups.
+  prefix.railLands.props.forEach((prop, i) => {
+    index.register({
+      id: `rail-lands-prop:${i}`,
+      kind: 'decor',
+      source: 'railLands',
+      owner: 'railLands:patio',
+      aabb: propFootprint(prop.modelId, prop.position[0], prop.position[2], prop.rotationY),
+    });
+  });
 
   // 4) Places layer.
   prefix.places.exclusions.forEach((rect, i) => {

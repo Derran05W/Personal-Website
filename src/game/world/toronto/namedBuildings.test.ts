@@ -234,8 +234,20 @@ describe('buildNamedBuildings — twins render as two boxes', () => {
 });
 
 describe('buildNamedBuildings — placement set vs the spec file', () => {
-  it('excluded ids are exactly {cn-tower, rogers-centre, casa-loma}', () => {
-    expect([...NAMED_EXCLUDED_IDS].sort()).toEqual(['casa-loma', 'cn-tower', 'rogers-centre']);
+  // PHASE 45 RE-PIN: `aquarium-block` and `roundhouse` join the excluded set. Both are NAMED-class
+  // spec rows, but neither reads as a box — the aquarium is a faceted glass massing with a
+  // wave-form roof and the roundhouse is a brick ARC around a turntable — so both ship as bespoke
+  // merged meshes from world/toronto/railLands.ts on their own reserved lots, exactly the way the
+  // two heroes have since Phase 25. (Phase 46 builds the general `namedGeometryBuilders` seam; these
+  // two predate it by one phase and deliberately do not pre-build it.)
+  it('excluded ids are exactly {cn-tower, rogers-centre, casa-loma, aquarium-block, roundhouse}', () => {
+    expect([...NAMED_EXCLUDED_IDS].sort()).toEqual([
+      'aquarium-block',
+      'casa-loma',
+      'cn-tower',
+      'rogers-centre',
+      'roundhouse',
+    ]);
   });
 
   it('places every spec building except the excluded + filler-archetype ids', () => {
@@ -297,8 +309,20 @@ describe('buildNamedBuildings — hero lots + exclusions', () => {
     expect(named.heroLots.length).toBe(HERO_LOTS.length);
   });
 
-  it('exclusions cover every named box (inflated) plus the hero lots', () => {
+  // Phase 45: the rail-lands zones (the aquarium lot, the roundhouse lot and the reserved rail
+  // corridor strip) ride the SAME exclusion channel the hero lots have used since Phase 24 —
+  // worldContext.ts registers the whole `exclusions` array as `namedExclusion` claims, so adding a
+  // reserved area needs no new arbiter taxonomy and no second registration site.
+  it('exclusions cover every named box (inflated) plus the hero lots plus the rail-lands zones', () => {
     const boxCount = named.placements.reduce((n, p) => n + p.boxes.length, 0);
-    expect(named.exclusions.length).toBe(boxCount + named.heroLots.length);
+    expect(named.exclusions.length).toBe(boxCount + named.heroLots.length + named.railLandsZones.length);
+    expect(named.railLandsZones.length).toBe(3); // 2 lots + the corridor strip
+  });
+
+  it('every rail-lands zone sits wholly inside the polygon', () => {
+    for (const zone of named.railLandsZones) {
+      const a: Aabb = { minX: zone.minX, minZ: zone.minY, maxX: zone.maxX, maxZ: zone.maxY };
+      expect(corners(a).every((c) => pointInPolygon(c, PLAYABLE_POLYGON))).toBe(true);
+    }
   });
 });

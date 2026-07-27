@@ -29,6 +29,14 @@
 // difference. The ground rungs below are spaced 0.006 apart (1.5× the minimum) so a future
 // insertion has room.
 //
+// PHASE 45 SPLICE (Part 11's rail lands): two rungs — `railBallast` and `railTrack` — were
+// inserted between `parkGround` and `edgeBoxBase`, and EVERY rung above them moved up by 0.008 wu.
+// That is the ladder working as designed ("new rungs are APPENDED or spliced deliberately, moving
+// neighbours as needed"): there was no room in the 0.004 wu gap the two new surfaces needed, so
+// the neighbours moved rather than the new rungs being squeezed in. Nothing downstream re-types
+// any of these numbers — every producer reads the rung — so the splice is one edit here plus the
+// re-pin in layering.test.ts.
+//
 // NOT A RUNG: `SIDEWALK.curbHeightWu` (0.12) is a geometry HEIGHT — a raised curb the car can
 // see and (visually) climb — not a coplanarity epsilon. It stays in `config/torontoMap.ts` and
 // roadPaint.ts derives CURB_TOP_Y from it; the guard test exempts that derivation explicitly.
@@ -54,27 +62,47 @@ export const GROUND_STACK = {
   districtTint: 0.008,
   /** Park grass quads (was 0.010 — moved up one step to clear the tint by the full minimum). */
   parkGround: 0.012,
-  /** World-edge barrier / jersey-row box FLOORS (P37's BOX_BASE_LIFT_WU; value unchanged). */
-  edgeBoxBase: 0.016,
-  /** Road ribbons (the asphalt). */
-  roadSurface: 0.02,
-  /** Road paint: curb strips + centre-line dashes (was 0.025 = roadSurface + 0.005). */
-  roadPaint: 0.026,
-  /** Crosswalk zebra bands (was 0.027 = roadSurface + 0.007 — only 0.002 above the paint). */
-  crosswalk: 0.032,
-  /** Painted street art — the Church Street rainbow crosswalk (was 0.030). */
-  placesRoadArt: 0.038,
-  /** Skid-mark decal quads (was 0.030 — an EXACT TIE with the rainbow crosswalk). Skids paint
-   * OVER placesRoadArt so street art never tears under braking, and BELOW `water` so marks
-   * vanish the moment they'd cross the lake plane. */
-  skid: 0.048,
-  /** Explosion scorch decals (was 0.035) — over skids, so a blast on a skid trail reads. */
-  scorch: 0.054,
-  /** The lake's visual plane (was 0.050). */
-  water: 0.06,
+  /** PHASE 45 SPLICE — rail-lands ballast beds + the turntable deck disc
+   * (world/toronto/railLands.ts). A gravel BED is a ground surface of the same class as park
+   * grass, so it belongs here, immediately above the district tint and BELOW the road ribbon: if
+   * a future rail bed ever meets a ribbon, the asphalt must win. */
+  railBallast: 0.016,
+  /** PHASE 45 SPLICE — rail TRACK marks painted on those beds: tie bands, the turntable's bridge
+   * girder, the radial bay stubs. A separate rung because every one of them sits INSIDE the
+   * ballast footprint it decorates; one shared rung would be the exact coplanar pair Phase 39
+   * exists to prevent. */
+  railTrack: 0.02,
+  /** World-edge barrier / jersey-row box FLOORS (P37's BOX_BASE_LIFT_WU). Phase 45: 0.016 →
+   * 0.024, shifted by the two-rung rail splice below parkGround (value is a rung reference
+   * everywhere — worldEdgeGeometry.ts reads it, nothing re-types it). */
+  edgeBoxBase: 0.024,
+  /** Road ribbons (the asphalt). Phase 45: 0.020 → 0.028 (the rail splice; +0.008 wu is ~8 mm,
+   * invisible as a height and decisive as a depth — the whole point of the ladder). */
+  roadSurface: 0.028,
+  /** Road paint: curb strips + centre-line dashes (was 0.025 = roadSurface + 0.005; Phase 45:
+   * 0.026 → 0.034). */
+  roadPaint: 0.034,
+  /** Crosswalk zebra bands (was 0.027 = roadSurface + 0.007 — only 0.002 above the paint;
+   * Phase 45: 0.032 → 0.040). */
+  crosswalk: 0.04,
+  /** Painted street art — the Church Street rainbow crosswalk (was 0.030; Phase 45: 0.038 →
+   * 0.046). */
+  placesRoadArt: 0.046,
+  /** Skid-mark decal quads (was 0.030 — an EXACT TIE with the rainbow crosswalk; Phase 45: 0.048
+   * → 0.056). Skids paint OVER placesRoadArt so street art never tears under braking, and BELOW
+   * `water` so marks vanish the moment they'd cross the lake plane. The 0.010 gap to
+   * placesRoadArt is LOAD-BEARING, not slack: it is what keeps the manhole-cover invariant below
+   * (SURFACE_ANCHOR.road + the model's own 0.0183 wu height) clear of this rung. */
+  skid: 0.056,
+  /** Explosion scorch decals (was 0.035; Phase 45: 0.054 → 0.062) — over skids, so a blast on a
+   * skid trail reads. */
+  scorch: 0.062,
+  /** The lake's visual plane (was 0.050; Phase 45: 0.060 → 0.068). */
+  water: 0.068,
   /** Ground FX — the helicopter searchlight's ground pool (was 0.050, an EXACT TIE with the
-   * water plane). Top of the stack: aircraft light paints over everything, including the lake. */
-  groundFx: 0.066,
+   * water plane; Phase 45: 0.066 → 0.074). Top of the stack: aircraft light paints over
+   * everything, including the lake. */
+  groundFx: 0.074,
 } as const;
 
 /**

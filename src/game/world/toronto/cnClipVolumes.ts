@@ -38,6 +38,12 @@
 // (CnTowerMeta.shaftColliders, Phase 36) — `cnShaftClipVolumes` below re-expresses those as the
 // same two-box plus, for the same diagonal reason.
 //
+// PHASE 45 widened this module's remit from "CN's base" to THE HERO CLIP-VOLUME HOME: the generic
+// `heroCylinderClipVolume` already lived here (it is Rogers' ring base), and `rogersDomeClipVolumes`
+// at the bottom of the file now joins it, built out of the very same `discPlus` primitive. The file
+// name is kept because CN's base is still the bulk of it and renaming would churn four call sites
+// for nothing.
+//
 // MEASURED OUTCOME (Phase 44, 12,992 drivable car poses on a 0.5 wu grid within 30 wu of the axis,
 // each solved through cameraAntiClip's own solver):
 //   poses the eye rests INSIDE with no escape:  94 -> 14
@@ -57,6 +63,7 @@
 // down the NW leg to clear the splay) keep the wide, back-face-culled reading, which is the least
 // bad of the available frames, not a broken one.
 
+import { CAMERA_EYE_MIN_WU } from '../../config/camera';
 import type { ClipAabb } from './cameraClipIndex';
 
 /** The slice of `CnTowerMeta` this module needs — structural, so nothing here imports heroes.ts. */
@@ -139,6 +146,11 @@ export function cnBaseBandCuts(meta: CnBaseInput): number[] {
 /**
  * A disc of radius `r` centred on (cx, cz), covered by TWO axis-aligned boxes in a plus formation
  * (see the header). Returns nothing for a non-positive radius.
+ *
+ * SHARED (Phase 45): this is the module's one geometric primitive and every hero cover in here is
+ * built out of it — CN's base bands, CN's taper shaft, and the Rogers dome. Exported as
+ * `discPlusVolumes` below for callers outside this file; the internal name stays for the existing
+ * call sites, whose output is byte-identical to before the export existed.
  */
 function discPlus(cx: number, cz: number, r: number, minY: number, maxY: number, out: ClipAabb[]): void {
   if (!(r > 0)) return;
@@ -285,6 +297,21 @@ export function cnShaftClipVolumes(
 }
 
 /**
+ * The two-box plus for one disc, as a standalone call (see `discPlus`). Exported at Phase 45 so
+ * any hero cover can be built from the same primitive instead of re-deriving the 1/sqrt2 trick.
+ */
+export function discPlusVolumes(
+  at: { readonly x: number; readonly z: number },
+  radius: number,
+  minY: number,
+  maxY: number,
+): ClipAabb[] {
+  const out: ClipAabb[] = [];
+  discPlus(at.x, at.z, radius, minY, maxY, out);
+  return out;
+}
+
+/**
  * A hero base cylinder (Rogers' ring base, and any future round hero) as a single AABB — the
  * pre-existing shape, factored out so the scene's clip-index effect reads as one list of
  * volume-producing calls rather than an inline map.
@@ -302,4 +329,114 @@ export function heroCylinderClipVolume(
     maxZ: at.z + hint.radius,
     fadeKey: null,
   };
+}
+
+// --- Rogers Centre dome (Phase 45) --------------------------------------------------------------
+//
+// THE DEBT THIS PAYS. Since Phase 36 the Rogers dome was the one hero volume deliberately LEFT OUT
+// of the camera clip index, with the reason written into TorontoScene as a TODO: "a square AABB
+// around a 33-wu-radius round dome would report false eye-inside across the whole rail-lands
+// approach (up to ~14 wu of open air at the corners), polluting the eyeInside-must-read-0 metric,
+// while the dome's real worst-case penetration is ~3 wu at maximum-pitch eye heights only." Phase
+// 38's graze probe confirmed no live defect but filed the gap: the dome has no fade support and no
+// anti-clip cover for the day it DOES swallow the eye. Phase 45 rebuilt the dome and published
+// per-band enclosure hints (RogersMeta.domeBands), which is what makes a tight cover possible.
+//
+// THE THREE IDEAS THAT MAKE IT TIGHT:
+//   1. ENCLOSURE, NOT CONTAINMENT. A dome is a SHELL over air. The camera cannot be inside its
+//      skin; it can only be inside what the skin encloses. So each band is covered by the smallest
+//      radius anywhere in it (the profile radius at the band's TOP — what `domeBands[i].radius`
+//      publishes), never the widest. That under-covers a thin annulus of genuinely enclosed air at
+//      each band's bottom lip and NEVER claims the open air outside the sloping skin, which is
+//      exactly the trade the old TODO was asking for: false negatives are a hairline; false
+//      positives are the whole approach.
+//   2. ONLY THE BANDS THE EYE CAN REACH. The rig's eye never sits below CAMERA_EYE_MIN_WU
+//      (config/camera.ts, 22.05 by the law test), so bands that top out well under that line can
+//      never contain it. They are dropped entirely — with a small margin for the near plane's own
+//      reach — which removes the widest, most over-claiming boxes (the springing bands, r ≈ 32) and
+//      leaves only the upper cap the eye can actually get inside.
+//   3. INSCRIBED BOXES, NOT THE TWO-BOX PLUS. This is where the dome parts company with CN. The
+//      plus covers its disc COMPLETELY but its corners stick out to 1.2247·r — fine for CN, whose
+//      boxes are a few wu wide and sit inside a solid tower, fatal here: 22 % of a 23 wu radius is
+//      5 wu of open air claimed in eight lobes, at exactly the eye heights the approach is driven
+//      at. So the dome uses the dual construction — boxes whose CORNERS SIT ON the circle, half
+//      extents (r·cos φ, r·sin φ) — which by definition can never reach past r. With φ_j =
+//      asin(sqrt(j/(K+1))), j = 1..K, the union of K such boxes provably covers the whole disc of
+//      radius sqrt(K/(K+1))·r (the angles that equalise every gap; see `domeCoverBoxes`). At K = 6
+//      that is 92.6 % of the enclosure, with ZERO over-reach — the honest shape of the trade, and
+//      the reason the acceptance test can be exhaustive on both sides.
+// All three together: a car on the open Bremner approach is untouched (provably — no covered point
+// is ever outside the shell), and the eye poses that matter — a car pressed against the north-west
+// wall, which puts the eye ~20 wu from the axis and under the roof — are caught, so the anti-clip
+// guard can pull it back out down the boresight.
+
+/** Bands topping out below (eye min − this) can't contain the eye; they contribute nothing. */
+const DOME_EYE_MARGIN_WU = 2.5;
+/** Cap-tip bands narrower than this produce boxes too small to matter (and float-noise radii). */
+const DOME_MIN_COVER_RADIUS_WU = 1.5;
+/** Inscribed boxes per band. Coverage is sqrt(K/(K+1)) of the enclosure radius: 6 → 92.6 %, and
+ *  each box is one AABB in an index that already holds thousands, so the cost is noise. */
+const DOME_COVER_BOXES = 6;
+
+/** The slice of `RogersMeta.domeBands` this module needs — structural, so nothing here imports
+ *  heroes.ts (the same rule `CnBaseInput` follows). */
+export interface RogersDomeBandInput {
+  readonly radius: number;
+  readonly minY: number;
+  readonly maxY: number;
+}
+
+/**
+ * K axis-aligned boxes INSCRIBED in the disc of radius `r` (every corner exactly on the circle, so
+ * the union never reaches past `r`), at the angles that equalise the coverage gaps:
+ * φ_j = asin(sqrt(j / (K + 1))). Their union contains the concentric disc of radius
+ * sqrt(K / (K + 1))·r — `domeCoverFraction` below is that number, exported for the test.
+ *
+ * WHY THOSE ANGLES. A box with half-extents (r·cos φ, r·sin φ) covers a point at (ρ, θ) iff
+ * ρ ≤ r·min(cos φ / cos θ, sin φ / sin θ). Between two consecutive angles a < b the weakest point
+ * sits where those two expressions cross, and the coverage there works out to sqrt(sin²a + cos²b).
+ * Setting every consecutive pair's value equal (including the boundary pairs 0→φ₁ and φ_K→90°)
+ * gives sin²φ_j = j/(K+1) and a common value of sqrt(K/(K+1)).
+ */
+function domeCoverBoxes(
+  cx: number,
+  cz: number,
+  r: number,
+  minY: number,
+  maxY: number,
+  out: ClipAabb[],
+  boxes = DOME_COVER_BOXES,
+): void {
+  if (!(r > 0)) return;
+  for (let j = 1; j <= boxes; j++) {
+    const sinPhi = Math.sqrt(j / (boxes + 1));
+    const cosPhi = Math.sqrt(1 - j / (boxes + 1));
+    const hx = r * cosPhi;
+    const hz = r * sinPhi;
+    out.push({ minX: cx - hx, maxX: cx + hx, minY, maxY, minZ: cz - hz, maxZ: cz + hz, fadeKey: null });
+  }
+}
+
+/** The fraction of a band's enclosure radius `domeCoverBoxes` provably covers (see above). */
+export function domeCoverFraction(boxes = DOME_COVER_BOXES): number {
+  return Math.sqrt(boxes / (boxes + 1));
+}
+
+/**
+ * Camera clip volumes for the Rogers dome standing at `at` — one inscribed box set per
+ * eye-reachable band. `fadeKey` stays null: heroes are faded through the material-opacity raycast
+ * path (occlusionRegistry), not the dither channel, so these volumes exist for the eye-inside
+ * metric and the anti-clip guard only.
+ */
+export function rogersDomeClipVolumes(
+  bands: readonly RogersDomeBandInput[],
+  at: { readonly x: number; readonly z: number },
+): ClipAabb[] {
+  const out: ClipAabb[] = [];
+  for (const band of bands) {
+    if (band.maxY < CAMERA_EYE_MIN_WU - DOME_EYE_MARGIN_WU) continue;
+    if (!(band.radius > DOME_MIN_COVER_RADIUS_WU)) continue;
+    domeCoverBoxes(at.x, at.z, band.radius, band.minY, band.maxY, out);
+  }
+  return out;
 }
