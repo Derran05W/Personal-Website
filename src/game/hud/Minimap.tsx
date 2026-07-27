@@ -11,6 +11,7 @@ import { useEffect, useRef, type CSSProperties } from 'react';
 import { playerVehicle } from '../vehicles/playerRef';
 import { useDevToggle } from '../core/devToggles';
 import {
+  cnTowerMapPx,
   streetEndpointsWorld,
   torontoBarrierRingSegmentsPx,
   torontoWaterEdgeSegmentPx,
@@ -22,6 +23,15 @@ const MAP_PX = 192;
 const REDRAW_INTERVAL_MS = 100; // ~10 Hz — a debug tool, not part of the render loop.
 const PLAYER_DOT_RADIUS_PX = 3;
 const PLAYER_DOT_COLOR = '#ff3b3b';
+// Phase 44: the CN Tower wayfinding icon. P38's camera-debt sweep measured that sight-based
+// wayfinding is impossible under the locked rig E (the pod never enters frame from any legal
+// on-rig vantage, at any distance) — the minimap carries the role instead. A small warm-white dot
+// (distinct from the red player blip) with a short vertical "antenna" tick reads as a tower glyph
+// at 192px scale without needing real iconography.
+const CN_ICON_COLOR = '#ffd9c4';
+const CN_ICON_RADIUS_PX = 2;
+const CN_ICON_ANTENNA_HEIGHT_PX = 4;
+const CN_ICON_ANTENNA_WIDTH_PX = 1;
 // Phase 29 (D6): Toronto street-ribbon stroke — dimmer than the ring (RING_STROKE below) so the
 // boundary reads as the primary shape and the grid as secondary detail.
 const TORONTO_STREET_STROKE = 'rgba(255, 255, 255, 0.2)';
@@ -103,6 +113,20 @@ export default function Minimap() {
         ctx.lineTo(bPx.x, bPx.y);
       }
       ctx.stroke();
+
+      // Phase 44: the CN Tower wayfinding glyph — a warm-white dot + antenna tick at its true
+      // world position, drawn every redraw like every other overlay here (10 Hz, a debug tool).
+      const cnPx = cnTowerMapPx(MAP_PX);
+      ctx.fillStyle = CN_ICON_COLOR;
+      ctx.beginPath();
+      ctx.arc(cnPx.x, cnPx.y, CN_ICON_RADIUS_PX, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(
+        cnPx.x - CN_ICON_ANTENNA_WIDTH_PX / 2,
+        cnPx.y - CN_ICON_RADIUS_PX - CN_ICON_ANTENNA_HEIGHT_PX,
+        CN_ICON_ANTENNA_WIDTH_PX,
+        CN_ICON_ANTENNA_HEIGHT_PX,
+      );
 
       const pose = playerVehicle.current?.readState().pose;
       if (pose) {

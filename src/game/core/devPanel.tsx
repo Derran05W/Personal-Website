@@ -32,7 +32,10 @@ import {
   setPolygonOffsetDecals,
   setCameraJitter,
   setFreezeWorld,
+  cnProgram,
+  setCnProgram,
 } from './debugBridge';
+import { CN_TOWER } from '../config/cnTower';
 import { decalPolygonOffset } from '../fx/decalPolygonOffsetRef';
 import { cameraJitter } from '../fx/cameraJitterRef';
 import { isWorldFrozen } from './simClock';
@@ -985,6 +988,47 @@ export default function DevPanel() {
       schema['death beat: WRECKED'] = button(() => forceDeathBeat('wrecked'));
       schema['death beat: BUSTED'] = button(() => forceDeathBeat('busted'));
       schema['death beat: end'] = button(() => forceDeathBeat(null));
+      return schema as unknown as LevaSchema;
+    },
+    [],
+  );
+
+  // --- CN Tower night program (P44): mode/palette override --------------------------------
+  // Every NUMBER in the show (intensities, periods, chase width, beacon cadence) is already
+  // live-tunable through the auto-built Config folder below (CONFIG.CN_TOWER), so this folder only
+  // owns the two things the registry can't express: the seeded mode and palette PICK. Both drive
+  // the same debugBridge seam window.__smashy.setCnProgram uses, so a human clicking here and the
+  // scripted evidence battery can never diverge. "seeded (clear)" drops back to the run's own pick.
+  useControls(
+    'CN night (P44)',
+    () => {
+      const schema: Record<string, unknown> = {
+        mode: {
+          value: cnProgram().mode,
+          options: ['solid', 'pulse', 'chase'],
+          onChange: (mode: string, _path: string, ctx: { initial: boolean }) => {
+            if (ctx.initial) return; // leva fires onChange on registration — don't stomp a script
+            setCnProgram({ mode });
+          },
+        },
+        palette: {
+          value: cnProgram().paletteName,
+          options: CN_TOWER.palettes.map((p) => p.name),
+          onChange: (name: string, _path: string, ctx: { initial: boolean }) => {
+            if (ctx.initial) return;
+            const paletteIndex = CN_TOWER.palettes.findIndex((p) => p.name === name);
+            if (paletteIndex >= 0) setCnProgram({ paletteIndex });
+          },
+        },
+        showing: monitor(
+          () => {
+            const p = cnProgram();
+            return `${p.mode} · ${p.paletteName}${p.overridden ? ' (override)' : ''}`;
+          },
+          { interval: 500 },
+        ),
+      };
+      schema['seeded (clear override)'] = button(() => setCnProgram(null));
       return schema as unknown as LevaSchema;
     },
     [],

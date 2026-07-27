@@ -16,7 +16,7 @@ import { resolve } from 'node:path';
 import type { BufferGeometry } from 'three';
 import { describe, expect, it } from 'vitest';
 import { hGame } from './heightCurve';
-import { buildCnTowerGeometry, buildRogersGeometry, CN_TOWER_MAX_TRIS, ROGERS_MAX_TRIS } from './heroes';
+import { buildCnTowerGeometry, buildRogersGeometry, CN_PROGRAM, CN_TOWER_MAX_TRIS, ROGERS_MAX_TRIS } from './heroes';
 
 interface SpecRow {
   id: string;
@@ -130,26 +130,218 @@ describe('CN Tower hero mesh — data-locked proportions (§5)', () => {
   });
 });
 
-describe('CN Tower hero mesh — the pod ring is actually BRIGHT (emissive read)', () => {
-  it('has a vivid (red-dominant, bright) vertex inside the ring band', () => {
+describe('CN Tower hero mesh — the pod ring is the night program\'s LED channel (Phase 44)', () => {
+  // PIN MOVED AT PHASE 44 (was: "has a vivid red-dominant BRIGHT vertex inside the ring band").
+  // v1 baked the ring's light into the vertex colours, which made it light no palette, mode or
+  // program state could ever turn off; the channel is now baked as a DARK HOUSING and tagged
+  // RING, so the same claim ("the ring is the tower's light") is asserted one layer over: the
+  // band's vertices carry the RING element and a per-cell parametric coord for the shader to
+  // discretize. T2 owns the deeper program-attribute probes.
+  it('the ring band is tagged RING, dark-baked, with one flat aProgramT per LED cell', () => {
     const { geometry, meta } = buildCnTowerGeometry();
     const pos = geometry.attributes.position;
     const col = geometry.attributes.color;
-    // Float32 attribute rounding at y≈55 wu is ~3e-6, so the band check needs a hair of slop.
-    const eps = 0.05;
-    let found = false;
+    const program = geometry.attributes.aProgram;
+    const programT = geometry.attributes.aProgramT;
+    const eps = 0.05; // float32 rounding at y≈55 wu is ~3e-6; slop for the band edges
+    const cells = new Set<number>();
+    let ringVerts = 0;
     for (let i = 0; i < pos.count; i++) {
+      if (program.getX(i) !== CN_PROGRAM.RING) continue;
+      ringVerts++;
       const y = pos.getY(i);
-      const r = col.getX(i);
-      const g = col.getY(i);
-      const b = col.getZ(i);
-      // A lit red/white LED texel: strongly bright and red-leaning, seated in the ring band.
-      if (y >= meta.ringMinY - eps && y <= meta.ringMaxY + eps && r > 0.6 && r >= g && r >= b) {
+      expect(y).toBeGreaterThanOrEqual(meta.ringMinY - eps);
+      expect(y).toBeLessThanOrEqual(meta.ringMaxY + eps);
+      // Dark housing: nothing in the channel is baked bright any more.
+      expect(Math.max(col.getX(i), col.getY(i), col.getZ(i))).toBeLessThan(0.1);
+      cells.add(Math.floor(programT.getX(i) * meta.ringCells));
+    }
+    expect(ringVerts).toBeGreaterThan(0);
+    // Every LED cell present exactly once, spanning the whole ring.
+    expect(cells.size).toBe(meta.ringCells);
+  });
+});
+
+// --- Phase 44: night-program attribute plumbing (T1's aProgram/aProgramT pair) -----------------
+// T1 built these; T2 (this file) only writes the tests around them. Every probe reads the actual
+// vertex buffers, matching the "features are geometry, not metadata" rule the rest of this file
+// already follows for the v2 mesh itself.
+describe('night-program vertex attributes exist on both heroes (Phase 44)', () => {
+  it('CN geometry carries aProgram/aProgramT, one value per vertex', () => {
+    const { geometry } = buildCnTowerGeometry();
+    const pos = geometry.attributes.position;
+    const program = geometry.attributes.aProgram;
+    const programT = geometry.attributes.aProgramT;
+    expect(program).toBeDefined();
+    expect(programT).toBeDefined();
+    expect(program.count).toBe(pos.count);
+    expect(programT.count).toBe(pos.count);
+  });
+
+  it('Rogers carries the same pair, but every vertex is STATIC (untagged — no night program there)', () => {
+    const { geometry } = buildRogersGeometry();
+    const pos = geometry.attributes.position;
+    const program = geometry.attributes.aProgram;
+    const programT = geometry.attributes.aProgramT;
+    expect(program.count).toBe(pos.count);
+    expect(programT.count).toBe(pos.count);
+    for (let i = 0; i < program.count; i++) {
+      expect(program.getX(i)).toBe(CN_PROGRAM.STATIC);
+    }
+  });
+});
+
+describe('CN night-program element census — sanity, not brittle totals (Phase 44)', () => {
+  const { geometry, meta } = buildCnTowerGeometry();
+  const program = geometry.attributes.aProgram;
+  const counts = new Map<number, number>();
+  for (let i = 0; i < program.count; i++) {
+    const id = program.getX(i);
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  const get = (id: number) => counts.get(id) ?? 0;
+
+  it('every element class (STATIC/RING/BEACON/CREST/FLOOD) is present', () => {
+    for (const id of Object.values(CN_PROGRAM)) {
+      expect(get(id)).toBeGreaterThan(0);
+    }
+  });
+
+  it('RING is exactly 96 vertices — 16 cells × 6 verts per cell quad-pair (structural, not a guess)', () => {
+    expect(get(CN_PROGRAM.RING)).toBe(96);
+    expect(meta.ringCells).toBe(16);
+  });
+
+  it('relative sizes are plausible: STATIC > FLOOD > CREST > BEACON > RING, and the classes sum to every vertex', () => {
+    const staticCount = get(CN_PROGRAM.STATIC);
+    const ring = get(CN_PROGRAM.RING);
+    const beacon = get(CN_PROGRAM.BEACON);
+    const crest = get(CN_PROGRAM.CREST);
+    const flood = get(CN_PROGRAM.FLOOD);
+    expect(staticCount).toBeGreaterThan(flood);
+    expect(flood).toBeGreaterThan(crest);
+    expect(crest).toBeGreaterThan(beacon);
+    expect(beacon).toBeGreaterThan(ring);
+    expect(staticCount + ring + beacon + crest + flood).toBe(program.count);
+  });
+
+  it('meta.ringCells matches the census and meta.finTopY sits between the leg merge and the pod', () => {
+    expect(meta.ringCells).toBe(16);
+    expect(meta.finTopY).toBeGreaterThan(meta.legTopY);
+    expect(meta.finTopY).toBeLessThan(meta.podTopY + 2);
+  });
+});
+
+describe('CN night-program — RING vertex probes (Phase 44)', () => {
+  const { geometry, meta } = buildCnTowerGeometry();
+  const col = geometry.attributes.color;
+  const program = geometry.attributes.aProgram;
+  const programT = geometry.attributes.aProgramT;
+
+  it('every ring vertex sits at one of the 16 flat LED-cell centre fractions', () => {
+    const centres = Array.from({ length: meta.ringCells }, (_, i) => (i + 0.5) / meta.ringCells);
+    let ringVerts = 0;
+    for (let i = 0; i < program.count; i++) {
+      if (program.getX(i) !== CN_PROGRAM.RING) continue;
+      ringVerts++;
+      const t = programT.getX(i);
+      const closest = Math.min(...centres.map((c) => Math.abs(c - t)));
+      expect(closest).toBeLessThan(1e-6);
+    }
+    expect(ringVerts).toBe(96);
+  });
+
+  it('the ring band is baked DARK — the program supplies the light now, not the vertex colour', () => {
+    let ringVerts = 0;
+    for (let i = 0; i < program.count; i++) {
+      if (program.getX(i) !== CN_PROGRAM.RING) continue;
+      ringVerts++;
+      expect(Math.max(col.getX(i), col.getY(i), col.getZ(i))).toBeLessThan(0.35);
+    }
+    expect(ringVerts).toBeGreaterThan(0);
+  });
+});
+
+describe('CN night-program — BEACON fixture probes (Phase 44)', () => {
+  const { geometry, meta } = buildCnTowerGeometry();
+  const pos = geometry.attributes.position;
+  const program = geometry.attributes.aProgram;
+  const radialAt = (i: number) => Math.hypot(pos.getX(i), pos.getZ(i));
+
+  it('meta.beaconFixtures describes exactly 4 pod-corner strobes', () => {
+    expect(meta.beaconFixtures).toHaveLength(4);
+  });
+
+  it('the pod-corner strobes stand proud of the mechanical ring lip (not coplanar with it)', () => {
+    // The lip's own radius, derived from the geometry the same way the pre-existing "recessed
+    // channel" test above does: the flat annulus step at ringMaxY IS the mechanical ring's lip.
+    let lipRadius = 0;
+    for (let i = 0; i < pos.count; i++) {
+      if (Math.abs(pos.getY(i) - meta.ringMaxY) <= 1e-3) lipRadius = Math.max(lipRadius, radialAt(i));
+    }
+    expect(lipRadius).toBeGreaterThan(0);
+
+    const fixture = meta.beaconFixtures[0]!;
+    let maxBeaconRadiusInBand = -Infinity;
+    for (let i = 0; i < program.count; i++) {
+      if (program.getX(i) !== CN_PROGRAM.BEACON) continue;
+      const y = pos.getY(i);
+      if (y < fixture.y0 - 1e-6 || y > fixture.y1 + 1e-6) continue; // excludes the needle-tip beacon
+      maxBeaconRadiusInBand = Math.max(maxBeaconRadiusInBand, radialAt(i));
+    }
+    expect(maxBeaconRadiusInBand).toBeGreaterThan(lipRadius);
+  });
+
+  it('the needle-tip stub is still BEACON-tagged', () => {
+    let found = false;
+    for (let i = 0; i < program.count; i++) {
+      if (program.getX(i) !== CN_PROGRAM.BEACON) continue;
+      if (pos.getY(i) >= meta.needleMinY) {
         found = true;
         break;
       }
     }
     expect(found).toBe(true);
+  });
+});
+
+describe('CN night-program — CREST/FLOOD parametric probes (Phase 44)', () => {
+  const { geometry, meta } = buildCnTowerGeometry();
+  const pos = geometry.attributes.position;
+  const program = geometry.attributes.aProgram;
+  const programT = geometry.attributes.aProgramT;
+
+  it('CREST t stays within [0,1] and increases with height', () => {
+    const samples: { y: number; t: number }[] = [];
+    for (let i = 0; i < program.count; i++) {
+      if (program.getX(i) !== CN_PROGRAM.CREST) continue;
+      const t = programT.getX(i);
+      expect(t).toBeGreaterThanOrEqual(0);
+      expect(t).toBeLessThanOrEqual(1);
+      samples.push({ y: pos.getY(i), t });
+    }
+    expect(samples.length).toBeGreaterThan(0);
+    samples.sort((a, b) => a.y - b.y);
+    for (let i = 1; i < samples.length; i++) {
+      expect(samples[i]!.t).toBeGreaterThanOrEqual(samples[i - 1]!.t - 1e-6);
+    }
+    expect(samples[samples.length - 1]!.t).toBeGreaterThan(samples[0]!.t);
+  });
+
+  it('FLOOD t is ~1 at the ground and 0 at/above the leg merge (legTopY)', () => {
+    const atGround: number[] = [];
+    const atOrAboveMerge: number[] = [];
+    for (let i = 0; i < program.count; i++) {
+      if (program.getX(i) !== CN_PROGRAM.FLOOD) continue;
+      const y = pos.getY(i);
+      const t = programT.getX(i);
+      if (y <= 0.05) atGround.push(t);
+      if (y >= meta.legTopY - 1e-6) atOrAboveMerge.push(t);
+    }
+    expect(atGround.length).toBeGreaterThan(0);
+    expect(atOrAboveMerge.length).toBeGreaterThan(0);
+    for (const t of atGround) expect(t).toBeGreaterThan(0.9);
+    for (const t of atOrAboveMerge) expect(t).toBeCloseTo(0, 5);
   });
 });
 
@@ -282,5 +474,11 @@ describe('hero meshes — deterministic (no random)', () => {
     const a = buildRogersGeometry().geometry.attributes.position.array;
     const b = buildRogersGeometry().geometry.attributes.position.array;
     expect(Array.from(a)).toEqual(Array.from(b));
+  });
+  it('CN Tower night-program attributes (aProgram/aProgramT) are byte-identical on repeat (Phase 44)', () => {
+    const a = buildCnTowerGeometry().geometry;
+    const b = buildCnTowerGeometry().geometry;
+    expect(Array.from(a.attributes.aProgram.array)).toEqual(Array.from(b.attributes.aProgram.array));
+    expect(Array.from(a.attributes.aProgramT.array)).toEqual(Array.from(b.attributes.aProgramT.array));
   });
 });

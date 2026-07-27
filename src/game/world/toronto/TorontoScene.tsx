@@ -65,6 +65,8 @@ import { BARRIER, SIDEWALK } from '../../config/torontoMap';
 import { CityPackBatched } from './cityPack/CityPackBatched';
 import { HERO_LOTS, type CrownDecal, type NamedBox, type NamedPlacement } from './namedBuildings';
 import { buildCnTowerGeometry, buildRogersGeometry } from './heroes';
+import { createCnNightMaterial, writeCnNightUniforms } from './cnNightMaterial';
+import { resolveNightProgram } from './cnNightProgram';
 import { FADE_MAX, needsTransparent, occlusionFader, occlusionRegistry } from './occlusionFade';
 import {
   clearClipIndex,
@@ -74,6 +76,7 @@ import {
   segmentHitFadeKeys,
   setClipIndex,
 } from './cameraClipIndex';
+import { cnBaseClipVolumes, cnShaftClipVolumes, heroCylinderClipVolume } from './cnClipVolumes';
 import { applyFadesFor, occlusionGate } from './occlusionTargets';
 import { recordOcclusionPass } from './occlusionStats';
 import { antiClipCameraPos, resetAntiClip } from './cameraAntiClip';
@@ -103,7 +106,7 @@ import { torontoStreetlightEmitters } from '../../powergrid/lightPool';
 import { GROUND_STACK, WALL_STACK } from '../../config/layering';
 import { resolveAnisotropy } from '../../config/surfaces';
 import { useDevToggle } from '../../core/devToggles';
-import { isWorldFrozen } from '../../core/simClock';
+import { isWorldFrozen, simNowMs } from '../../core/simClock';
 import { preloadCityPack } from '../../assets/cityPack';
 import { CityPackPreview } from './cityPack/CityPackPreview';
 import { CityDress } from './cityPack/CityDress';
@@ -669,13 +672,32 @@ function lotCenter(lot: (typeof HERO_LOTS)[number]): { x: number; z: number } {
 function HeroesLayer() {
   const cn = useMemo(() => buildCnTowerGeometry(), []);
   const rogers = useMemo(() => buildRogersGeometry(), []);
+
+  // Phase 44 — the night program. The CN mesh keeps its ONE unlit vertex-coloured material; the
+  // patch (cnNightMaterial.ts) adds the LED ring / crest wash / floodwash / beacon strobe on top of
+  // the baked colours, so the whole show is +0 draw calls. Rogers keeps the stock JSX material —
+  // the patched program is cache-keyed, so three can never confuse the two.
+  const cnNight = useMemo(() => createCnNightMaterial(cn.meta.ringCells), [cn]);
+  // Tonight's mode + palette are a pure function of the RUN SEED (the same seed that keys the
+  // world), so a retry replays the same tower. Memoized because resolving allocates an rng.
+  const seed = useGameStore((s) => s.seed);
+  const nightProgram = useMemo(() => resolveNightProgram(seed), [seed]);
+
   useEffect(
     () => () => {
       cn.geometry.dispose();
       rogers.geometry.dispose();
+      cnNight.material.dispose();
     },
-    [cn, rogers],
+    [cn, rogers, cnNight],
   );
+
+  // The one live seam: sim time in, uniforms out. `simNowMs()` (never wall clock, never useFrame's
+  // own delta) is what makes the program stop dead when the Phase 42 flicker harness freezes the
+  // world — an animated tower that ignored the freeze would (correctly) trip the detector.
+  useFrame(() => {
+    writeCnNightUniforms(cnNight.uniforms, nightProgram, simNowMs());
+  });
   // Phase 29 (D1): only two lots, spatial lookup is cheap — same district-resolution idiom as
   // NamedBuildingsLayer above.
   const districts = useMemo(() => buildDistricts(), []);
@@ -693,9 +715,14 @@ function HeroesLayer() {
 
   return (
     <>
-      <mesh ref={cnRef} geometry={cn.geometry} position={[cnAt.x, 0, cnAt.z]} castShadow frustumCulled={false}>
-        <meshBasicMaterial vertexColors toneMapped={false} />
-      </mesh>
+      <mesh
+        ref={cnRef}
+        geometry={cn.geometry}
+        material={cnNight.material}
+        position={[cnAt.x, 0, cnAt.z]}
+        castShadow
+        frustumCulled={false}
+      />
       <mesh ref={rgRef} geometry={rogers.geometry} position={[rgAt.x, 0, rgAt.z]} castShadow frustumCulled={false}>
         <meshBasicMaterial vertexColors toneMapped={false} />
       </mesh>
@@ -1425,38 +1452,35 @@ export function TorontoScene() {
     // copies for rendering).
     const cn = buildCnTowerGeometry();
     const rogers = buildRogersGeometry();
-    const heroBases = [
-      { at: lotCenter(HERO_LOTS[0]), collider: cn.meta.collider },
-      { at: lotCenter(HERO_LOTS[1]), collider: rogers.meta.collider },
+    const cnAt = lotCenter(HERO_LOTS[0]);
+    const heroVolumes = [
+      // Phase 44 (T3): CN's base is SHAPED, not blocked out. It used to enter the index as one
+      // 21×21×20 wu box — the leg splay's bounding box, which also swallowed the arch void and the
+      // empty diagonal corners out to a 14.85 wu half-diagonal. The anti-clip guard's boresight
+      // could not clear that within its 25 m cap, so a car parked NW of the tower left the eye
+      // stuck inside back-face-culled concrete with pull 0 (the Phase 43 filed defect).
+      // world/toronto/cnClipVolumes.ts derives tight boxes from the tower's own triangle soup.
+      ...cnBaseClipVolumes(cn.geometry.getAttribute('position').array, cn.meta, cnAt),
       // Phase 36: CN's taper-shaft bands join the index (heroes.ts's shaftColliders block explains
       // the see-through hole they close — the eye could rest INSIDE the shaft, back-face-culled).
+      // Phase 44 re-expresses each band as the same two-box plus, for the same diagonal reason.
+      ...cnShaftClipVolumes(cn.meta.shaftColliders, cnAt),
       // Rogers' DOME is deliberately NOT indexed: a square AABB around a 33-wu-radius round dome
       // would report false eye-inside across the whole rail-lands approach (up to ~14 wu of open
       // air at the corners), polluting the eyeInside-must-read-0 metric, while the dome's real
       // worst-case penetration is ~3 wu at maximum-pitch eye heights only. Residual recorded in
       // the Phase 36 notes; Phase 45 rebuilds the dome and Phase 38's debt sweep re-audits.
-      ...cn.meta.shaftColliders.map((collider) => ({ at: lotCenter(HERO_LOTS[0]), collider })),
-    ].map(({ at, collider }) => ({ x: at.x, z: at.z, ...collider }));
+      heroCylinderClipVolume(rogers.meta.collider, lotCenter(HERO_LOTS[1])),
+    ];
     cn.geometry.dispose();
     rogers.geometry.dispose();
     // The arbiter's building-class claims (frontage slots + corner fills + backdrop/back-lot boxes
     // + back-lot pack buildings + named boxes), each already carrying the fade key minted at
     // REGISTRATION by the same frontageFadeKey/infillFadeKey/backdropFadeKey functions the
     // CityDress renderers call — so both sides key by the item's own identity, never by an array
-    // position. The two hero volumes are geometry-meta-derived (three-dependent, so they cannot
-    // live in the pure layer) and are appended here exactly as before.
-    setClipIndex([
-      ...world.clipVolumes,
-      ...heroBases.map((h) => ({
-        minX: h.x - h.radius,
-        maxX: h.x + h.radius,
-        minY: Math.max(0, h.centerY - h.halfHeight),
-        maxY: h.centerY + h.halfHeight,
-        minZ: h.z - h.radius,
-        maxZ: h.z + h.radius,
-        fadeKey: null,
-      })),
-    ]);
+    // position. The hero volumes are geometry-derived (three-dependent, so they cannot live in the
+    // pure layer) and are appended here exactly as before.
+    setClipIndex([...world.clipVolumes, ...heroVolumes]);
     return () => {
       clearClipIndex();
       // The occlusion pass's per-frame state is keyed to THIS index's keys — drop it with the

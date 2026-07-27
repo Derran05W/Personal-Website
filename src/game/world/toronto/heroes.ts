@@ -37,6 +37,22 @@
 // LED ring on an unlit slice, the same trick the window textures use). One merged non-indexed
 // BufferGeometry per hero → one draw call each; triangle count = position.count / 3 (test-pinned).
 //
+// PHASE 44 (Part 11) — the NIGHT PROGRAM's spatial half. The tower's light show is not new
+// geometry and not new draw calls: every surface the program can light already exists, so this
+// module only has to TAG it. Two extra float attributes ride along with position/normal/color:
+//   • `aProgram` — which program element a vertex belongs to (CN_PROGRAM below: RING / BEACON /
+//     CREST / FLOOD, or STATIC for everything else);
+//   • `aProgramT` — that element's parametric coordinate (LED cell fraction around the ring,
+//     height fraction up a fin crest, wash strength up from the ground).
+// The fragment patch (world/toronto/cnNightMaterial.ts) does ONLY the spatial mapping off those
+// two; all timing/intensity logic is CPU-side pure functions (world/toronto/cnNightProgram.ts)
+// handed over as uniforms. Consequence: the whole show is +0 draw calls, +0 lights, +0 bodies, and
+// freeze-aware by construction (the caller passes simNowMs()).
+// The LED channel's BASE colour changed here at the same time: v1 baked bright red/white texels
+// into the ring (colour-as-light on the unlit slice). With a real program driving it, a baked
+// bright ring would be light that no palette/mode/blackout could ever turn off — so the channel is
+// now baked as its dark housing (#2a2e33) and every photon comes from the program.
+//
 // Pure geometry: three's BufferGeometry/Color are pure JS (no WebGL), so this whole module runs
 // in the vitest/jsdom env and its tri budgets + proportions are unit-testable without a canvas.
 
@@ -77,9 +93,8 @@ const GLASS_FLOOR = '#8fa3b4'; // the one lighter strip inside it = the glass-fl
 const RADOME_WHITE = '#e8e6e2'; // pod's lower radome band
 const POD_CREAM = '#d8d4c9'; // cream tier bands between pod levels
 const MECH_GREY = '#7d838c'; // upper mechanical ring (the LED channel's housing)
-const RING_RED = '#ff4747'; // pod-ring LED (bright — reads as light on the unlit slice)
-const RING_WHITE = '#fff0f0';
-const BEACON_RED = '#ff5a4a'; // needle-tip aircraft beacon stub (Phase 44 lights it for real)
+const RING_CHANNEL = '#2a2e33'; // Phase 44: the LED channel's HOUSING — dark. The light is the program.
+const BEACON_RED = '#ff5a4a'; // aircraft-beacon housings (needle stub + pod-corner strobes)
 const ROGERS_RING = '#9aa0ab'; // stadium outer ring base (grey precast)
 // Four nested roof-panel greys (visible seams between adjacent bands, §5) + the retractable panel.
 const DOME_BANDS = ['#c6c6cc', '#b6b6be', '#a6a6b0', '#9a9aa4'] as const;
@@ -98,14 +113,57 @@ function shadeFor(nx: number, ny: number, nz: number): number {
   return SHADE_MIN + (1 - SHADE_MIN) * d;
 }
 
+// --- Phase 44 night-program element ids (the `aProgram` attribute's alphabet) -----------------
+/**
+ * WHICH light the fragment patch adds to a surface. One float per vertex; the shader branches on
+ * it with 0.5-wide windows, so the ids must stay small consecutive integers.
+ *
+ * STATIC is the default for EVERY existing call site (Rogers included), which is why adding the
+ * tags changed no other geometry: an untagged vertex carries (0, 0) and the patch adds nothing.
+ */
+export const CN_PROGRAM = {
+  /** Unlit by the program — plain baked vertex colour. */
+  STATIC: 0,
+  /** The recessed pod LED channel. `aProgramT` = that LED cell's centre fraction around the ring. */
+  RING: 1,
+  /** Aircraft-warning beacons: the needle-tip stub + the four pod-corner strobe fixtures. */
+  BEACON: 2,
+  /** Fin crest chamfers + ridge (the real tower's light bars run up the elevator shafts INSIDE
+   *  these fins — researcher round 2026-07-27). `aProgramT` = height fraction 0→1 to the fin top. */
+  CREST: 3,
+  /** Base floodwash receivers (skirt / soffit / trunk / fin flanks). `aProgramT` = wash strength,
+   *  1 at the ground → 0 at the leg merge, so the gradient is baked, not computed per frame. */
+  FLOOD: 4,
+} as const;
+export type CnProgramId = (typeof CN_PROGRAM)[keyof typeof CN_PROGRAM];
+
 // --- geometry accumulator (non-indexed, flat-shaded, per-vertex colour) ----------------------
 type Vec3 = readonly [number, number, number];
+
+/**
+ * A night-program tag for a face. `t` is either a constant for the whole face (LED cells are flat
+ * by design — see the ring band) or a per-vertex function of position (crest height, flood wash).
+ */
+interface ProgramTag {
+  readonly id: number;
+  readonly t: number | ((p: Vec3) => number);
+}
+const STATIC_TAG: ProgramTag = { id: CN_PROGRAM.STATIC, t: 0 };
+/** Per-segment tag resolver (the ring needs one tag per LED cell). */
+type ProgramSpec = ProgramTag | ((segment: number, sides: number) => ProgramTag);
+const resolveProgram = (spec: ProgramSpec | undefined, segment: number, sides: number): ProgramTag =>
+  spec === undefined ? STATIC_TAG : typeof spec === 'function' ? spec(segment, sides) : spec;
+
 interface Accum {
   readonly positions: number[];
   readonly normals: number[];
   readonly colors: number[];
+  /** Phase 44: per-vertex night-program element id (CN_PROGRAM). */
+  readonly programs: number[];
+  /** Phase 44: per-vertex parametric coordinate within that element. */
+  readonly programTs: number[];
 }
-const createAccum = (): Accum => ({ positions: [], normals: [], colors: [] });
+const createAccum = (): Accum => ({ positions: [], normals: [], colors: [], programs: [], programTs: [] });
 
 const scratchColor = new Color();
 /** sRGB hex → linear rgb (three's ColorManagement path — matches the roads' vertexColors look). */
@@ -129,21 +187,58 @@ function faceNormal(a: Vec3, b: Vec3, c: Vec3): Vec3 {
 }
 
 /** One flat triangle: normal from winding, colour = base × baked shade (or full-bright emissive). */
-function addTri(acc: Accum, a: Vec3, b: Vec3, c: Vec3, hex: string, emissive = false): void {
+function addTri(
+  acc: Accum,
+  a: Vec3,
+  b: Vec3,
+  c: Vec3,
+  hex: string,
+  emissive = false,
+  program: ProgramTag = STATIC_TAG,
+): void {
   const [nx, ny, nz] = faceNormal(a, b, c);
   const [r, g, bl] = linearRgb(hex);
   const s = emissive ? 1 : shadeFor(nx, ny, nz);
+  const constT = typeof program.t === 'number' ? program.t : null;
   for (const p of [a, b, c]) {
     acc.positions.push(p[0], p[1], p[2]);
     acc.normals.push(nx, ny, nz);
     acc.colors.push(r * s, g * s, bl * s);
+    acc.programs.push(program.id);
+    acc.programTs.push(constT ?? (program.t as (q: Vec3) => number)(p));
   }
 }
 
 /** Quad (0,1,2)+(0,2,3), wound CCW as seen from outside so the baked normal points outward. */
-function addQuad(acc: Accum, corners: readonly [Vec3, Vec3, Vec3, Vec3], hex: string, emissive = false): void {
-  addTri(acc, corners[0], corners[1], corners[2], hex, emissive);
-  addTri(acc, corners[0], corners[2], corners[3], hex, emissive);
+function addQuad(
+  acc: Accum,
+  corners: readonly [Vec3, Vec3, Vec3, Vec3],
+  hex: string,
+  emissive = false,
+  program: ProgramTag = STATIC_TAG,
+): void {
+  addTri(acc, corners[0], corners[1], corners[2], hex, emissive, program);
+  addTri(acc, corners[0], corners[2], corners[3], hex, emissive, program);
+}
+
+/**
+ * A quad whose winding is CORRECTED to face `outward` — the one place in this file that doesn't
+ * hand-wind. The pod-corner beacon fixtures (Phase 44) are little boxes in a rotated radial frame
+ * where hand-winding six faces is exactly the kind of sign error that ships an invisible
+ * (back-face-culled) fixture; a runtime dot against the intended outward normal is deterministic,
+ * costs nothing at build time, and makes the fixture's orientation un-get-wrong-able.
+ */
+function addQuadOriented(
+  acc: Accum,
+  corners: readonly [Vec3, Vec3, Vec3, Vec3],
+  outward: Vec3,
+  hex: string,
+  program: ProgramTag = STATIC_TAG,
+): void {
+  const [nx, ny, nz] = faceNormal(corners[0], corners[1], corners[2]);
+  const facing = nx * outward[0] + ny * outward[1] + nz * outward[2];
+  if (facing >= 0) addQuad(acc, corners, hex, false, program);
+  else addQuad(acc, [corners[3], corners[2], corners[1], corners[0]], hex, false, program);
 }
 
 interface RingOpts {
@@ -159,6 +254,8 @@ interface RingOpts {
    * every pre-existing caller (Rogers) bit-for-bit unchanged: `i * step + 0 === i * step`.
    */
   readonly angleOffset?: number;
+  /** Phase 44 night-program tag — one for the whole ring, or one per segment (the LED cells). */
+  readonly program?: ProgramSpec;
 }
 
 /**
@@ -182,26 +279,29 @@ function addPrismFrustum(
     return [radius * Math.sin(ang), y, radius * Math.cos(ang)];
   };
   const colorOf = (i: number): string => opts.colorAt?.(i, sides) ?? hex;
+  const programOf = (i: number): ProgramTag => resolveProgram(opts.program, i, sides);
   for (let i = 0; i < sides; i++) {
     const b0 = ring(baseRadius, y0, i);
     const b1 = ring(baseRadius, y0, i + 1);
     const t1 = ring(topRadius, y1, i + 1);
     const t0 = ring(topRadius, y1, i);
     if (topRadius === 0) {
-      addTri(acc, b0, b1, [0, y1, 0], colorOf(i), opts.emissive);
+      addTri(acc, b0, b1, [0, y1, 0], colorOf(i), opts.emissive, programOf(i));
     } else if (baseRadius === 0) {
-      addTri(acc, [0, y0, 0], t1, t0, colorOf(i), opts.emissive);
+      addTri(acc, [0, y0, 0], t1, t0, colorOf(i), opts.emissive, programOf(i));
     } else {
-      addQuad(acc, [b0, b1, t1, t0], colorOf(i), opts.emissive);
+      addQuad(acc, [b0, b1, t1, t0], colorOf(i), opts.emissive, programOf(i));
     }
   }
   if (opts.capBottom && baseRadius > 0) {
     const c: Vec3 = [0, y0, 0];
-    for (let i = 0; i < sides; i++) addTri(acc, c, ring(baseRadius, y0, i + 1), ring(baseRadius, y0, i), hex, opts.emissive);
+    for (let i = 0; i < sides; i++)
+      addTri(acc, c, ring(baseRadius, y0, i + 1), ring(baseRadius, y0, i), hex, opts.emissive, programOf(i));
   }
   if (opts.capTop && topRadius > 0) {
     const c: Vec3 = [0, y1, 0];
-    for (let i = 0; i < sides; i++) addTri(acc, c, ring(topRadius, y1, i), ring(topRadius, y1, i + 1), hex, opts.emissive);
+    for (let i = 0; i < sides; i++)
+      addTri(acc, c, ring(topRadius, y1, i), ring(topRadius, y1, i + 1), hex, opts.emissive, programOf(i));
   }
 }
 
@@ -221,6 +321,8 @@ interface LatheBand {
   readonly colorAt?: (segment: number, sides: number) => string;
   readonly capBottom?: boolean;
   readonly capTop?: boolean;
+  /** Phase 44 night-program tag for this band (see RingOpts.program). */
+  readonly program?: ProgramSpec;
 }
 
 /** Lathe a whole profile in one call. Consecutive bands share their edge ring exactly (each band's
@@ -233,6 +335,7 @@ function addLathe(acc: Accum, sides: number, bands: readonly LatheBand[], angleO
       capBottom: b.capBottom,
       capTop: b.capTop,
       angleOffset,
+      program: b.program,
     });
   }
 }
@@ -256,7 +359,14 @@ interface FinSection {
  * ridge). This is ONE volume for the whole leg-and-rib run — the leg IS the rib's lower half, so
  * there is no junction to hide and the ridge is a single unbroken strip from the ground to the pod.
  */
-function addSweptFin(acc: Accum, azimuth: number, sections: readonly FinSection[], hex: string): void {
+function addSweptFin(
+  acc: Accum,
+  azimuth: number,
+  sections: readonly FinSection[],
+  hex: string,
+  crestProgram: ProgramTag = STATIC_TAG,
+  flankProgram: ProgramTag = STATIC_TAG,
+): void {
   const ux = Math.sin(azimuth);
   const uz = Math.cos(azimuth);
   const tx = uz; // tangential = radial rotated −90° (u × t = +Y, so section order below is CW → −Y)
@@ -276,7 +386,14 @@ function addSweptFin(acc: Accum, azimuth: number, sections: readonly FinSection[
   for (let i = 0; i + 1 < rings.length; i++) {
     const lo = rings[i];
     const hi = rings[i + 1];
-    for (let k = 0; k + 1 < lo.length; k++) addQuad(acc, [lo[k], hi[k], hi[k + 1], lo[k + 1]], hex);
+    for (let k = 0; k + 1 < lo.length; k++) {
+      // Section points are [rootL, crestL, ridge, crestR, rootR], so face strips k=1 and k=2 are
+      // the two crest chamfers meeting at the ridge — the CREST light bars — and k=0/k=3 are the
+      // flanks, which take the base floodwash (its own `t` goes to 0 above the merge, so one tag
+      // covers the whole run without splitting the sweep).
+      const program = k === 1 || k === 2 ? crestProgram : flankProgram;
+      addQuad(acc, [lo[k], hi[k], hi[k + 1], lo[k + 1]], hex, false, program);
+    }
   }
   // End caps (fans). Both are hidden by construction — the bottom one is a down-facing face at the
   // ground plane and the top one terminates inside the pod's flare — but they close the solid.
@@ -286,11 +403,58 @@ function addSweptFin(acc: Accum, azimuth: number, sections: readonly FinSection[
   for (let k = 1; k + 1 < last.length; k++) addTri(acc, last[0], last[k + 1], last[k], hex);
 }
 
+/**
+ * A small box standing PROUD of a lathed surface, in the (radial, tangential, y) frame at
+ * `azimuth`. Used for the Phase 44 pod-corner beacon strobes: `rInner` is buried inside the host
+ * band's own surface and `rOuter` sticks out past it, so the fixture shares no plane with anything
+ * (the Phase 42 anti-coplanar law — a decal-flat fixture is exactly the z-fight this project hunts).
+ */
+function addRadialBox(
+  acc: Accum,
+  azimuth: number,
+  rInner: number,
+  rOuter: number,
+  halfWidth: number,
+  y0: number,
+  y1: number,
+  hex: string,
+  program: ProgramTag = STATIC_TAG,
+): void {
+  const ux = Math.sin(azimuth);
+  const uz = Math.cos(azimuth);
+  const tx = uz;
+  const tz = -ux;
+  const at = (radial: number, lateral: number, y: number): Vec3 => [
+    ux * radial + tx * lateral,
+    y,
+    uz * radial + tz * lateral,
+  ];
+  const outRadial: Vec3 = [ux, 0, uz];
+  const inRadial: Vec3 = [-ux, 0, -uz];
+  const outLateral: Vec3 = [tx, 0, tz];
+  const inLateral: Vec3 = [-tx, 0, -tz];
+  const w = halfWidth;
+  // Outer / inner radial faces.
+  addQuadOriented(acc, [at(rOuter, w, y0), at(rOuter, -w, y0), at(rOuter, -w, y1), at(rOuter, w, y1)], outRadial, hex, program);
+  addQuadOriented(acc, [at(rInner, w, y0), at(rInner, -w, y0), at(rInner, -w, y1), at(rInner, w, y1)], inRadial, hex, program);
+  // Lateral sides.
+  addQuadOriented(acc, [at(rInner, w, y0), at(rOuter, w, y0), at(rOuter, w, y1), at(rInner, w, y1)], outLateral, hex, program);
+  addQuadOriented(acc, [at(rInner, -w, y0), at(rOuter, -w, y0), at(rOuter, -w, y1), at(rInner, -w, y1)], inLateral, hex, program);
+  // Top / bottom.
+  addQuadOriented(acc, [at(rInner, w, y1), at(rOuter, w, y1), at(rOuter, -w, y1), at(rInner, -w, y1)], [0, 1, 0], hex, program);
+  addQuadOriented(acc, [at(rInner, w, y0), at(rOuter, w, y0), at(rOuter, -w, y0), at(rInner, -w, y0)], [0, -1, 0], hex, program);
+}
+
 function toGeometry(acc: Accum): BufferGeometry {
   const g = new BufferGeometry();
   g.setAttribute('position', new Float32BufferAttribute(acc.positions, 3));
   g.setAttribute('normal', new Float32BufferAttribute(acc.normals, 3));
   g.setAttribute('color', new Float32BufferAttribute(acc.colors, 3));
+  // Phase 44 night program. Emitted UNCONDITIONALLY (Rogers carries an all-STATIC pair): two
+  // float attributes on a ≤2.5k-tri mesh is ~40 KB total, and uniformity means no builder can ever
+  // ship a geometry the CN material would bind a missing attribute for.
+  g.setAttribute('aProgram', new Float32BufferAttribute(acc.programs, 1));
+  g.setAttribute('aProgramT', new Float32BufferAttribute(acc.programTs, 1));
   g.computeBoundingBox();
   g.computeBoundingSphere();
   return g;
@@ -322,6 +486,22 @@ export interface CnTowerMeta {
   readonly ringChannel: { readonly minY: number; readonly maxY: number; readonly radius: number };
   /** Apex of the needle-tip beacon stub — where Phase 44 hangs the aircraft-warning light. */
   readonly beaconTipY: number;
+  /**
+   * Phase 44 night-program hooks — GEOMETRY-DERIVED, never re-typed in config (the P27 literal-
+   * drift class). `ringCells` is how many discrete LEDs the channel has (= the pod lathe's segment
+   * count), which the fragment patch needs to discretize `aProgramT`; `finTopY` is the CREST
+   * element's `aProgramT` denominator; `beaconFixtures` describes the four pod-corner strobes so a
+   * test can probe that they really stand proud of the mechanical ring's lip.
+   */
+  readonly ringCells: number;
+  readonly finTopY: number;
+  readonly beaconFixtures: readonly {
+    readonly azimuth: number;
+    readonly rInner: number;
+    readonly rOuter: number;
+    readonly y0: number;
+    readonly y1: number;
+  }[];
   /** Highest point of the parabolic arch soffit between two legs (the void's ceiling). */
   readonly archApexY: number;
   /** Azimuths (radians, atan2-style about +Z toward +X) of the three legs/fins. One points NW. */
@@ -454,6 +634,19 @@ export function buildCnTowerGeometry(): CnTowerModel {
 
   const acc = createAccum();
 
+  // --- Phase 44 night-program tags -------------------------------------------------------------
+  // Two pure spatial parameterizations, baked once here so the fragment patch never has to know
+  // the tower's dimensions:
+  //   • FLOOD wash strength — 1 at the ground, 0 at the leg merge, with a 1.4 power so the light
+  //     stays concentrated in the arch zone the real uplights wash rather than smearing evenly up
+  //     the skirt. Because it reaches 0 exactly at legTopY, the SAME tag can be handed to surfaces
+  //     that continue above the merge (the fin flanks) with no split and no discontinuity.
+  //   • CREST height fraction — 0 at the ground, 1 at the fin top, driving the slow upward sweep.
+  const floodT = (p: Vec3): number => Math.pow(Math.max(0, Math.min(1, 1 - p[1] / legTopY)), 1.4);
+  const FLOOD_TAG: ProgramTag = { id: CN_PROGRAM.FLOOD, t: floodT };
+  /** BEACON needs no parameter — the whole element flashes together off one CPU-computed envelope. */
+  const BEACON_TAG: ProgramTag = { id: CN_PROGRAM.BEACON, t: 1 };
+
   // --- the three legs-and-ribs (one swept fin each, ground → under the pod) --------------------
   // Sections are sampled tight near the ground (where the splay curves hardest) and then on the
   // shaft's own band boundaries, so every taper ring has a fin ring at exactly the same height —
@@ -492,7 +685,8 @@ export function buildCnTowerGeometry(): CnTowerModel {
   };
   const finHeights = [0, 1.8, 3.6, 5.6, 7.8, 10.2, archApexY, (archApexY + legTopY) / 2, ...shaftBandY, FIN_TOP_Y];
   const finSections = finHeights.map(finSection);
-  for (const az of CN_RIB_AZIMUTHS) addSweptFin(acc, az, finSections, RIB_CONCRETE);
+  const CREST_TAG: ProgramTag = { id: CN_PROGRAM.CREST, t: (p: Vec3) => Math.max(0, Math.min(1, p[1] / FIN_TOP_Y)) };
+  for (const az of CN_RIB_AZIMUTHS) addSweptFin(acc, az, finSections, RIB_CONCRETE, CREST_TAG, FLOOD_TAG);
 
   // --- trunk: the set-back hex core seen through the arch voids --------------------------------
   // It stops 3 wu above the arch apex, strictly inside the skirt (⌀12.6 vs ⌀15.8) — a trunk that
@@ -506,6 +700,7 @@ export function buildCnTowerGeometry(): CnTowerModel {
     addPrismFrustum(acc, HEX_SIDES, yA, yB, trunkR(yA), trunkR(yB), CONCRETE, {
       capBottom: i === 0,
       angleOffset: HEX_ROLL,
+      program: FLOOD_TAG, // the core seen THROUGH the arches — the brightest thing the uplights hit
     });
   }
 
@@ -550,6 +745,8 @@ export function buildCnTowerGeometry(): CnTowerModel {
           skirtPoint(a0, s0 + (legTopY - s0) * f1),
         ],
         CONCRETE,
+        false,
+        FLOOD_TAG,
       );
     }
     // The soffit: the down-facing underside closing skirt → trunk along the parabola. Darker, so
@@ -558,6 +755,8 @@ export function buildCnTowerGeometry(): CnTowerModel {
       acc,
       [skirtPoint(a0, s0), soffitInner(a0, s0 + SOFFIT_RISE), soffitInner(a1, s1 + SOFFIT_RISE), skirtPoint(a1, s1)],
       SOFFIT_CONCRETE,
+      false,
+      FLOOD_TAG,
     );
   }
 
@@ -604,17 +803,21 @@ export function buildCnTowerGeometry(): CnTowerModel {
     { y0: podCenterY + 0.75, r0: LIP_R, y1: ringMinY, r1: LIP_R, hex: MECH_GREY },
     // Step IN (a flat annulus — the lower lip's top face, which winds up-facing on its own).
     { y0: ringMinY, r0: LIP_R, y1: ringMinY, r1: RING_R, hex: MECH_GREY },
-    // THE LED CHANNEL: emissive red/white texels, sheltered 0.45 wu inside both lips. Bright
-    // colour IS light on this unlit slice — the same trick v1's ring used, now recessed so Phase
-    // 44 has a real channel to program.
+    // THE LED CHANNEL, sheltered 0.45 wu inside both lips. PHASE 44: baked as its dark HOUSING
+    // and tagged RING — the light now comes from the night program, one uniform-driven cell per
+    // lathe segment. `aProgramT` is CONSTANT across each segment's quad (the cell's own centre
+    // fraction) rather than interpolated per vertex: an interpolated azimuth would wrap 15/16 → 0
+    // across the last cell and would put a discretization seam inside every cell, which is exactly
+    // the sub-pixel strobe the Phase 41 surface law forbids. Flat cells are also what a real LED
+    // channel looks like.
     {
       y0: ringMinY,
       r0: RING_R,
       y1: ringMaxY,
       r1: RING_R,
-      hex: RING_RED,
-      emissive: true,
-      colorAt: (i) => (i % 2 === 0 ? RING_RED : RING_WHITE),
+      hex: RING_CHANNEL,
+      emissive: true, // literal dark housing — the baked directional shade would fight the program
+      program: (segment, sides) => ({ id: CN_PROGRAM.RING, t: (segment + 0.5) / sides }),
     },
     // Step OUT (the upper lip's underside — winds down-facing).
     { y0: ringMaxY, r0: RING_R, y1: ringMaxY, r1: LIP_R, hex: MECH_GREY },
@@ -653,12 +856,37 @@ export function buildCnTowerGeometry(): CnTowerModel {
     { y0: nCuts[3], r0: 0.7, y1: nCuts[4], r1: 0.62, hex: CONCRETE },
     { y0: nCuts[4], r0: 0.62, y1: nCuts[4], r1: 0.46, hex: CONCRETE },
     { y0: nCuts[4], r0: 0.46, y1: nCuts[5], r1: 0.4, hex: CONCRETE },
-    // Beacon stub: a distinct little housing that steps back OUT at the very top (Phase 44 lights
-    // it for real; the colour already reads as the aircraft-warning red).
-    { y0: nCuts[5], r0: 0.4, y1: nCuts[5], r1: 0.66, hex: BEACON_RED },
-    { y0: nCuts[5], r0: 0.66, y1: nAt(0.96), r1: 0.62, hex: BEACON_RED },
-    { y0: nAt(0.96), r0: 0.62, y1: beaconTipY, r1: 0.24, hex: BEACON_RED, capTop: true },
+    // Beacon stub: a distinct little housing that steps back OUT at the very top. PHASE 44 tags it
+    // BEACON so the double-flash strobe drives it; the baked colour stays the dark aircraft-warning
+    // red, which is what the housing reads as between flashes.
+    { y0: nCuts[5], r0: 0.4, y1: nCuts[5], r1: 0.66, hex: BEACON_RED, program: BEACON_TAG },
+    { y0: nCuts[5], r0: 0.66, y1: nAt(0.96), r1: 0.62, hex: BEACON_RED, program: BEACON_TAG },
+    { y0: nAt(0.96), r0: 0.62, y1: beaconTipY, r1: 0.24, hex: BEACON_RED, capTop: true, program: BEACON_TAG },
   ]);
+
+  // --- pod-corner aircraft strobes (Phase 44) ---------------------------------------------------
+  // Four little housings standing proud of the mechanical ring's upper lip — the second half of
+  // the tower's warning-light set (the needle stub is the first). They sit at LATHE-SEGMENT
+  // CENTRES, deliberately not on the segment boundaries: a fixture straddling a lathe edge would
+  // put its buried inner face within microns of two facet planes at once, and the whole point of
+  // `rInner` diving inside the lip's apothem is that no face of the fixture is ever near-coplanar
+  // with the host (Phase 42's law, applied at the source like the hex roll).
+  const BEACON_FIXTURES = 4;
+  const beaconY0 = ringMaxY + 0.11;
+  const beaconY1 = ringMaxY + 0.39; // strictly inside the lip band [ringMaxY, podCenterY + 2.2]
+  const lipApothem = LIP_R * Math.cos(Math.PI / POD_SIDES);
+  const beaconFixtures = Array.from({ length: BEACON_FIXTURES }, (_, i) => ({
+    // 1.5 segments in = a segment CENTRE, and the first one lands at 33.75° — within 12° of the
+    // fixed rig's SE boresight, so a strobe is essentially always facing the lens.
+    azimuth: ((i * (POD_SIDES / BEACON_FIXTURES) + 1.5) * Math.PI * 2) / POD_SIDES,
+    rInner: lipApothem - 0.16, // buried under the lip surface at every azimuth
+    rOuter: LIP_R + 0.3,
+    y0: beaconY0,
+    y1: beaconY1,
+  }));
+  for (const f of beaconFixtures) {
+    addRadialBox(acc, f.azimuth, f.rInner, f.rOuter, 0.17, f.y0, f.y1, BEACON_RED, BEACON_TAG);
+  }
 
   // Shaft camera-volume hints (see CnTowerMeta.shaftColliders): the mesh's own five taper bands,
   // each box sized to its band's widest extent — which since Phase 43 is the FIN CREST, not the
@@ -686,6 +914,9 @@ export function buildCnTowerGeometry(): CnTowerModel {
       legTopY,
       ringChannel: { minY: ringMinY, maxY: ringMaxY, radius: RING_R },
       beaconTipY,
+      ringCells: POD_SIDES,
+      finTopY: FIN_TOP_Y,
+      beaconFixtures,
       archApexY,
       ribAzimuths: CN_RIB_AZIMUTHS,
       // Same collider CLASS as v1 (one base cylinder over the leg zone, same formula shape) — only

@@ -5,7 +5,9 @@
 import { describe, expect, it } from 'vitest';
 import { PLAYABLE_POLYGON } from '../world/toronto/polygon';
 import { buildWorldEdge } from '../world/toronto/worldEdge';
+import { HERO_LOTS } from '../world/toronto/namedBuildings';
 import {
+  cnTowerMapPx,
   streetEndpointsWorld,
   torontoBarrierRingSegmentsPx,
   torontoPolygonPx,
@@ -92,6 +94,34 @@ describe('torontoBarrierRingSegmentsPx / torontoWaterEdgeSegmentPx (Phase 37)', 
     const expectedB = torontoWorldToMapPx(layout.waterEdge.end.x, layout.waterEdge.end.z, MAP_PX);
     expect(water.a).toEqual(expectedA);
     expect(water.b).toEqual(expectedB);
+  });
+});
+
+describe('cnTowerMapPx (Phase 44 — the wayfinding deliverable)', () => {
+  it('lands inside the map square', () => {
+    const px = cnTowerMapPx(MAP_PX);
+    expect(px.x).toBeGreaterThanOrEqual(-1e-6);
+    expect(px.x).toBeLessThanOrEqual(MAP_PX + 1e-6);
+    expect(px.y).toBeGreaterThanOrEqual(-1e-6);
+    expect(px.y).toBeLessThanOrEqual(MAP_PX + 1e-6);
+  });
+
+  it('sits in the lower half of the map (harbourfront/rail-lands, south of the polygon centre)', () => {
+    const px = cnTowerMapPx(MAP_PX);
+    expect(px.y).toBeGreaterThan(MAP_PX / 2);
+  });
+
+  it('matches torontoWorldToMapPx applied to HERO_LOTS[0]\'s own centre (no drift between the two)', () => {
+    const lot = HERO_LOTS[0];
+    const expected = torontoWorldToMapPx((lot.minX + lot.maxX) / 2, (lot.minY + lot.maxY) / 2, MAP_PX);
+    expect(cnTowerMapPx(MAP_PX)).toEqual(expected);
+  });
+
+  it('scales linearly with mapPx, like every other minimap-pixel helper', () => {
+    const small = cnTowerMapPx(96);
+    const big = cnTowerMapPx(192);
+    expect(big.x).toBeCloseTo(small.x * 2, 6);
+    expect(big.y).toBeCloseTo(small.y * 2, 6);
   });
 });
 

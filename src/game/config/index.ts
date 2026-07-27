@@ -21,6 +21,7 @@ export * from './unlocks';
 export * from './touch';
 export * from './streetcar';
 export * from './cityPackScale';
+export * from './cnTower';
 
 import { HEAT } from './heat';
 import { SPAWN, HELI } from './spawn';
@@ -42,6 +43,7 @@ import { UNLOCKS } from './unlocks';
 import { TOUCH } from './touch';
 import { TRAFFIC_STREETCAR } from './streetcar';
 import { CITY_PACK_SCALE } from './cityPackScale';
+import { CN_TOWER } from './cnTower';
 
 /**
  * Registry of every tunable config block, keyed by name. The dev tuning panel (leva)
@@ -97,4 +99,5 @@ export const CONFIG = {
   TOUCH,
   TRAFFIC_STREETCAR,
   CITY_PACK_SCALE,
+  CN_TOWER,
 } as const;

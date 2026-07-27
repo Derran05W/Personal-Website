@@ -10,6 +10,7 @@
 import { PLAYABLE_POLYGON } from '../world/toronto/polygon';
 import { buildStreets, type Street } from '../world/toronto/streets';
 import { buildWorldEdge } from '../world/toronto/worldEdge';
+import { HERO_LOTS } from '../world/toronto/namedBuildings';
 
 // Polygon bounding box, computed once (PLAYABLE_POLYGON is a module-level constant — pure,
 // deterministic, never changes at runtime).
@@ -90,4 +91,27 @@ export function streetEndpointsWorld(street: Street): {
     return { a: { x: street.centerline, z: street.span[0] }, b: { x: street.centerline, z: street.span[1] } };
   }
   return { a: { x: street.span[0], z: street.centerline }, b: { x: street.span[1], z: street.centerline } };
+}
+
+/**
+ * Phase 44 wayfinding: the CN Tower's world-space centre, mirroring TorontoScene.tsx's own
+ * `lotCenter(HERO_LOTS[0])` (map x/y → world x/z, identity swap). Re-derived here rather than
+ * imported from TorontoScene.tsx — a React component file — so this module stays canvas/DOM-free
+ * and importable from a pure vitest environment; HERO_LOTS itself is the single source of truth
+ * (namedBuildings.ts), so there is nothing to drift between the two call sites.
+ */
+function cnTowerWorldXZ(): { readonly x: number; readonly z: number } {
+  const lot = HERO_LOTS[0];
+  return { x: (lot.minX + lot.maxX) / 2, z: (lot.minY + lot.maxY) / 2 };
+}
+
+/**
+ * The CN Tower's minimap-pixel position. P38's camera-debt sweep measured that sight-based
+ * wayfinding is impossible under the locked rig E (the tower's pod never enters frame from any
+ * legal on-rig vantage) — the dev minimap carries the wayfinding role instead, so this is the
+ * Phase 44 deliverable, not a decorative extra.
+ */
+export function cnTowerMapPx(mapPx: number): { readonly x: number; readonly y: number } {
+  const { x, z } = cnTowerWorldXZ();
+  return torontoWorldToMapPx(x, z, mapPx);
 }

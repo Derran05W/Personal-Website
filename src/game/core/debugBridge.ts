@@ -70,7 +70,17 @@ import { startCameraLabDrive, type CameraLabDriveReport } from '../ai/cameraLabD
 import { decalPolygonOffset } from '../fx/decalPolygonOffsetRef';
 import { cameraJitter } from '../fx/cameraJitterRef';
 import { devCamPoseRef, type DevCamPose } from '../fx/devCamPoseRef';
-import { isWorldFrozen, setWorldFrozen } from './simClock';
+import { isWorldFrozen, setWorldFrozen, simNowMs } from './simClock';
+import {
+  beaconEnvelopeAt,
+  cnProgramOverride,
+  crestPhaseAt,
+  effectiveNightProgram,
+  ringPhaseAt,
+  setCnProgramOverride,
+  type CnProgramMode,
+} from '../world/toronto/cnNightProgram';
+import { CN_TOWER } from '../config/cnTower';
 
 // Phase 7 traffic verification: exactly-once event proof. The civHit/civWrecked emitter
 // payloads are empty, so scripted checks can't scrape them from the DOM — count them here
@@ -408,6 +418,73 @@ export function setDevCamPose(pose: DevCamPose | null): void {
   devCamPoseRef.pose = pose;
 }
 
+// Phase 44 — CN Tower night program. The evidence battery has to photograph all three modes and
+// several palettes, and the seeded pick gives a run exactly one of each; this is the scriptable
+// override (leva is canvas-occluded in headless, the standing reason every dev control gets a
+// bridge twin). Reads report the EFFECTIVE selection — seeded pick with any override applied —
+// because "what is the tower showing right now" is the only question a battery ever has.
+
+/** CnProgramMode has no runtime form (string-literal union), so a raw string off page.evaluate is
+ * validated against the real list — the isUnitKind/isPlayerCarId precedent above. */
+const CN_PROGRAM_MODES: readonly CnProgramMode[] = ['solid', 'pulse', 'chase'];
+function isCnProgramMode(mode: string): mode is CnProgramMode {
+  return (CN_PROGRAM_MODES as readonly string[]).includes(mode);
+}
+
+export interface CnProgramSnapshot {
+  readonly mode: CnProgramMode;
+  readonly paletteIndex: number;
+  readonly paletteName: string;
+  /** True while a dev override is forcing either field (i.e. this is not the run's seeded pick). */
+  readonly overridden: boolean;
+  /** Every palette name, in index order — so a battery can walk them without re-typing the list. */
+  readonly paletteNames: readonly string[];
+  /**
+   * The program's LIVE state at this instant, recomputed from the SAME pure functions + the SAME
+   * sim clock the material's per-frame write uses — so these numbers are what is on screen, not a
+   * parallel estimate. This is what makes the show scriptable: a battery polls `beacon01` until
+   * the strobe is firing and screenshots THAT frame instead of spraying captures and hoping.
+   * Constant while the world is frozen, by construction (simNowMs stops).
+   */
+  readonly simNowMs: number;
+  readonly ringIntensity: number;
+  readonly ringChasePhase: number;
+  readonly crestPhase: number;
+  /** Beacon double-flash envelope ∈ [0,1] (1 = mid-flash, 0 = dark between groups). */
+  readonly beacon01: number;
+}
+
+export function cnProgram(): CnProgramSnapshot {
+  const selection = effectiveNightProgram(getGameState().seed);
+  const t = simNowMs();
+  const ring = ringPhaseAt(t, selection.mode);
+  return {
+    ...selection,
+    overridden: cnProgramOverride.mode !== null || cnProgramOverride.paletteIndex !== null,
+    paletteNames: CN_TOWER.palettes.map((p) => p.name),
+    simNowMs: t,
+    ringIntensity: ring.intensity,
+    ringChasePhase: ring.chasePhase,
+    crestPhase: crestPhaseAt(t),
+    beacon01: beaconEnvelopeAt(t),
+  };
+}
+
+/** Force the tower's mode and/or palette (partial), or clear the override with `null`. Returns
+ * false for an unknown mode — the override is left untouched in that case. */
+export function setCnProgram(next: { mode?: string; paletteIndex?: number } | null): boolean {
+  if (next === null) {
+    setCnProgramOverride(null);
+    return true;
+  }
+  if (next.mode !== undefined && !isCnProgramMode(next.mode)) return false;
+  setCnProgramOverride({
+    ...(next.mode !== undefined && isCnProgramMode(next.mode) ? { mode: next.mode } : {}),
+    ...(next.paletteIndex !== undefined ? { paletteIndex: next.paletteIndex } : {}),
+  });
+  return true;
+}
+
 declare global {
   interface Window {
     __smashy?: {
@@ -730,6 +807,13 @@ declare global {
        * really unmounts — `trafficCount()` drops to 0 and `torontoTransitSlots()` empties. */
       setCivTraffic: (value: boolean) => void;
       setTransit: (value: boolean) => void;
+      /** Phase 44: what the CN Tower's night program is showing right now (seeded pick + any dev
+       * override), plus the palette name list. See CnProgramSnapshot. */
+      cnProgram: () => CnProgramSnapshot;
+      /** Phase 44: force the tower's `mode` ('solid'|'pulse'|'chase') and/or `paletteIndex`, or
+       * pass null to clear the override and fall back to the run's seeded pick. False on an
+       * unknown mode. Purely cosmetic — no heat, no state, no persistence. */
+      setCnProgram: (next: { mode?: string; paletteIndex?: number } | null) => boolean;
     };
   }
 }
@@ -913,4 +997,6 @@ window.__smashy = {
   setDevCamPose,
   setCivTraffic: (value) => setDevToggle('civTraffic', value),
   setTransit: (value) => setDevToggle('transit', value),
+  cnProgram,
+  setCnProgram,
 };
