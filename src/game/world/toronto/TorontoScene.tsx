@@ -64,7 +64,13 @@ import { GROUND_NOISE, buildNoiseField, sampleNoiseField } from './groundNoise';
 import { BARRIER, SIDEWALK } from '../../config/torontoMap';
 import { CityPackBatched } from './cityPack/CityPackBatched';
 import { HERO_LOTS, type CrownDecal, type NamedBox, type NamedPlacement } from './namedBuildings';
-import { buildNamedSignGeometry, resolveNamedBespoke, resolveNamedRenderBoxes } from './namedGeometry';
+import {
+  buildBespokeRenderMeshes,
+  buildNamedSignGeometry,
+  namedRenderBoxForDataIndex,
+  resolveNamedBespoke,
+  resolveNamedRenderBoxes,
+} from './namedGeometry';
 import { makeNamedSignTexture } from './namedSignage';
 import { buildCnTowerGeometry, buildRogersGeometry } from './heroes';
 import { createCnNightMaterial, writeCnNightUniforms } from './cnNightMaterial';
@@ -609,14 +615,18 @@ function NamedBuildingsLayer({ placements }: { placements: readonly NamedPlaceme
 
   // CROWN decals: shared atlas texture + one UV-sliced geometry per decal. The decal rides the
   // RENDER box when a builder supplied one (no built id carries a crown today, so this is
-  // byte-identical now and correct the day one does).
+  // byte-identical now and correct the day one does) — resolved BY DATA INDEX, because a P47-style
+  // subset render plan renumbers array positions but never data indices, and `decal.boxIndex` is a
+  // data index. A decal on a dropped box falls back to the data box it was authored against.
   const atlas = useMemo(() => getLogoAtlas(), []);
   const decals = useMemo(
     () =>
       placements.flatMap((p) => {
-        const decalBoxes = bespokes.get(p.id)?.renderBoxes ?? p.boxes;
+        const bespoke = bespokes.get(p.id);
         return p.decals.map((decal) => {
-          const box = decalBoxes[decal.boxIndex];
+          const box =
+            (bespoke === undefined ? undefined : namedRenderBoxForDataIndex(bespoke, decal.boxIndex)) ??
+            p.boxes[decal.boxIndex];
           const uv = logoCellUv(decal.brand);
           return {
             geometry: makeDecalGeometry(decal.size, uv),
@@ -629,16 +639,15 @@ function NamedBuildingsLayer({ placements }: { placements: readonly NamedPlaceme
   );
   useEffect(() => () => decals.forEach((d) => d.geometry.dispose()), [decals]);
 
-  // The bespoke meshes + the one shared wordmark mesh.
-  const bespokeMeshes = useMemo(
-    () => [...bespokes.values()].map((b) => ({ id: b.id, built: b.buildGeometry() })),
-    [bespokes],
-  );
+  // The bespoke meshes + the one shared wordmark mesh. Pooled by `renderGroup` (P47): the civic
+  // trio becomes ONE mesh, which is what keeps the low tier inside its 90-call budget. Ungrouped
+  // ids (Union, the Royal York) come back as single-member groups, byte-identical to P46.
+  const bespokeMeshes = useMemo(() => buildBespokeRenderMeshes(bespokes), [bespokes]);
   const signGeometry = useMemo(() => buildNamedSignGeometry(bespokes), [bespokes]);
   const signTexture = useMemo(() => makeNamedSignTexture(), []);
   useEffect(
     () => () => {
-      bespokeMeshes.forEach((m) => m.built.geometry.dispose());
+      bespokeMeshes.forEach((m) => m.geometry.dispose());
       signGeometry.geometry.dispose();
       signTexture.dispose();
     },
@@ -659,7 +668,17 @@ function NamedBuildingsLayer({ placements }: { placements: readonly NamedPlaceme
   return (
     <>
       {/* Named building boxes — one mesh each (unique facade texture), UNLIT-literal like the
-          filler massing, castShadow so P24's lit ground receives the skyline shadows later. */}
+          filler massing, castShadow so P24's lit ground receives the skyline shadows later.
+
+          FRUSTUM CULLED (P47), unlike the map-spanning merged meshes further down this file: a
+          named box is a LOCAL volume, so the bounding-sphere test actually rejects something. The
+          scene's `frustumCulled={false}` convention exists for geometry whose bounds cover the
+          whole city (ground, tints, parks, the wordmark atlas) where the test can only ever cost
+          time; it was never a decision that landmarks must be drawn from across town. Culling is
+          semantically invisible — three.js rejects by bounding sphere, which is conservative and
+          never drops anything on screen — and the shadow pass culls against the LIGHT's frustum,
+          so skyline shadows are unaffected. Occlusion is unaffected too: occlusionRegistry
+          raycasts (which ignore frustumCulled) and the clip index is claim-derived. */}
       {boxes.map(({ box, key }, i) => (
         <mesh
           key={key}
@@ -668,25 +687,23 @@ function NamedBuildingsLayer({ placements }: { placements: readonly NamedPlaceme
           }}
           position={[box.cx, box.hy, box.cz]}
           castShadow
-          frustumCulled={false}
         >
           <boxGeometry args={[box.hx * 2, box.hy * 2, box.hz * 2]} />
           <meshBasicMaterial map={textures[i]} toneMapped={false} />
         </mesh>
       ))}
 
-      {/* Phase 46 bespoke landmark geometry — one merged vertex-coloured mesh per built id
-          (colonnade / attic / moat / balustrade / GO shed), UNLIT-literal with the shade baked
-          into the vertex colours (bespokeMesh.ts). */}
-      {bespokeMeshes.map(({ id, built }, i) => (
+      {/* Phase 46 bespoke landmark geometry — one merged vertex-coloured mesh per built id, or per
+          `renderGroup` since P47 (colonnade / attic / moat / balustrade / GO shed / the civic
+          block), UNLIT-literal with the shade baked into the vertex colours (bespokeMesh.ts). */}
+      {bespokeMeshes.map(({ key: meshKey, geometry }, i) => (
         <mesh
-          key={id}
+          key={meshKey}
           ref={(m) => {
             bespokeMeshRefs.current[i] = m;
           }}
-          geometry={built.geometry}
+          geometry={geometry}
           castShadow
-          frustumCulled={false}
         >
           <meshBasicMaterial vertexColors toneMapped={false} />
         </mesh>

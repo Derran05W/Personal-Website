@@ -247,8 +247,13 @@ describe('eye-line law — (d) THE CROSSER LIST (Phase 36 occlusion work order)'
     // North-York-Centre stretches where the district height ranges roll taller. Three more of the
     // same 90 boxes therefore cross the eye line. They are backdrop boxes like the other 35 — the
     // same class, the same dither-fade work order, no new occlusion obligation.
+    // Phase 47: backLotBoxes 6 -> 7. The civic-heart claims (new-city-hall + the nps-square decor
+    // rect) clear most of the Queen × Bay × University block, and the capped back-lot walk spends
+    // the freed budget elsewhere — one relocated back-lot box now rolls tall enough to cross the
+    // eye line. Same class, same dither-fade path as the existing seven, no new occlusion
+    // obligation (the P45 backdrop precedent above, one row down).
     expect(batched.backdropTowerBoxes).toBe(38);
-    expect(batched.backLotBoxes).toBe(6);
+    expect(batched.backLotBoxes).toBe(7);
   });
 
   it('the Phase-45 rail-lands buildings stay UNDER the eye line (the dither-path tripwire)', () => {
@@ -307,7 +312,10 @@ describe('eye-line law — (d) THE CROSSER LIST (Phase 36 occlusion work order)'
     expect([...new Set(below)].sort()).toEqual([
       'eaton-centre-galleria',
       'emerald-park', // the twin's secondary tower (21.17) — the main tower crosses, this one doesn't
+      'new-city-hall', // P47: East tower 19.5 / West twin 16.2 / podium — the whole civic campus sits under the eye line BY DESIGN
       'north-york-civic-centre',
+      'old-city-hall', // P47: clock-tower data height → 19.97, under the line
+      'osgoode-hall', // P47: 6.0 — the lowest named building in the city
       'the-well', // the podium (9.47)
       'union-station',
     ]);

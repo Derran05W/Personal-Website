@@ -14,10 +14,14 @@ import type { BufferGeometry } from 'three';
 import { overlaps, type Aabb } from './claimIndex';
 import { buildNamedBuildings, type NamedPlacement } from './namedBuildings';
 import {
+  buildBespokeRenderMeshes,
   buildNamedSignGeometry,
+  CIVIC_HEART_RENDER_GROUP,
   namedBespokeClaims,
   namedGeometryBuilders,
   namedGeometryCtx,
+  namedRenderBoxDataIndex,
+  namedRenderBoxForDataIndex,
   resolveNamedBespoke,
   resolveNamedRenderBoxes,
   type NamedBespoke,
@@ -45,7 +49,13 @@ function preSeamRenderPlan(placements: readonly NamedPlacement[]) {
 
 describe('namedGeometry — the registry', () => {
   it('registers exactly the ids Phase 46 ships bespoke geometry for', () => {
-    expect([...namedGeometryBuilders.keys()].sort()).toEqual(['fairmont-royal-york', 'union-station']);
+    expect([...namedGeometryBuilders.keys()].sort()).toEqual([
+      'fairmont-royal-york',
+      'new-city-hall',
+      'old-city-hall',
+      'osgoode-hall',
+      'union-station',
+    ]);
   });
 
   it('every registered id is a real named placement (a typo would silently do nothing)', () => {
@@ -98,28 +108,50 @@ describe('namedGeometry — the box fallback is structural', () => {
     // can't make this comparison vacuously pass; the untouched count is then derived, so adding a
     // builder is a one-number change here and never silently narrows the proof.
     const untouchedIds = named.placements.filter((p) => !namedGeometryBuilders.has(p.id)).map((p) => p.id);
-    expect(named.placements).toHaveLength(14);
+    expect(named.placements).toHaveLength(17);
     expect(untouchedIds).toHaveLength(named.placements.length - namedGeometryBuilders.size);
     expect(plan.filter(untouched)).toEqual(before.filter(untouched));
   });
 
-  it('the plan covers every placement, in placement order, with unchanged keys', () => {
+  it('the plan is a SUBSEQUENCE of the pre-seam plan — order and keys preserved, drops declared', () => {
     const plan = resolveNamedRenderBoxes(named.placements, bespokes);
     const before = preSeamRenderPlan(named.placements);
-    expect(plan.map((e) => e.key)).toEqual(before.map((e) => e.key));
-    expect(plan.map((e) => e.placementId)).toEqual(before.map((e) => e.placementId));
+    const beforeKeys = before.map((e) => e.key);
+    const planKeys = plan.map((e) => e.key);
+    // A subset render plan (P47: City Hall's tower boxes become bespoke geometry) may REMOVE
+    // entries. It may never reorder or rename the survivors: those keys seed the facade textures
+    // and are the Phase-36 occlusion fade keys, which the P36 law requires to be item-derived.
+    expect(planKeys).toEqual(beforeKeys.filter((k) => planKeys.includes(k)));
+    for (const entry of plan) {
+      const match = before.find((e) => e.key === entry.key);
+      expect(match, entry.key).toBeDefined();
+      expect(entry.placementId).toBe(match?.placementId);
+    }
+    // The drop list is pinned, so a builder that swallows a box by accident fails here loudly
+    // rather than quietly rendering one fewer facade.
+    expect(beforeKeys.filter((k) => !planKeys.includes(k))).toEqual(['new-city-hall#0', 'new-city-hall#1']);
   });
 
   it('an EMPTY bespoke map reproduces the pre-seam plan for every id (the disable-the-seam control)', () => {
     expect(resolveNamedRenderBoxes(named.placements, new Map())).toEqual(preSeamRenderPlan(named.placements));
   });
 
-  it('a built id keeps its box COUNT and its footprint — only the render height may differ', () => {
+  it('a built id renders a footprint-matched SUBSET of its data boxes — only the height may shrink', () => {
     for (const [id, bespoke] of bespokes) {
       const placement = named.placements.find((p) => p.id === id)!;
-      expect(bespoke.renderBoxes).toHaveLength(placement.boxes.length);
+      expect(bespoke.renderBoxes.length).toBeLessThanOrEqual(placement.boxes.length);
+      const indices = bespoke.renderBoxes.map((_, i) => namedRenderBoxDataIndex(bespoke, i));
+      // Strictly increasing and in range: the mapping is a real subsequence, so the plan can never
+      // reorder, and two render boxes can never claim the same data box (which would duplicate a
+      // facade key and hand two meshes one fade key).
+      indices.forEach((dataIndex, n) => {
+        expect(Number.isInteger(dataIndex), `${id}[${n}]`).toBe(true);
+        expect(dataIndex, `${id}[${n}]`).toBeGreaterThanOrEqual(0);
+        expect(dataIndex, `${id}[${n}]`).toBeLessThan(placement.boxes.length);
+        if (n > 0) expect(dataIndex, `${id}[${n}]`).toBeGreaterThan(indices[n - 1]);
+      });
       bespoke.renderBoxes.forEach((box, i) => {
-        const data = placement.boxes[i];
+        const data = placement.boxes[indices[i]];
         expect({ cx: box.cx, cz: box.cz, hx: box.hx, hz: box.hz }).toEqual({
           cx: data.cx,
           cz: data.cz,
@@ -129,6 +161,90 @@ describe('namedGeometry — the box fallback is structural', () => {
         expect(box.look).toEqual(data.look);
         expect(box.hy).toBeLessThanOrEqual(data.hy);
       });
+    }
+  });
+
+  // These two accessors are the whole defence against a subset render plan renumbering the things
+  // that are keyed by DATA index. The decal consumer (TorontoScene) is unreachable today — no built
+  // id carries a CROWN — so it is proven here directly rather than left to the day one does.
+  it('maps identity for a whole-plan builder and the declared index for a subset builder', () => {
+    const union = bespokes.get('union-station')!;
+    union.renderBoxes.forEach((_, i) => expect(namedRenderBoxDataIndex(union, i)).toBe(i));
+    expect(namedRenderBoxDataIndex(bespokes.get('new-city-hall')!, 0)).toBe(2);
+  });
+
+  it('finds a surviving box by DATA index and reports a dropped one as undefined', () => {
+    const hall = bespokes.get('new-city-hall')!;
+    const boxes = named.placements.find((p) => p.id === 'new-city-hall')!.boxes;
+    const podium = namedRenderBoxForDataIndex(hall, 2);
+    expect([podium?.cx, podium?.cz]).toEqual([boxes[2].cx, boxes[2].cz]);
+    // The dropped tower boxes report their absence — that `undefined` is what makes the decal path
+    // fall back to the DATA box instead of silently hanging a CROWN on the podium.
+    expect(namedRenderBoxForDataIndex(hall, 0)).toBeUndefined();
+    expect(namedRenderBoxForDataIndex(hall, 1)).toBeUndefined();
+  });
+});
+
+// -------------------------------------------------------------------------------------------------
+// pooled render meshes (P47)
+// -------------------------------------------------------------------------------------------------
+
+describe('namedGeometry — pooled render meshes', () => {
+  const meshes = buildBespokeRenderMeshes(bespokes);
+
+  /** A bespoke's world-space centre, from its own built geometry. */
+  function centreOf(id: string): { x: number; z: number } {
+    const geometry = bespokes.get(id)!.buildGeometry().geometry;
+    geometry.computeBoundingBox();
+    const box = geometry.boundingBox!;
+    return { x: (box.min.x + box.max.x) / 2, z: (box.min.z + box.max.z) / 2 };
+  }
+
+  it('pools the civic block into ONE mesh and leaves the ungrouped landmarks alone', () => {
+    const byKey = new Map(meshes.map((m) => [m.key, [...m.ids].sort()]));
+    expect(byKey.get(CIVIC_HEART_RENDER_GROUP)).toEqual(['new-city-hall', 'old-city-hall', 'osgoode-hall']);
+    expect(byKey.get('union-station')).toEqual(['union-station']);
+    expect(byKey.get('fairmont-royal-york')).toEqual(['fairmont-royal-york']);
+    // THE BUDGET CLAIM, pinned: five bespoke ids resolve to three scene meshes. Those two saved
+    // draw calls are what put the LOW tier back inside its 90-call budget (measured 91 unpooled,
+    // 89 pooled) — un-pooling this without finding the calls elsewhere breaks the mobile gate.
+    expect(bespokes.size).toBe(5);
+    expect(meshes).toHaveLength(3);
+  });
+
+  it('pooling conserves geometry — not one triangle gained or lost', () => {
+    const perId = new Map([...bespokes].map(([id, b]) => [id, b.buildGeometry().triangles]));
+    for (const mesh of meshes) {
+      expect(mesh.triangles, mesh.key).toBe(mesh.ids.reduce((n, id) => n + perId.get(id)!, 0));
+      // Non-indexed, 3 vertices per triangle: the merged buffers are exactly the sum of the parts,
+      // which is what proves the concatenation neither truncated nor double-counted a member.
+      for (const name of ['position', 'normal', 'color']) {
+        expect(mesh.geometry.getAttribute(name).count, `${mesh.key}.${name}`).toBe(mesh.triangles * 3);
+      }
+    }
+  });
+
+  it('a merged group gets its bounding volume computed (the A.5 occlusion raycast reads it)', () => {
+    for (const mesh of meshes.filter((m) => m.ids.length > 1)) {
+      expect(mesh.geometry.boundingBox, mesh.key).not.toBeNull();
+      expect(mesh.geometry.boundingSphere?.radius ?? 0, mesh.key).toBeGreaterThan(0);
+    }
+  });
+
+  it('a group never spans more than one city block — the fade-together trade is block-LOCAL', () => {
+    // THE LAW behind `NamedBespoke.renderGroup`'s warning: a pooled mesh fades as a unit, so its
+    // members must be close enough that one fading reads as "that block is fading". The civic trio
+    // spans ~110 wu (Osgoode at University to Old City Hall east of Bay). Front Street is ~500 wu
+    // away — this is what fails if someone ever pools across blocks to buy a cheap draw call.
+    const MAX_GROUP_SPAN_WU = 200;
+    for (const mesh of meshes.filter((m) => m.ids.length > 1)) {
+      const centres = mesh.ids.map(centreOf);
+      let span = 0;
+      for (const a of centres) {
+        for (const b of centres) span = Math.max(span, Math.hypot(a.x - b.x, a.z - b.z));
+      }
+      expect(span, `${mesh.key} span`).toBeGreaterThan(0); // non-vacuous
+      expect(span, `${mesh.key} span`).toBeLessThanOrEqual(MAX_GROUP_SPAN_WU);
     }
   });
 });
@@ -249,8 +365,13 @@ describe('namedGeometry — the shared wordmark mesh', () => {
     }
   });
 
-  it('every builder puts at least one wordmark on a CAMERA-VISIBLE face (south/east)', () => {
+  it('every builder WITH wordmarks puts at least one on a CAMERA-VISIBLE face (south/east)', () => {
+    // The guard's target (P46) is a builder whose ONLY wordmark faces north — lettering the fixed
+    // rig can never show. A builder with NO atlas wordmark at all is legal (P47: the civic trio —
+    // the TORONTO sign is in-mesh 3D lettering, and Old City Hall/Osgoode carry no signage), so
+    // the law binds only where signQuads exist.
     for (const [id, bespoke] of bespokes) {
+      if (bespoke.signQuads.length === 0) continue;
       const visible = bespoke.signQuads.filter((q) => q.face === 'south' || q.face === 'east');
       expect(visible.length, `${id} has no camera-visible wordmark`).toBeGreaterThan(0);
     }

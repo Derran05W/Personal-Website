@@ -38,7 +38,11 @@ import { describe, expect, it } from 'vitest';
  * merged. Both are exactly the class of producer this list exists to police.
  *
  * Phase 46 T2: `royalYork.ts` — the seam's second builder, another wordmark-quad producer riding
- * the same `WALL_STACK.fasciaBand` rung. */
+ * the same `WALL_STACK.fasciaBand` rung.
+ *
+ * Phase 47: the three civic builders — `newCityHall.ts` paints the plaza/rink quads on the new
+ * civicPlaza/civicRink rungs, `osgoodeHall.ts` paints its lawn at parkGround; all three are
+ * exactly the ground/wall-quad producer class this list polices. */
 const SCANNED_FILES: readonly string[] = [
   'src/game/world/toronto/TorontoScene.tsx',
   'src/game/world/toronto/roadPaint.ts',
@@ -50,6 +54,9 @@ const SCANNED_FILES: readonly string[] = [
   'src/game/world/toronto/namedGeometry.ts',
   'src/game/world/toronto/unionStation.ts',
   'src/game/world/toronto/royalYork.ts',
+  'src/game/world/toronto/newCityHall.ts',
+  'src/game/world/toronto/oldCityHall.ts',
+  'src/game/world/toronto/osgoodeHall.ts',
   'src/game/world/toronto/namedSignage.ts',
   'src/game/config/fx.ts',
   'src/game/config/torontoMaterials.ts',

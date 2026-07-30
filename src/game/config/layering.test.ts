@@ -43,22 +43,24 @@ describe('GROUND_STACK — every rung pinned exactly', () => {
   // (0.128 = curb top + 2 × MIN_GROUND_SEP_WU) instead of spliced into the road band. No existing
   // rung moved — the append is why this pin is a one-line addition rather than a whole-ladder shift
   // like Phase 45's.
-  it('matches the law values (Phase 39, re-pinned at Phase 45 for the rail splice + Phase 46 for the moat)', () => {
+  it('matches the law values (Phase 39, re-pinned P45 rail splice + P46 moat + P47 civic splice)', () => {
     expect(GROUND_STACK).toEqual({
       ground: 0.0,
       districtTint: 0.008,
       parkGround: 0.012,
       railBallast: 0.016,
       railTrack: 0.02,
-      edgeBoxBase: 0.024,
-      roadSurface: 0.028,
-      roadPaint: 0.034,
-      crosswalk: 0.04,
-      placesRoadArt: 0.046,
-      skid: 0.056,
-      scorch: 0.062,
-      water: 0.068,
-      groundFx: 0.074,
+      civicPlaza: 0.024,
+      civicRink: 0.028,
+      edgeBoxBase: 0.032,
+      roadSurface: 0.036,
+      roadPaint: 0.042,
+      crosswalk: 0.048,
+      placesRoadArt: 0.054,
+      skid: 0.064,
+      scorch: 0.07,
+      water: 0.076,
+      groundFx: 0.082,
       unionMoat: 0.128,
     });
   });

@@ -235,6 +235,42 @@
       "material": "brick_red",
       "confidence": "low",
       "notes": "Red brick semicircular railway shed (1929\u201331), 32 locomotive bays, south of Bremner near Rogers Centre. Interior ceiling 34 ft (10.4 m). Turntable 120 ft (37 m) diameter. Exact exterior height need verification. Material corrected limestone -> brick_red (enum match for a red-brick shed; T0 phase-45). expected_game_h_wu recomputed via hGame(12) = 9.10 -> rounded to 9 (T0 phase-45)."
+    },
+    {
+      "id": "new-city-hall",
+      "name": "Toronto City Hall",
+      "real_h_m": 99.7,
+      "floors": 27,
+      "expected_game_h_wu": 32,
+      "footprint_wu": 48,
+      "footprint_note": "Plaza building complex estimated via typical city-block span; east tower 99.7m (west tower 79.6m, 20 floors). Verified towers embrace a saucer-shaped council chamber (47.2m diameter). footprint_wu derived from estimated ~150m characteristic width via real_m / 1.55 * 0.5.",
+      "material": "precast_grey",
+      "confidence": "high",
+      "notes": "R47: Modern Brutalist complex (1961\u20131965), designed by Finnish architect Viljo Revell. Two curved office towers of differing heights frame a saucer-shaped council chamber atop a wide, low podium. East tower verified 99.7 m / 27 floors; West tower 79.6 m / 20 floors. Council chamber 155 ft (47.2 m) diameter, ~40 ft (12.2 m) to dome peak. Nathan Phillips Square (4.85 hectares, 12 acres) features three Freedom Arches oriented on axis with Old City Hall, spanning the reflecting pool (converted to skating rink in winter). 3D TORONTO sign: 3 m letter height, 22 m total length, LED-lit (228 million colour combinations), installed July 2015 for the Pan American Games (R47 follow-up corrected an earlier 2008 error; current durable version installed September 2020), owned by City of Toronto. unverified: exact podium storeys, Freedom Arch span/height specifications, tower-gap compass orientation."
+    },
+    {
+      "id": "old-city-hall",
+      "name": "Old City Hall",
+      "real_h_m": 103.6,
+      "floors": null,
+      "expected_game_h_wu": 33,
+      "footprint_wu": 23,
+      "footprint_note": "Height to top of off-centre clock tower; building footprint estimated from typical Toronto civic-block frontage (~70m Queen Street) via real_m / 1.55 * 0.5.",
+      "material": "brick_red",
+      "confidence": "high",
+      "notes": "R47: Romanesque Revival courthouse (1899), designed by E.J. Lennox. Located at northeast corner of Queen and Bay Streets (60 Queen St W). Off-centre clock tower 103.6 m tall, visual anchor for Bay Street. Four clock faces, each 3.5 m diameter, counting time for over 125 years. Facade: reddish-brown sandstone (Credit Valley) and contrasting darker shade (New Brunswick), creating layered appearance. Roof: steep hipped form with copper trimmings, developed patina. Triple-arched entrances. Served as Toronto's city hall until 1965; now home to Toronto's Superior Court. Replaced by Viljo Revell's modern City Hall across Nathan Phillips Square."
+    },
+    {
+      "id": "osgoode-hall",
+      "name": "Osgoode Hall",
+      "real_h_m": 14,
+      "floors": 3,
+      "expected_game_h_wu": 10,
+      "footprint_wu": 16,
+      "footprint_note": "Height estimated from 3-storey Georgian building (current); original east wing 1832 was 2.5 storeys. Footprint estimated from typical courthouse main building (~50m) within 6-acre (2.4 ha) estate grounds; derived via real_m / 1.55 * 0.5.",
+      "material": "limestone",
+      "confidence": "low",
+      "notes": "R47: Georgian-era courthouse complex, original east wing commenced 1832 (2.5 storeys), expanded over time to current 3-storey structure. Located at 130 Queen Street West (northeast corner Queen and University). Set well back from Queen Street behind extensive landscaped grounds (6 acres total). Victorian wrought-iron fence installed 1867 replaced earlier picket fence; distinctive 20-inch openings (cow-gate turnstiles) designed to prevent cattle from wandering onto property. Facade material estimated limestone (typical Ontario institutional architecture of era) \u2014 exact material and colour unverified. National Historic Site of Canada. unverified: exact building height in metres, facade material/colour, exact footprint dimensions, specific architectural details. expected_game_h_wu recomputed via hGame(14) = 9.98 -> rounded to 10 (T0 phase-47; researcher wrote 8, off the _meta curve)."
     }
   ]
 }

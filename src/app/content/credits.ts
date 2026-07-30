@@ -503,5 +503,44 @@ export const CREDITS: CreditsContent = {
         'or endorsement is implied, and no official Union Station assets were used.',
       ].join(' '),
     },
+    // Phase 47 (civic heart): three more namedGeometryBuilders tenants. These carry NO wordmark
+    // atlas cell at all — the TORONTO sign is original in-mesh 3D lettering, the other two are
+    // pure massing homages — so the notes say "low-poly" where the earlier entries say
+    // "pixel-art" (credits.test.ts's homage law accepts both).
+    {
+      name: 'Toronto City Hall & Nathan Phillips Square',
+      note: [
+        'Referenced as an original low-poly massing homage — two curved towers, the council-chamber',
+        'saucer, podium, plaza, rink and Freedom-Arch forms evoking Viljo Revell\'s design — plus an',
+        'original 3D block-letter homage to the multicoloured TORONTO sign (own lettering and',
+        'colours, never the real sign\'s artwork traced, photographed, or reproduced). Toronto City',
+        'Hall, Nathan Phillips Square, and the TORONTO sign are civic assets of the City of Toronto;',
+        'any associated trademarks belong to the City of Toronto, their likeness is referenced for',
+        'Toronto-cityscape flavour only, no affiliation, sponsorship, or endorsement is implied, and',
+        'no official City of Toronto assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'Old City Hall (Toronto)',
+      note: [
+        'Referenced as an original low-poly massing homage — a Romanesque Revival sandstone block',
+        'with copper-green roofs and an off-centre clock tower evoking E.J. Lennox\'s 1899 building,',
+        'never a traced or exact reproduction. Old City Hall is a civic landmark owned by the City',
+        'of Toronto; any associated trademarks belong to their respective owner, its likeness is',
+        'referenced for Toronto-cityscape flavour only, no affiliation, sponsorship, or endorsement',
+        'is implied, and no official Old City Hall assets were used.',
+      ].join(' '),
+    },
+    {
+      name: 'Osgoode Hall',
+      note: [
+        'Referenced as an original low-poly massing homage — a set-back Georgian pile behind a lawn',
+        'and wrought-iron fence evoking the real grounds, never a traced or exact reproduction.',
+        'Osgoode Hall is owned by the Law Society of Ontario; any associated trademarks belong to',
+        'their respective owner, its likeness is referenced for Toronto-cityscape flavour only, no',
+        'affiliation, sponsorship, or endorsement is implied, and no official Osgoode Hall assets',
+        'were used.',
+      ].join(' '),
+    },
   ],
 };

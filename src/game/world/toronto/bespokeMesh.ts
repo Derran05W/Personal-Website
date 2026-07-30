@@ -147,7 +147,11 @@ export interface BoxFaces {
 
 const ALL_FACES: Required<BoxFaces> = { pz: true, nz: true, px: true, nx: true, py: true, ny: false };
 
-/** An axis-aligned box. `faces` masks individual faces (see BoxFaces). */
+/**
+ * An axis-aligned box. `faces` masks individual faces (see BoxFaces); `opts` is the same FaceOpts
+ * every other primitive takes — Phase 47 added it so a full-bright box (a lit sign letter, a flag)
+ * doesn't have to be hand-wound out of `addFace` calls just to skip the directional bake.
+ */
 export function addBox(
   acc: Accum,
   cx: number,
@@ -158,6 +162,7 @@ export function addBox(
   hz: number,
   hex: string,
   faces: BoxFaces = {},
+  opts: FaceOpts = {},
 ): void {
   const f = { ...ALL_FACES, ...faces };
   const x0 = cx - hx;
@@ -166,12 +171,12 @@ export function addBox(
   const y1 = cy + hy;
   const z0 = cz - hz;
   const z1 = cz + hz;
-  if (f.pz) addQuad(acc, [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], hex);
-  if (f.nz) addQuad(acc, [[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]], hex);
-  if (f.px) addQuad(acc, [[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]], hex);
-  if (f.nx) addQuad(acc, [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], hex);
-  if (f.py) addQuad(acc, [[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]], hex);
-  if (f.ny) addQuad(acc, [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], hex);
+  if (f.pz) addQuad(acc, [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], hex, opts);
+  if (f.nz) addQuad(acc, [[x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0]], hex, opts);
+  if (f.px) addQuad(acc, [[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]], hex, opts);
+  if (f.nx) addQuad(acc, [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], hex, opts);
+  if (f.py) addQuad(acc, [[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]], hex, opts);
+  if (f.ny) addQuad(acc, [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], hex, opts);
 }
 
 export interface PrismOpts {
@@ -215,6 +220,109 @@ export function addPrismY(
   }
   if (opts.capBottom) {
     for (let i = 1; i + 1 < sides; i++) addTriFacing(acc, at(y0, r0, 0), at(y0, r0, i), at(y0, r0, i + 1), [0, -1, 0], hex);
+  }
+}
+
+// --- circular arcs in plan (Phase 47) ------------------------------------------------------------
+//
+// Phase 46's toolkit could build anything derived from a BOX or a centred N-gon prism, which is
+// every landmark the seam had. Phase 47's Toronto City Hall is the first one whose PLAN is a curve:
+// two crescent office slabs embracing a saucer. Building that with private arithmetic inside
+// newCityHall.ts would be exactly the "third copy" this module's header exists to prevent (the P46
+// handoff names an arc helper as the toolkit's expected next growth), so the three primitives a
+// curved-plan landmark actually needs live here: a curved WALL band, a curved horizontal RING, and
+// the point/normal/tangent accessors detail (rib fins, dormers, signage) hangs off.
+
+/**
+ * A horizontal circular arc: centre `(cx, cz)`, angular span `[a0, a1]` split into `segments`
+ * facets. Angle convention: `x = cx + r·cos(a)`, `z = cz + r·sin(a)` — `a = 0` points +X and
+ * `a = π/2` points +Z. `a1 < a0` is legal (the arc simply runs the other way); every helper below
+ * derives its own outward direction from the angle, so winding is never hand-trusted.
+ */
+export interface ArcSpec {
+  readonly cx: number;
+  readonly cz: number;
+  readonly a0: number;
+  readonly a1: number;
+  readonly segments: number;
+}
+
+/** Angle (radians) at arc parameter `i` — 0 … `segments`, fractional values allowed (a rib fin
+ * sitting at a FACET CENTRE, i.e. `i + 0.5`, is the reason this takes a float). */
+export function arcAngle(arc: ArcSpec, i: number): number {
+  return arc.a0 + ((arc.a1 - arc.a0) * i) / arc.segments;
+}
+
+/** The point at parameter `i`, radius `r`, height `y`. */
+export function arcPoint(arc: ArcSpec, i: number, r: number, y: number): Vec3 {
+  const a = arcAngle(arc, i);
+  return [arc.cx + r * Math.cos(a), y, arc.cz + r * Math.sin(a)];
+}
+
+/** Unit vector pointing radially AWAY from the arc centre at parameter `i`. */
+export function arcOutward(arc: ArcSpec, i: number): Vec3 {
+  const a = arcAngle(arc, i);
+  return [Math.cos(a), 0, Math.sin(a)];
+}
+
+/** Unit vector along the arc, in the direction of increasing `i`. */
+export function arcTangent(arc: ArcSpec, i: number): Vec3 {
+  const a = arcAngle(arc, i);
+  const s = Math.sign(arc.a1 - arc.a0) || 1;
+  return [-Math.sin(a) * s, 0, Math.cos(a) * s];
+}
+
+/**
+ * A curved WALL band: `segments` quads at radius `r`, from `y0` to `y1`, facing radially outward
+ * (`'out'`) or inward (`'in'`). Stacking several bands with shared Y edges is the row-strip
+ * pattern the GO shed's ribs use (adjacent strips of ONE surface, never overlapping ones), which
+ * is what lets a lit-window band sit in a concrete wall with no offset and no z-fight.
+ */
+export function addArcBand(
+  acc: Accum,
+  arc: ArcSpec,
+  r: number,
+  y0: number,
+  y1: number,
+  hex: string,
+  facing: 'out' | 'in',
+  opts: FaceOpts = {},
+): void {
+  const sign = facing === 'out' ? 1 : -1;
+  for (let i = 0; i < arc.segments; i++) {
+    const n = arcOutward(arc, i + 0.5);
+    const outward: Vec3 = [n[0] * sign, 0, n[2] * sign];
+    addFace(
+      acc,
+      [arcPoint(arc, i, r, y0), arcPoint(arc, i + 1, r, y0), arcPoint(arc, i + 1, r, y1), arcPoint(arc, i, r, y1)],
+      outward,
+      hex,
+      opts,
+    );
+  }
+}
+
+/** A curved horizontal RING strip between two radii at one height — a curved wall's top cap, or a
+ * curved band painted on the ground. */
+export function addArcRing(
+  acc: Accum,
+  arc: ArcSpec,
+  rInner: number,
+  rOuter: number,
+  y: number,
+  hex: string,
+  facing: 'up' | 'down' = 'up',
+  opts: FaceOpts = {},
+): void {
+  const outward: Vec3 = facing === 'up' ? [0, 1, 0] : [0, -1, 0];
+  for (let i = 0; i < arc.segments; i++) {
+    addFace(
+      acc,
+      [arcPoint(arc, i, rInner, y), arcPoint(arc, i, rOuter, y), arcPoint(arc, i + 1, rOuter, y), arcPoint(arc, i + 1, rInner, y)],
+      outward,
+      hex,
+      opts,
+    );
   }
 }
 

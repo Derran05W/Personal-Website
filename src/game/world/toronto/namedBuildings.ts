@@ -261,6 +261,35 @@ const AUTHORS: readonly Author[] = [
   { id: 'hullmark', center: (c) => ({ x: c('yonge') + 40, z: c('sheppard') - 46 }), shape: 'square', twin: { dx: 26, dz: -22, floors: 37 }, frontage: { ref: 'yonge', axis: 'x', side: 'hi' } },
   { id: 'emerald-park', center: (c) => ({ x: c('yonge') - 38, z: c('sheppard') + 44 }), shape: 'square', twin: { dx: -26, dz: 24, floors: 32 }, frontage: { ref: 'yonge', axis: 'x', side: 'lo' } },
   { id: 'north-york-civic-centre', center: (c) => ({ x: c('yonge') + 37, z: NYC_Y }), shape: 'square', frontage: { ref: 'yonge', axis: 'x', side: 'hi' } },
+
+  // --- Civic heart (Phase 47): the Queen × Bay × University block -----------------------------
+  // New City Hall authors THREE data boxes through the EXISTING author fields — main = the EAST
+  // tower's bounding slab (longZ: the towers' long axes run N-S, concave faces toward each other
+  // across the saucer, opening N-S so the saucer reads from the square to the SOUTH — a
+  // DERIVATION from the verified site plan (square south of the towers, Freedom Arches on the
+  // Old City Hall axis), not a researched compass fact); twin = the WEST tower (floors: 20 is an
+  // author-literal floor count, the Hullmark/Emerald precedent — researched West height 79.6 m
+  // cross-checks the 99.7 × 20/27 = 73.9 m floor-ratio within 7%); podium = the low campus base
+  // (researcher: "wide, low podium", exact storeys unverified → 8 m design value, ~2 storeys).
+  // The data boxes carry claims/colliders/exclusions exactly like every other named id; the
+  // curved towers + saucer are newCityHall.ts's bespoke geometry, and the two tower data boxes are
+  // DROPPED from its render plan (the podium alone keeps the §4 facade path — see that file's
+  // render-plan note for why a buried stub box is not free). Drive feel comes from the
+  // podium perimeter; the tower boxes overlap it harmlessly (P45 overlapping-chord precedent).
+  {
+    id: 'new-city-hall',
+    center: (c) => ({ x: mid(c('university'), c('bay')) + 13, z: c('dundas') + 50 }),
+    shape: 'longZ',
+    shallowHalf: 4.5,
+    twin: { dx: -26, dz: 0, floors: 20 },
+    podium: { dx: -13, dz: 0, w: 58, d: 46, realM: 8, material: 'precast_grey' },
+  },
+  // Old City Hall: NE corner of Queen × Bay (60 Queen St W), flush to Queen's north side — its
+  // south facade + clock tower terminate the Bay view exactly like the real one.
+  { id: 'old-city-hall', center: (c) => ({ x: c('bay') + 19, z: c('queen') - 15 }), shape: 'square', frontage: { ref: 'queen', axis: 'z', side: 'lo' } },
+  // Osgoode Hall: NE corner of Queen × University, deliberately NOT flush — the researched read
+  // is a low pile SET BACK behind its lawn and 1867 fence (osgoodeHall.ts dresses both).
+  { id: 'osgoode-hall', center: (c) => ({ x: c('university') + 21, z: c('queen') - 21 }), shape: 'square' },
 ];
 
 // --- builders ------------------------------------------------------------------------------

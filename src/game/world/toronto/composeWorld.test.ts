@@ -102,32 +102,50 @@ describe('composeWorld — the count table (seed 416), pinned', () => {
   //     (reserved, and swept clean by that phase). A blocking-claim census of both rectangles on
   //     the pre-Phase-46 world returned zero hits — which is why the seam's first landmark costs no
   //     displacement at all.
+  // PHASE 47 RE-PIN — the civic heart (new-city-hall + old-city-hall + osgoode-hall through the
+  // P46 seam). Unlike P46's zero-displacement pair, this phase CLEARS MOST OF A BLOCK (Queen ×
+  // Bay × University), so the whole table was re-measured. claims 8058 → 8081 (+23), attributed
+  // EXACTLY:
+  //   • +14 authored: 5 named-building box claims (NCH's east tower + west twin + podium, OCH,
+  //     Osgoode) + 5 namedExclusion zones (one per box) + 3 decor claims (`nps-square`,
+  //     `osgoode-lawn-s`, `osgoode-lawn-w`) + 1 namedBuilding claim (`toronto-sign`, the square's
+  //     one collider-backed fixture).
+  //   • +9 net displacement reshuffle: cornerFills +4, backlotBox −3, furniture.trees −2,
+  //     deepScatterTrees +10 (the vacated block's interior scatter re-rolled elsewhere;
+  //     fixedTotal +10 is exactly the scatter-tree delta). Frontage redistributed WITHIN its
+  //     saturated 1400 cap (genericDowntown −5, yongeDundasQueen −2 vs +1 each across seven other
+  //     districts — the civic exclusions freed/blocked different street-walk slots).
+  //   • Fence panels net 0: the P47 per-panel gate (southFenceRun's rejectFp — the seed-7
+  //     tree×fence class fixed structurally at T0) drops nothing in the final world; the class it
+  //     closes was expressed only by the mid-T0 reshuffle.
+  //   • clipVolumes 2374 → 2381 (+7): +6 new building-class claims (5 named boxes + the sign) and
+  //     the +4/−3 corner/backlot building-class net.
   it('matches the measured seed-416 counts exactly', () => {
     expect(world.counts).toEqual({
-      claims: 8058,
-      clipVolumes: 2374,
+      claims: 8081,
+      clipVolumes: 2381,
       'frontage.total': 1400,
       'frontage.towerBoxes': 90,
-      'frontage.cornerFills': 47,
-      'frontage.financial': 66,
+      'frontage.cornerFills': 51,
+      'frontage.financial': 67,
       'frontage.entertainment': 38,
       'frontage.kingWest': 58,
       'frontage.queenWest': 71,
-      'frontage.chinatownKensington': 34,
-      'frontage.yongeDundasQueen': 61,
+      'frontage.chinatownKensington': 35,
+      'frontage.yongeDundasQueen': 59,
       'frontage.churchWellesley': 36,
-      'frontage.uoft': 40,
+      'frontage.uoft': 41,
       'frontage.stLawrence': 12,
-      'frontage.harbourfront': 229,
-      'frontage.bloorYorkville': 106,
+      'frontage.harbourfront': 230,
+      'frontage.bloorYorkville': 107,
       'frontage.northYorkCentre': 51,
-      'frontage.willowdaleFinch': 99,
-      'frontage.genericDowntown': 417,
-      'frontage.foldCorridor': 82,
+      'frontage.willowdaleFinch': 100,
+      'frontage.genericDowntown': 412,
+      'frontage.foldCorridor': 83,
       'furniture.trafficLights': 227,
       'furniture.stopSigns': 1,
       'furniture.powerBoxes': 74,
-      'furniture.trees': 453,
+      'furniture.trees': 451,
       'furniture.hydrants': 140,
       'furniture.benches': 160,
       'furniture.trashCans': 160,
@@ -135,7 +153,7 @@ describe('composeWorld — the count table (seed 416), pinned', () => {
       'furniture.manholes': 220,
       'furniture.parked': 200,
       'infill.backlotPack': 500,
-      'infill.backlotBox': 311,
+      'infill.backlotBox': 308,
       'infill.laneway': 350,
       'infill.parkingLots': 16,
       'infill.parkingCars': 115,
@@ -144,10 +162,10 @@ describe('composeWorld — the count table (seed 416), pinned', () => {
       'infill.constructionDecor': 182,
       'infill.laneClosures': 5,
       'infill.laneClosureCones': 31,
-      'infill.deepScatterTrees': 426,
+      'infill.deepScatterTrees': 436,
       'infill.deepScatterGreenhouses': 8,
       'infill.deepScatterPiles': 12,
-      'infill.fixedTotal': 1174,
+      'infill.fixedTotal': 1184,
       'infill.decorTotal': 548,
       'dress.bands': 27,
       'dress.awnings': 14,
@@ -162,7 +180,7 @@ describe('composeWorld — the count table (seed 416), pinned', () => {
   // whole record above.
   it.each([
     ['furniture.busStops', 50],
-    ['furniture.trees', 453],
+    ['furniture.trees', 451],
     ['furniture.benches', 160],
     ['furniture.trashCans', 160],
     ['furniture.hydrants', 140],
@@ -170,13 +188,13 @@ describe('composeWorld — the count table (seed 416), pinned', () => {
     ['furniture.parked', 200],
     ['furniture.trafficLights', 227],
     ['furniture.powerBoxes', 74],
-    ['infill.backlotBox', 311],
+    ['infill.backlotBox', 308],
     ['infill.backlotPack', 500],
-    ['infill.deepScatterTrees', 426],
+    ['infill.deepScatterTrees', 436],
     ['infill.laneway', 350],
     ['frontage.total', 1400],
     ['frontage.towerBoxes', 90],
-    ['frontage.cornerFills', 47],
+    ['frontage.cornerFills', 51],
     ['dress.bands', 27],
     ['dress.props', 96],
   ] as const)('%s === %d', (key, expected) => {

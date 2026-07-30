@@ -267,7 +267,13 @@ function scanForSites(
  * assumed). Fixed BUILDING-group collider per panel (D6/D5: "colliders only on the dumpster + fence
  * run"). No corner fence-end caps — a run of plain panels reads as "fenced off" without the
  * corner-clearance bookkeeping a mitred end-piece would need. */
-function southFenceRun(rect: Aabb, districtId: DistrictId, idPrefix: string, segments: number): FixedInfillItem[] {
+function southFenceRun(
+  rect: Aabb,
+  districtId: DistrictId,
+  idPrefix: string,
+  segments: number,
+  rejectFp?: (fp: Aabb) => boolean,
+): FixedInfillItem[] {
   const fenceHalf = colliderHalfExtents('fence');
   const cz = rect.maxZ;
   const panelW = fenceHalf.hx * 2;
@@ -279,10 +285,18 @@ function southFenceRun(rect: Aabb, districtId: DistrictId, idPrefix: string, seg
   const firstCenterX = rect.minX + (availableWidth - totalRun) / 2 + panelW / 2;
   const out: FixedInfillItem[] = [];
   for (let i = 0; i < n; i++) {
+    const x = firstCenterX + pitch * i;
+    // Phase 47: the run is CENTRED on rect.maxZ by construction, so half of every panel straddles
+    // outside the lot — a gate rect standing just past the lot line can overlap a panel even
+    // though the lot itself legally placed (the P40 sweep's seed-7 tree×fence class; seed 416
+    // expressed it against a places exclusion 0.04 wu off a reshuffled lot's edge). Rejection is
+    // PER PANEL — reject-never-relocate applies to items too, and the run is sparse by design, so
+    // a dropped panel reads as another gap, never as a shifted fence.
+    if (rejectFp?.({ minX: x - fenceHalf.hx, maxX: x + fenceHalf.hx, minZ: cz - fenceHalf.hz, maxZ: cz + fenceHalf.hz })) continue;
     out.push({
       id: `${idPrefix}-fence-${i}`,
       modelId: 'fence',
-      position: [firstCenterX + pitch * i, 0, cz],
+      position: [x, 0, cz],
       rotationY: 0,
       tint: '#ffffff',
       hx: fenceHalf.hx,
@@ -300,10 +314,16 @@ function scatterInRect(rect: Aabb, rng: Rng, marginWu: number): MapPoint {
   return { x: rect.minX + marginWu + rng.next() * w, y: rect.minZ + marginWu + rng.next() * d };
 }
 
-function buildConstructionSite(site: SiteCandidate, idPrefix: string, base: Rng, propScale: number): { fixed: FixedInfillItem[]; decor: DecorPlacement[] } {
+function buildConstructionSite(
+  site: SiteCandidate,
+  idPrefix: string,
+  base: Rng,
+  propScale: number,
+  rejectFp?: (fp: Aabb) => boolean,
+): { fixed: FixedInfillItem[]; decor: DecorPlacement[] } {
   const rng = base.fork(idPrefix);
   const { rect, districtId } = site;
-  const fixed: FixedInfillItem[] = [...southFenceRun(rect, districtId, idPrefix, 4)];
+  const fixed: FixedInfillItem[] = [...southFenceRun(rect, districtId, idPrefix, 4, rejectFp)];
   const decor: DecorPlacement[] = [];
   // Phase 25.8-style tier seam (D8): low tier halves props-per-site (propScale=0.5) — the fence
   // run + dumpster (structural, "this site is closed off") stay at every tier; only the loose
@@ -424,8 +444,11 @@ function buildConstructionSites(
   );
   const fixed: FixedInfillItem[] = [];
   const decor: DecorPlacement[] = [];
+  // Phase 47: fence panels straddle the lot line, so they reject per panel against the SAME gates
+  // + arbiter state the lot rect itself was scanned under.
+  const rejectFp = (fp: Aabb): boolean => rejectsAny(fp, gates) || blocked(fp);
   sites.forEach((site, i) => {
-    const one = buildConstructionSite(site, `construction:${i}`, base.fork(`construction-detail:${i}`), propScale);
+    const one = buildConstructionSite(site, `construction:${i}`, base.fork(`construction-detail:${i}`), propScale, rejectFp);
     fixed.push(...one.fixed);
     decor.push(...one.decor);
   });
@@ -434,10 +457,15 @@ function buildConstructionSites(
 
 // --- D5: parking lots (reserved after construction, before laneway) -----------------------------
 
-function buildParkingLot(site: SiteCandidate, idPrefix: string, base: Rng): { fixed: FixedInfillItem[] } {
+function buildParkingLot(
+  site: SiteCandidate,
+  idPrefix: string,
+  base: Rng,
+  rejectFp?: (fp: Aabb) => boolean,
+): { fixed: FixedInfillItem[] } {
   const rng = base.fork(idPrefix);
   const { rect, districtId } = site;
-  const fixed: FixedInfillItem[] = [...southFenceRun(rect, districtId, idPrefix, 3)];
+  const fixed: FixedInfillItem[] = [...southFenceRun(rect, districtId, idPrefix, 3, rejectFp)];
 
   const [loCount, hiCount] = PARKING_LOT.carsCountRange;
   const carCount = loCount + Math.floor(rng.next() * (hiCount - loCount + 1));
@@ -502,8 +530,10 @@ function buildParkingLots(
     densityScalar,
   );
   const fixed: FixedInfillItem[] = [];
+  // Phase 47: same per-panel fence gate as construction sites (see buildConstructionSites).
+  const rejectFp = (fp: Aabb): boolean => rejectsAny(fp, gates) || blocked(fp);
   lots.forEach((lot, i) => {
-    const one = buildParkingLot(lot, `parking:${i}`, base.fork(`parking-detail:${i}`));
+    const one = buildParkingLot(lot, `parking:${i}`, base.fork(`parking-detail:${i}`), rejectFp);
     fixed.push(...one.fixed);
   });
   return { lots, fixed };

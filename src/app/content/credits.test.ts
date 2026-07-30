@@ -195,7 +195,15 @@ describe('CREDITS.brandTrademarks — Phase 24 bank + Phase 26 retail/nostalgia 
   // Phase 46 (Part 11 T1/T2): the first two `namedGeometryBuilders` tenants' wordmark homages —
   // a different atlas (namedSignage.ts's shared pixel font, not logoAtlas.ts's 32×32 cells) but
   // the same trademark-note idiom, so they live in the same typed list.
-  const EXPECTED_LANDMARK_BRANDS = ['Fairmont Royal York', 'Union Station (Toronto)'];
+  const EXPECTED_LANDMARK_BRANDS = [
+    'Fairmont Royal York',
+    'Union Station (Toronto)',
+    // Phase 47 civic heart — massing homages with no wordmark atlas cell (the TORONTO sign is
+    // original in-mesh 3D lettering), hence "low-poly" rather than "pixel-art" in their notes.
+    'Toronto City Hall & Nathan Phillips Square',
+    'Old City Hall (Toronto)',
+    'Osgoode Hall',
+  ];
 
   const EXPECTED_BRANDS = [
     ...EXPECTED_BANK_BRANDS,
@@ -204,12 +212,12 @@ describe('CREDITS.brandTrademarks — Phase 24 bank + Phase 26 retail/nostalgia 
     ...EXPECTED_LANDMARK_BRANDS,
   ];
 
-  it('covers exactly the five Phase-24 bank brands, the seventeen Phase-26/Phase-45 retail/nostalgia brands, the Phase-31 TTC entry, and the two Phase-46 landmark wordmark homages', () => {
+  it('covers exactly the five Phase-24 bank brands, the seventeen Phase-26/Phase-45 retail/nostalgia brands, the Phase-31 TTC entry, and the five Phase-46/47 landmark homages', () => {
     expect(CREDITS.brandTrademarks.map((entry) => entry.name)).toEqual(EXPECTED_BRANDS);
   });
 
-  it('has exactly 25 entries', () => {
-    expect(CREDITS.brandTrademarks.length).toBe(25);
+  it('has exactly 28 entries', () => {
+    expect(CREDITS.brandTrademarks.length).toBe(28);
   });
 
   it('has unique brand names', () => {
@@ -220,7 +228,9 @@ describe('CREDITS.brandTrademarks — Phase 24 bank + Phase 26 retail/nostalgia 
   it('every entry states it is a homage, not an official asset, with no affiliation implied', () => {
     for (const entry of CREDITS.brandTrademarks) {
       const note = entry.note.toLowerCase();
-      expect(note, entry.name).toContain('pixel-art');
+      // P47: massing-only homages (no atlas wordmark) honestly say "low-poly" instead of
+      // "pixel-art" — the law is "declares its homage style", not "uses the pixel atlas".
+      expect(note, entry.name).toMatch(/pixel-art|low-poly/);
       expect(note, entry.name).toContain('homage');
       expect(note, entry.name).toMatch(/no affiliation|no.*affiliation/);
       expect(note, entry.name).toContain('trademark');

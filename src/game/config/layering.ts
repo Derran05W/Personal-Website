@@ -72,37 +72,51 @@ export const GROUND_STACK = {
    * ballast footprint it decorates; one shared rung would be the exact coplanar pair Phase 39
    * exists to prevent. */
   railTrack: 0.02,
+  /** PHASE 47 SPLICE — Nathan Phillips Square's paved plaza surface
+   * (world/toronto/newCityHall.ts). Civic paving is a ground surface of the same class as park
+   * grass and rail ballast, and it MUST sit below skid/scorch/groundFx: handbrake skids and the
+   * searchlight pool have to paint OVER the square — appending it at the ladder top would bury
+   * them, recreating P39's clipped-searchlight defect class. Everything from edgeBoxBase up
+   * shifts +0.008 (the P45 splice precedent; every consumer reads rung references, so the shift
+   * is this file + the law re-pin). */
+  civicPlaza: 0.024,
+  /** PHASE 47 SPLICE — the reflecting-pool/rink plane INSIDE the plaza (the
+   * railTrack-inside-ballast pattern: a surface's own inset decoration gets its own rung because
+   * it sits wholly within its host's footprint). */
+  civicRink: 0.028,
   /** World-edge barrier / jersey-row box FLOORS (P37's BOX_BASE_LIFT_WU). Phase 45: 0.016 →
    * 0.024, shifted by the two-rung rail splice below parkGround (value is a rung reference
-   * everywhere — worldEdgeGeometry.ts reads it, nothing re-types it). */
-  edgeBoxBase: 0.024,
+   * everywhere — worldEdgeGeometry.ts reads it, nothing re-types it). Phase 47: 0.024 → 0.032
+   * (the civic splice above). */
+  edgeBoxBase: 0.032,
   /** Road ribbons (the asphalt). Phase 45: 0.020 → 0.028 (the rail splice; +0.008 wu is ~8 mm,
-   * invisible as a height and decisive as a depth — the whole point of the ladder). */
-  roadSurface: 0.028,
+   * invisible as a height and decisive as a depth — the whole point of the ladder). Phase 47:
+   * 0.028 → 0.036. */
+  roadSurface: 0.036,
   /** Road paint: curb strips + centre-line dashes (was 0.025 = roadSurface + 0.005; Phase 45:
-   * 0.026 → 0.034). */
-  roadPaint: 0.034,
+   * 0.026 → 0.034; Phase 47: 0.034 → 0.042). */
+  roadPaint: 0.042,
   /** Crosswalk zebra bands (was 0.027 = roadSurface + 0.007 — only 0.002 above the paint;
-   * Phase 45: 0.032 → 0.040). */
-  crosswalk: 0.04,
+   * Phase 45: 0.032 → 0.040; Phase 47: 0.040 → 0.048). */
+  crosswalk: 0.048,
   /** Painted street art — the Church Street rainbow crosswalk (was 0.030; Phase 45: 0.038 →
-   * 0.046). */
-  placesRoadArt: 0.046,
+   * 0.046; Phase 47: 0.046 → 0.054). */
+  placesRoadArt: 0.054,
   /** Skid-mark decal quads (was 0.030 — an EXACT TIE with the rainbow crosswalk; Phase 45: 0.048
-   * → 0.056). Skids paint OVER placesRoadArt so street art never tears under braking, and BELOW
-   * `water` so marks vanish the moment they'd cross the lake plane. The 0.010 gap to
-   * placesRoadArt is LOAD-BEARING, not slack: it is what keeps the manhole-cover invariant below
-   * (SURFACE_ANCHOR.road + the model's own 0.0183 wu height) clear of this rung. */
-  skid: 0.056,
-  /** Explosion scorch decals (was 0.035; Phase 45: 0.054 → 0.062) — over skids, so a blast on a
-   * skid trail reads. */
-  scorch: 0.062,
-  /** The lake's visual plane (was 0.050; Phase 45: 0.060 → 0.068). */
-  water: 0.068,
+   * → 0.056; Phase 47: 0.056 → 0.064). Skids paint OVER placesRoadArt so street art never tears
+   * under braking, and BELOW `water` so marks vanish the moment they'd cross the lake plane. The
+   * 0.010 gap to placesRoadArt is LOAD-BEARING, not slack: it is what keeps the manhole-cover
+   * invariant below (SURFACE_ANCHOR.road + the model's own 0.0183 wu height) clear of this rung. */
+  skid: 0.064,
+  /** Explosion scorch decals (was 0.035; Phase 45: 0.054 → 0.062; Phase 47: 0.062 → 0.070) —
+   * over skids, so a blast on a skid trail reads. */
+  scorch: 0.07,
+  /** The lake's visual plane (was 0.050; Phase 45: 0.060 → 0.068; Phase 47: 0.068 → 0.076). */
+  water: 0.076,
   /** Ground FX — the helicopter searchlight's ground pool (was 0.050, an EXACT TIE with the
-   * water plane; Phase 45: 0.066 → 0.074). Top of the road/ground stack: aircraft light paints
-   * over everything below it, including the lake. */
-  groundFx: 0.074,
+   * water plane; Phase 45: 0.066 → 0.074; Phase 47: 0.074 → 0.082). Top of the road/ground
+   * stack: aircraft light paints over everything below it, including the lake. */
+  groundFx: 0.082,
   /**
    * PHASE 46 — Union Station's sunken-carriageway ("moat") paint strip. THE ONE RUNG THAT DOES NOT
    * RIDE THE GROUND PLANE: the strip lies in the 3 wu flush gap between Union's facade and Front

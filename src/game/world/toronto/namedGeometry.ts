@@ -38,11 +38,14 @@
 // keeps the placement half pure arithmetic; the scene layer and the tri-budget tests are the only
 // callers that ever allocate a buffer.
 
-import type { BufferGeometry } from 'three';
+import { BufferGeometry, Float32BufferAttribute } from 'three';
 import { addFace, createAccum, toGeometry, type Quad, type Uv, type Vec3 } from './bespokeMesh';
 import type { Aabb } from './claimIndex';
 import type { NamedBox, NamedPlacement } from './namedBuildings';
 import { namedSignCellUv, type NamedSignCellId } from './namedSignage';
+import { buildNewCityHallBespoke } from './newCityHall';
+import { buildOldCityHallBespoke } from './oldCityHall';
+import { buildOsgoodeHallBespoke } from './osgoodeHall';
 import { railLandsStrip } from './railLands';
 import { buildRoyalYorkBespoke } from './royalYork';
 import { buildStreets, type MapRect, type Street } from './streets';
@@ -119,14 +122,41 @@ export interface NamedBespokeGeometry {
 
 export interface NamedBespoke {
   readonly id: string;
-  /** Replaces `placement.boxes` for RENDERING only (facade textures still apply). */
+  /** Replaces `placement.boxes` for RENDERING only (facade textures still apply). May be a SUBSET
+   * of the data boxes (P47): a box fully superseded by bespoke geometry is DROPPED, not stubbed —
+   * an invisible stub still costs a whole draw call on the per-box facade-texture path, which is
+   * exactly what broke the low-tier call budget when City Hall's tower slabs shipped as buried
+   * 0.1 wu pads. Every rendered box must still MATCH a data box's footprint (the law test). */
   readonly renderBoxes: readonly NamedBox[];
+  /**
+   * For each `renderBoxes` entry, the index of the DATA box it stands in for. Omit for the
+   * identity mapping (the whole-plan case — four of the five builders).
+   *
+   * WHY THIS EXISTS RATHER THAN LETTING ARRAY POSITION SPEAK: two consumers key off the DATA
+   * index, and a subset silently renumbers both. (1) The Phase-24 facade-texture / Phase-36
+   * occlusion key is `${id}#${i}` — P36's law is that fade keys are ITEM-derived, never array
+   * positions, and dropping City Hall's two tower boxes would rename the podium `#2`→`#0`.
+   * (2) `placement.decals[].boxIndex` indexes the data boxes, so `renderBoxes[boxIndex]` would
+   * hang a CROWN on the wrong box (no built id carries a crown yet — this keeps it correct for
+   * the day one does). Both are resolved through `namedRenderBoxDataIndex` below.
+   */
+  readonly renderBoxDataIndices?: readonly number[];
   readonly signQuads: readonly NamedSignQuad[];
   readonly extraClaims: readonly NamedExtraClaim[];
   readonly extraColliders: readonly NamedExtraCollider[];
   readonly meta: NamedBespokeMeta;
   /** Build the merged mesh. Lazy — see this file's header. */
   readonly buildGeometry: () => NamedBespokeGeometry;
+  /**
+   * Draw-call pooling (P47): bespokes sharing a `renderGroup` are merged into ONE scene mesh
+   * (identical materials by construction — every builder ships vertex-coloured non-indexed
+   * position/normal/color from bespokeMesh.toGeometry). THE TRADE, eyes open: the A.5 occlusion
+   * fade's material path fades a MESH, so a group fades TOGETHER. Group only landmarks that share
+   * one city block (the civic trio spans ~110 wu): a transient drive-by fade of one member ghosts
+   * its block-mates, which reads as one plaza fading — acceptable; grouping across blocks would
+   * ghost unrelated skyline and is the mistake this comment exists to prevent.
+   */
+  readonly renderGroup?: string;
 }
 
 export type NamedGeometryBuilder = (placement: NamedPlacement, ctx: NamedGeometryCtx) => NamedBespoke;
@@ -135,12 +165,16 @@ export type NamedGeometryBuilder = (placement: NamedPlacement, ctx: NamedGeometr
  * THE REGISTRY. One entry per spec row that has earned bespoke geometry; every other named
  * placement keeps the Phase-24 box path untouched.
  *
- * Phase 46: `union-station` (T1) and `fairmont-royal-york` (T2). Parts 11–12 append City Hall,
- * the flatiron, Convocation Hall and the rest.
+ * Phase 46: `union-station` (T1) and `fairmont-royal-york` (T2). Phase 47: the civic heart —
+ * `new-city-hall` (+ Nathan Phillips Square, carried by the same builder), `old-city-hall`,
+ * `osgoode-hall`. Part 12 appends the flatiron, Convocation Hall and the rest.
  */
 export const namedGeometryBuilders: ReadonlyMap<string, NamedGeometryBuilder> = new Map<string, NamedGeometryBuilder>([
   ['union-station', buildUnionStationBespoke],
   ['fairmont-royal-york', buildRoyalYorkBespoke],
+  ['new-city-hall', buildNewCityHallBespoke],
+  ['old-city-hall', buildOldCityHallBespoke],
+  ['osgoode-hall', buildOsgoodeHallBespoke],
 ]);
 
 // --- resolution --------------------------------------------------------------------------------
@@ -227,10 +261,35 @@ export function resolveNamedRenderBoxes(
 ): readonly NamedRenderBox[] {
   const out: NamedRenderBox[] = [];
   for (const placement of placements) {
-    const boxes = bespokes.get(placement.id)?.renderBoxes ?? placement.boxes;
-    boxes.forEach((box, i) => out.push({ placementId: placement.id, box, key: `${placement.id}#${i}` }));
+    const bespoke = bespokes.get(placement.id);
+    const boxes = bespoke?.renderBoxes ?? placement.boxes;
+    boxes.forEach((box, i) =>
+      out.push({
+        placementId: placement.id,
+        box,
+        // The DATA index, never the render index — see `renderBoxDataIndices`. A dropped box takes
+        // its key out of the plan with it; the surviving boxes keep the keys they have had since
+        // Phase 24, so the plan is a SUBSEQUENCE of the pre-seam plan.
+        key: `${placement.id}#${bespoke === undefined ? i : namedRenderBoxDataIndex(bespoke, i)}`,
+      }),
+    );
   }
   return out;
+}
+
+/**
+ * Which DATA box the `i`th render box of `bespoke` stands in for. Identity unless the builder
+ * declared a subset mapping. The law test proves the declared mapping is strictly increasing,
+ * in range, and footprint-matched, so this is a lookup and never a guess.
+ */
+export function namedRenderBoxDataIndex(bespoke: NamedBespoke, i: number): number {
+  return bespoke.renderBoxDataIndices?.[i] ?? i;
+}
+
+/** The render box standing in for DATA box `dataIndex`, or `undefined` if the builder dropped it. */
+export function namedRenderBoxForDataIndex(bespoke: NamedBespoke, dataIndex: number): NamedBox | undefined {
+  const at = bespoke.renderBoxes.findIndex((_, i) => namedRenderBoxDataIndex(bespoke, i) === dataIndex);
+  return at === -1 ? undefined : bespoke.renderBoxes[at];
 }
 
 // --- the shared wordmark mesh --------------------------------------------------------------------
@@ -259,6 +318,81 @@ function signQuadCorners(quad: NamedSignQuad): Quad {
     [cx + rx, cy + hh, cz + rz],
     [cx - rx, cy + hh, cz - rz],
   ];
+}
+
+// --- the pooled landmark meshes (P47) ------------------------------------------------------------
+
+/**
+ * THE ONE GROUP THAT EXISTS. Nathan Phillips Square's three landmarks (City Hall + the square,
+ * Old City Hall across Bay, Osgoode Hall across University) share one civic block, so they pool
+ * into a single mesh — the two calls that buys are what keeps the LOW tier inside its 90-call
+ * budget (measured: 91 unpooled, 89 pooled). Read `NamedBespoke.renderGroup` before adding a
+ * second group; the fade-together trade is only acceptable within one block.
+ */
+export const CIVIC_HEART_RENDER_GROUP = 'civic-heart';
+
+/** One scene mesh: a whole `renderGroup`, or a single ungrouped bespoke. */
+export interface BespokeRenderMesh {
+  readonly key: string;
+  readonly ids: readonly string[];
+  readonly geometry: BufferGeometry;
+  readonly triangles: number;
+}
+
+/** Concatenate one named Float32 attribute across already-built part geometries. Every builder
+ * emits through bespokeMesh.toGeometry (non-indexed position/normal/color, no uv), so the
+ * attribute sets agree by construction — asserted, not assumed. */
+function concatAttribute(parts: readonly BufferGeometry[], name: string, itemSize: number): Float32BufferAttribute {
+  let total = 0;
+  for (const p of parts) {
+    const a = p.getAttribute(name);
+    if (a === undefined) throw new Error(`namedGeometry: group member is missing attribute "${name}"`);
+    total += a.count;
+  }
+  const out = new Float32Array(total * itemSize);
+  let offset = 0;
+  for (const p of parts) {
+    const a = p.getAttribute(name);
+    out.set(a.array as Float32Array, offset);
+    offset += a.count * itemSize;
+  }
+  return new Float32BufferAttribute(out, itemSize);
+}
+
+/**
+ * The scene's landmark mesh list: `buildGeometry()` every bespoke, then pool by
+ * `renderGroup ?? id`. A single-member group reuses its part geometry untouched (the Union/Royal
+ * York path is byte-identical to pre-P47); a real group concatenates into one geometry — one draw
+ * call for the whole block (the trade documented on `NamedBespoke.renderGroup`).
+ */
+export function buildBespokeRenderMeshes(bespokes: ReadonlyMap<string, NamedBespoke>): readonly BespokeRenderMesh[] {
+  const order: string[] = [];
+  const groups = new Map<string, { ids: string[]; parts: BufferGeometry[]; triangles: number }>();
+  for (const bespoke of bespokes.values()) {
+    const key = bespoke.renderGroup ?? bespoke.id;
+    let g = groups.get(key);
+    if (g === undefined) {
+      g = { ids: [], parts: [], triangles: 0 };
+      groups.set(key, g);
+      order.push(key);
+    }
+    const built = bespoke.buildGeometry();
+    g.ids.push(bespoke.id);
+    g.parts.push(built.geometry);
+    g.triangles += built.triangles;
+  }
+  return order.map((key) => {
+    const g = groups.get(key)!;
+    if (g.parts.length === 1) return { key, ids: g.ids, geometry: g.parts[0], triangles: g.triangles };
+    const merged = new BufferGeometry();
+    merged.setAttribute('position', concatAttribute(g.parts, 'position', 3));
+    merged.setAttribute('normal', concatAttribute(g.parts, 'normal', 3));
+    merged.setAttribute('color', concatAttribute(g.parts, 'color', 3));
+    merged.computeBoundingBox();
+    merged.computeBoundingSphere();
+    for (const p of g.parts) p.dispose();
+    return { key, ids: g.ids, geometry: merged, triangles: g.triangles };
+  });
 }
 
 /**
