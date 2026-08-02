@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "source": "docs/map/TORONTO-MAP-SPEC-v2.md \u00a73c (user-supplied spec, researched July 2026)",
+    "source": "docs/map/TORONTO-MAP-SPEC-v2.md §3c (user-supplied spec, researched July 2026)",
     "curve": {
       "coefficient": 2.05,
       "exponent": 0.6,
@@ -20,7 +20,7 @@
       "footprint_wu": 21,
       "material": "precast_grey",
       "confidence": "high",
-      "notes": "grey concrete, glass pods; hero mesh spec \u00a75"
+      "notes": "grey concrete, glass pods; hero mesh spec §5"
     },
     {
       "id": "first-canadian-place",
@@ -31,7 +31,7 @@
       "footprint_wu": 19,
       "material": "marble_white",
       "confidence": "high",
-      "notes": "WHITE (marble\u2192white glass reclad)"
+      "notes": "WHITE (marble→white glass reclad). R48: Exterior white glass and bronze panels (completed 2005, replacing original Carrara marble). Massing: simple rectangular tower on full-block podium, late-modern minimalism with steel mega-frame. Crown: photovoltaic panels added 2022 offsetting lobby lighting (flat profile). Street level: bank headquarters lobby + public banking hall on podium base."
     },
     {
       "id": "scotia-plaza",
@@ -42,7 +42,7 @@
       "footprint_wu": 18,
       "material": "granite_red",
       "confidence": "high",
-      "notes": "DEEP RED granite"
+      "notes": "DEEP RED granite. R48: Exterior deep red 'Napoleon Red' granite (Swedish quarry, Italian finishing, postmodern 1988). Massing: reinforced concrete with distinctive stepped/sawtooth profile on north and south faces, engineered to maximize corner offices (12+ per floor). Crown: large sculpted recess at top with latticework window punctuation, creating iconic skyline silhouette. Street level: corner entry with sawtooth curtain wall creating dynamic facades."
     },
     {
       "id": "aura",
@@ -53,7 +53,7 @@
       "footprint_wu": 15,
       "material": "glass_blue",
       "confidence": "high",
-      "notes": "dark blue-grey glass \u2014 closest \u00a74 enum is glass_blue; spec describes a blue-grey tint, not pure blue"
+      "notes": "dark blue-grey glass — closest §4 enum is glass_blue; spec describes a blue-grey tint, not pure blue"
     },
     {
       "id": "cibc-square",
@@ -64,7 +64,7 @@
       "footprint_wu": 18,
       "material": "glass_blue",
       "confidence": "high",
-      "notes": "blue glass, banded Round-6 researcher confirmed 241.3 m / 49 floors (south tower; north is 243.1/50)."
+      "notes": "blue glass, banded Round-6 researcher confirmed 241.3 m / 49 floors (south tower; north is 243.1/50). R48: Exterior blue reflective glass with banded fenestration. Massing: rectangular modernist tower (dual south/north towers on same site). Crown: sloped/angled top (geometry details unverified). Street level: podium plaza with park over rail corridor (civic integration with GO Transit corridor below)."
     },
     {
       "id": "commerce-court-west",
@@ -73,9 +73,21 @@
       "floors": 57,
       "expected_game_h_wu": 55,
       "footprint_wu": 17,
-      "material": "glass_black",
+      "material": "steel_stainless",
       "confidence": "high",
-      "notes": "stainless + grey glass \u2014 no plain 'grey glass' enum exists; mapped to glass_black as the closest dark-reflective curtain-wall match"
+      "notes": "stainless + grey glass. R48: the earlier note recorded a mapping debt — 'no plain grey glass enum exists; mapped to glass_black as the closest dark-reflective curtain-wall match' — which put this tower and the TD Bank Tower on one fill. Phase 48 added the steel_stainless look to config/torontoMaterials.ts and moved this row onto it. R48: (1972 modernist complex, I.M. Pei & Partners) Exterior: stainless steel and grey-tinted glass curtain wall. Massing: rectangular tower part of larger plaza-focused complex. Crown: flat minimal. Street level: public plaza forecourt (50×50 m, 1972 redesign) with banking entry, surrounding the separate 1931 Art Deco tower (Commerce Court North — limestone, 34 storeys, 137 m, ornate carved stonework, gold-coffered ceiling and domed banking hall inside). Phase 48 DOES render Commerce Court North, as a bespoke secondary mass on this same lot driven by its own spec row `commerce-court-north`."
+    },
+    {
+      "id": "commerce-court-north",
+      "name": "Commerce Court North (1931 Canadian Bank of Commerce)",
+      "real_h_m": 137,
+      "floors": 34,
+      "expected_game_h_wu": 39,
+      "footprint_wu": 13,
+      "footprint_note": "SECONDARY MASS, not a placement: this row exists so the 1931 tower's height comes from data (CLAUDE.md forbids a height literal in code); world/toronto/financialTowers.ts renders it inside the `commerce-court-west` bespoke on the King Street frontage of the shared lot, and namedBuildings.NAMED_SECONDARY_MASS_IDS keeps it out of BOX placement. Footprint UNVERIFIED — estimated at ~40 m across the King elevation via the _meta footprint_rule (40 / 1.55 * 0.5 ≈ 13 wu).",
+      "material": "limestone",
+      "confidence": "medium",
+      "notes": "R48: VERIFIED — 1931 Art Deco tower by Darling & Pearson, 34 storeys / 137 m, Canada's tallest building until 1962; limestone-clad with extensive ornate carved stonework; shares the Commerce Court site with I.M. Pei's 1972 stainless tower. UNVERIFIED — the pyramidal observatory crown with carved heads: the researcher round found the interior domed banking hall (the Great Hall) but could not confirm the exterior crown geometry, so the model ships a stepped Art Deco setback cap and states the omission rather than inventing it (the Phase 44 beacon-cadence / Phase 46 Union-clock precedent)."
     },
     {
       "id": "td-bank-tower",
@@ -86,7 +98,7 @@
       "footprint_wu": 19,
       "material": "glass_black",
       "confidence": "high",
-      "notes": "matte BLACK steel"
+      "notes": "matte BLACK steel. R48: Part of TD Centre complex (Mies van der Rohe, 1967–1969): three buildings — TD Bank Tower (56 storeys, 222.8 m), 1-storey Banking Pavilion, 46-storey Royal Trust Tower. Exterior: bronze-tinted glass and black-painted steel curtain wall (reflective, matte finish). Massing: three towers offset on a rigid proportional structural grid, allowing views to slide open/closed as one moves. Street level: single-storey banking pavilion with public plaza (1972 I.M. Pei forecourt redesign)."
     },
     {
       "id": "royal-bank-plaza",
@@ -97,7 +109,7 @@
       "footprint_wu": 16,
       "material": "glass_gold",
       "confidence": "high",
-      "notes": "GOLD glass"
+      "notes": "GOLD glass. R48: Exterior gold-bronze reflective glass incorporating 24-carat gold leaf (~2,500 oz across 14,000 windows), creating radiant shimmering effect. Massing: dual triangular towers (South 173 m / 41 floors, North 112 m / 26 floors) connected by 40-meter glass atrium. Crown: flat/minimal. Facade: distinctive serrated/sawtooth profile reflecting dynamic mosaic of surrounding cityscape. Street level: large glass-walled banking hall atrium (40 m high) framed by triangular towers, banking entry from plaza (1976, original RBC headquarters)."
     },
     {
       "id": "the-well",
@@ -108,7 +120,7 @@
       "footprint_wu": 15,
       "material": "glass_blue",
       "confidence": "high",
-      "notes": "glass on red-brick podium \u2014 spec doesn't name a glass tint; mapped to glass_blue as the default modern-glass enum, brick podium called out separately Round-6 researcher confirmed 174 m / 46 floors (tallest tower of the complex)."
+      "notes": "glass on red-brick podium — spec doesn't name a glass tint; mapped to glass_blue as the default modern-glass enum, brick podium called out separately Round-6 researcher confirmed 174 m / 46 floors (tallest tower of the complex)."
     },
     {
       "id": "hullmark",
@@ -119,7 +131,7 @@
       "footprint_wu": 13,
       "material": "glass_green",
       "confidence": "high",
-      "notes": "blue-green twin \u2014 no blue-green enum; mapped to glass_green (closer than glass_blue given 'green' is named second/dominant) Round-6: corrected 161->167.94 m (South Tower; twin with a 37-floor North Tower). Render as a twin pair."
+      "notes": "blue-green twin — no blue-green enum; mapped to glass_green (closer than glass_blue given 'green' is named second/dominant) Round-6: corrected 161->167.94 m (South Tower; twin with a 37-floor North Tower). Render as a twin pair."
     },
     {
       "id": "emerald-park",
@@ -153,7 +165,7 @@
       "dome_diameter_wu": 66,
       "material": "precast_grey",
       "confidence": "high",
-      "notes": "86 m roof height (no floor count\u2014domed stadium). Retractable roof: 4 steel panels (3 slide south\u2192north, 1 fixed north end); nest like camera iris on electric-motor steel tracks. Integrated Toronto Marriott hotel tower (55 field-view rooms overlooking outfield/centre field). Exterior signage: Gardiner LED pylon (south side, 31 ft tall \u00d7 55 ft wide, 158 ft continuous LED video ribbon). Roof panels white/grey precast."
+      "notes": "86 m roof height (no floor count—domed stadium). Retractable roof: 4 steel panels (3 slide south→north, 1 fixed north end); nest like camera iris on electric-motor steel tracks. Integrated Toronto Marriott hotel tower (55 field-view rooms overlooking outfield/centre field). Exterior signage: Gardiner LED pylon (south side, 31 ft tall × 55 ft wide, 158 ft continuous LED video ribbon). Roof panels white/grey precast."
     },
     {
       "id": "north-york-civic-centre",
@@ -176,7 +188,7 @@
       "footprint_note": "129 long (round-6 verified real galleria length 400 m via the half-scale rule; supersedes the spec table's illustrative 84 - derived truth wins, same principle as the P21 zone scales)",
       "material": "glass_blue",
       "confidence": "high",
-      "notes": "glass barrel vault \u2014 spec doesn't name a tint; mapped to glass_blue as the default clear/modern-glass enum"
+      "notes": "glass barrel vault — spec doesn't name a tint; mapped to glass_blue as the default clear/modern-glass enum"
     },
     {
       "id": "casa-loma",
@@ -187,7 +199,7 @@
       "footprint_wu": 32,
       "material": "limestone",
       "confidence": "high",
-      "notes": "grey stone castle \u2014 mapped to limestone, the only quarried-stone enum (\u00a74 has no separate 'grey stone')"
+      "notes": "grey stone castle — mapped to limestone, the only quarried-stone enum (§4 has no separate 'grey stone')"
     },
     {
       "id": "union-station",
@@ -210,7 +222,7 @@
       "footprint_wu": 8,
       "material": "storefront",
       "confidence": "high",
-      "notes": "per-district \u2014 generic filler archetype; spec table lists footprint as '~8' (approximate), stored as 8"
+      "notes": "per-district — generic filler archetype; spec table lists footprint as '~8' (approximate), stored as 8"
     },
     {
       "id": "aquarium-block",
@@ -222,7 +234,7 @@
       "footprint_note": "Verified 12,500 sqm floor area over 2 floors -> ~6,250 sqm footprint, approximated as a ~110x57 m rectangle (aspect ~1.9). Long side 110 m / ~3.1 m per wu (CN cross-check: 66 m real base / 21 wu footprint) ~= 36 wu; short side ~= 19 wu -> ~36x19 wu footprint, long side stored as footprint_wu.",
       "material": "glass_blue",
       "confidence": "low",
-      "notes": "288 Bremner Blvd. Modern angular faceted form (glacial-formation inspired, wave-roof). Floor area 12,500 m\u00b2. Exact exterior height and material tint need verification. expected_game_h_wu recomputed via hGame(11) = 8.64 -> rounded to 9 (T0 phase-45)."
+      "notes": "288 Bremner Blvd. Modern angular faceted form (glacial-formation inspired, wave-roof). Floor area 12,500 m². Exact exterior height and material tint need verification. expected_game_h_wu recomputed via hGame(11) = 8.64 -> rounded to 9 (T0 phase-45)."
     },
     {
       "id": "roundhouse",
@@ -234,7 +246,7 @@
       "footprint_note": "Real building is a full semicircle ~120+ m diameter (32 bays around a 37 m turntable) -- far larger than the compacted rail-lands lot. footprint_wu 30 is a reduced-arc homage (fewer visible bays) sized to fit the lot, not a literal real-footprint conversion; real basis: 32 locomotive bays, dia 37 m turntable, built 1929-31.",
       "material": "brick_red",
       "confidence": "low",
-      "notes": "Red brick semicircular railway shed (1929\u201331), 32 locomotive bays, south of Bremner near Rogers Centre. Interior ceiling 34 ft (10.4 m). Turntable 120 ft (37 m) diameter. Exact exterior height need verification. Material corrected limestone -> brick_red (enum match for a red-brick shed; T0 phase-45). expected_game_h_wu recomputed via hGame(12) = 9.10 -> rounded to 9 (T0 phase-45)."
+      "notes": "Red brick semicircular railway shed (1929–31), 32 locomotive bays, south of Bremner near Rogers Centre. Interior ceiling 34 ft (10.4 m). Turntable 120 ft (37 m) diameter. Exact exterior height need verification. Material corrected limestone -> brick_red (enum match for a red-brick shed; T0 phase-45). expected_game_h_wu recomputed via hGame(12) = 9.10 -> rounded to 9 (T0 phase-45)."
     },
     {
       "id": "new-city-hall",
@@ -246,7 +258,7 @@
       "footprint_note": "Plaza building complex estimated via typical city-block span; east tower 99.7m (west tower 79.6m, 20 floors). Verified towers embrace a saucer-shaped council chamber (47.2m diameter). footprint_wu derived from estimated ~150m characteristic width via real_m / 1.55 * 0.5.",
       "material": "precast_grey",
       "confidence": "high",
-      "notes": "R47: Modern Brutalist complex (1961\u20131965), designed by Finnish architect Viljo Revell. Two curved office towers of differing heights frame a saucer-shaped council chamber atop a wide, low podium. East tower verified 99.7 m / 27 floors; West tower 79.6 m / 20 floors. Council chamber 155 ft (47.2 m) diameter, ~40 ft (12.2 m) to dome peak. Nathan Phillips Square (4.85 hectares, 12 acres) features three Freedom Arches oriented on axis with Old City Hall, spanning the reflecting pool (converted to skating rink in winter). 3D TORONTO sign: 3 m letter height, 22 m total length, LED-lit (228 million colour combinations), installed July 2015 for the Pan American Games (R47 follow-up corrected an earlier 2008 error; current durable version installed September 2020), owned by City of Toronto. unverified: exact podium storeys, Freedom Arch span/height specifications, tower-gap compass orientation."
+      "notes": "R47: Modern Brutalist complex (1961–1965), designed by Finnish architect Viljo Revell. Two curved office towers of differing heights frame a saucer-shaped council chamber atop a wide, low podium. East tower verified 99.7 m / 27 floors; West tower 79.6 m / 20 floors. Council chamber 155 ft (47.2 m) diameter, ~40 ft (12.2 m) to dome peak. Nathan Phillips Square (4.85 hectares, 12 acres) features three Freedom Arches oriented on axis with Old City Hall, spanning the reflecting pool (converted to skating rink in winter). 3D TORONTO sign: 3 m letter height, 22 m total length, LED-lit (228 million colour combinations), installed July 2015 for the Pan American Games (R47 follow-up corrected an earlier 2008 error; current durable version installed September 2020), owned by City of Toronto. unverified: exact podium storeys, Freedom Arch span/height specifications, tower-gap compass orientation."
     },
     {
       "id": "old-city-hall",
@@ -270,7 +282,19 @@
       "footprint_note": "Height estimated from 3-storey Georgian building (current); original east wing 1832 was 2.5 storeys. Footprint estimated from typical courthouse main building (~50m) within 6-acre (2.4 ha) estate grounds; derived via real_m / 1.55 * 0.5.",
       "material": "limestone",
       "confidence": "low",
-      "notes": "R47: Georgian-era courthouse complex, original east wing commenced 1832 (2.5 storeys), expanded over time to current 3-storey structure. Located at 130 Queen Street West (northeast corner Queen and University). Set well back from Queen Street behind extensive landscaped grounds (6 acres total). Victorian wrought-iron fence installed 1867 replaced earlier picket fence; distinctive 20-inch openings (cow-gate turnstiles) designed to prevent cattle from wandering onto property. Facade material estimated limestone (typical Ontario institutional architecture of era) \u2014 exact material and colour unverified. National Historic Site of Canada. unverified: exact building height in metres, facade material/colour, exact footprint dimensions, specific architectural details. expected_game_h_wu recomputed via hGame(14) = 9.98 -> rounded to 10 (T0 phase-47; researcher wrote 8, off the _meta curve)."
+      "notes": "R47: Georgian-era courthouse complex, original east wing commenced 1832 (2.5 storeys), expanded over time to current 3-storey structure. Located at 130 Queen Street West (northeast corner Queen and University). Set well back from Queen Street behind extensive landscaped grounds (6 acres total). Victorian wrought-iron fence installed 1867 replaced earlier picket fence; distinctive 20-inch openings (cow-gate turnstiles) designed to prevent cattle from wandering onto property. Facade material estimated limestone (typical Ontario institutional architecture of era) — exact material and colour unverified. National Historic Site of Canada. unverified: exact building height in metres, facade material/colour, exact footprint dimensions, specific architectural details. expected_game_h_wu recomputed via hGame(14) = 9.98 -> rounded to 10 (T0 phase-47; researcher wrote 8, off the _meta curve)."
+    },
+    {
+      "id": "hockey-hall-of-fame",
+      "name": "Hockey Hall of Fame (Former Bank of Montreal)",
+      "real_h_m": 20,
+      "floors": 3,
+      "expected_game_h_wu": 12,
+      "footprint_wu": 9,
+      "footprint_note": "Location: NW corner Yonge & Front Streets (30 Yonge St). Building height estimated from interior Esso Great Hall (45-ft / 13.7-m dome height) plus typical Victorian banking-building storeys; exact exterior height unverified. Footprint estimated from corner lot typical of 1880s Toronto (~28 m characteristic width via real_m / 1.55 * 0.5 ≈ 9 wu); unverified.",
+      "material": "limestone",
+      "confidence": "low",
+      "notes": "R48: Exterior Ohio freestone (tan/cream coloured stone with extensive carved ornamental details). Massing: Victorian Beaux-Arts / Rococo multi-storey banking building. Crown: Esso Great Hall (interior) features 45-foot-high stained glass dome on a 70-by-70-foot room (dome drum base; cupola/lantern detail unverified). Street level: grand arched banking hall entrance at corner Yonge & Front, substantial carved stonework and ornamental detailing throughout facade. Designed by Darling & Curry (built 1885–1887). Former Bank of Montreal headquarters (1887–1949), then branch (1949–1982). Building height + footprint + number of storeys all estimated via precedent and interior proportions; all marked unverified. Corner: NW corner Yonge & Front; SOUTH and EAST facades (camera-visible) face the intersection, likely to show the ornate entrance treatment."
     }
   ]
 }

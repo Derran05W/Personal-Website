@@ -180,6 +180,11 @@ export const BUILDING_MATERIALS = [
   'limestone',
   'precast_grey',
   'storefront',
+  // Phase 48 extension (part file: "window-texture palette extensions — §4 material map additions
+  // are config, test-locked"). Commerce Court West's own spec note recorded the debt this pays:
+  // stainless + grey glass had no enum and was mapped to glass_black, which put two of the six
+  // bank towers on one fill.
+  'steel_stainless',
 ] as const;
 export type BuildingMaterial = (typeof BUILDING_MATERIALS)[number];
 

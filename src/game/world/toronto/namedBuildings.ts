@@ -119,6 +119,20 @@ function spec(id: string): BuildingSpec {
 export const NAMED_EXCLUDED_IDS = ['cn-tower', 'rogers-centre', 'casa-loma', ...RAIL_LANDS_SPEC_IDS] as const;
 /** Filler archetype (a per-district stock building, not a landmark placement). */
 export const NAMED_FILLER_ARCHETYPE_IDS = ['two-storey-shop'] as const;
+/**
+ * Phase 48 — SECONDARY MASSES: spec rows that are real buildings with researched heights, but that
+ * stand on ANOTHER placement's lot and are drawn by that placement's bespoke builder rather than as
+ * a box of their own. `commerce-court-north` is the 1931 Art Deco tower sharing Commerce Court with
+ * I.M. Pei's 1972 stainless slab; financialTowers.ts renders it on the King Street frontage and
+ * mints its claim + collider through the seam's `extraClaims`/`extraColliders`.
+ *
+ * WHY THE ROW EXISTS AT ALL rather than a proportion inside the builder: CLAUDE.md's data rule —
+ * "never hardcode a height, footprint, colour, or address in code". A secondary mass is still a
+ * building with a real height, so its height is data; what makes it secondary is only that it does
+ * not get its own `Author` entry. Third class in this module, and deliberately its own list rather
+ * than a fourth meaning stuffed into NAMED_EXCLUDED_IDS (which means "not on this map at all").
+ */
+export const NAMED_SECONDARY_MASS_IDS = ['commerce-court-north'] as const;
 
 /** Margin (wu) added around every named footprint before it becomes a massing exclusion. */
 const EXCLUSION_MARGIN_WU = 3;
@@ -290,6 +304,23 @@ const AUTHORS: readonly Author[] = [
   // Osgoode Hall: NE corner of Queen × University, deliberately NOT flush — the researched read
   // is a low pile SET BACK behind its lawn and 1867 fence (osgoodeHall.ts dresses both).
   { id: 'osgoode-hall', center: (c) => ({ x: c('university') + 21, z: c('queen') - 21 }), shape: 'square' },
+
+  // --- Phase 48: the Hockey Hall of Fame, in the 1885 Bank of Montreal ------------------------
+  // NW corner of Yonge × Front (30 Yonge St, researcher-verified corner). A CORNER building wants
+  // both of its street faces flush, but `frontage` overrides one axis only — so Front carries the
+  // flush (south facade 3 wu off Front's north ribbon edge) and the x offset is authored to land
+  // the east facade the same 3 wu off Yonge's west ribbon edge (yonge centreline 1500, ribbon
+  // minX 1494.5, footprint_wu 9 → half 4.5: 1500 − 13 = 1487, east face 1491.5, gap 3.0 — the
+  // FLUSH_GAP_WU value, arrived at by the same arithmetic the frontage helper would do).
+  // This is the luckiest corner on the map for the fixed rig: the ornate elevations of a corner
+  // banking hall face the intersection, and that intersection is to the SOUTH-EAST — the exact
+  // pair of faces the camera can see (Phase 34's pinned face set).
+  {
+    id: 'hockey-hall-of-fame',
+    center: (c) => ({ x: c('yonge') - 13, z: c('front') - 12 }),
+    shape: 'square',
+    frontage: { ref: 'front', axis: 'z', side: 'lo' },
+  },
 ];
 
 // --- builders ------------------------------------------------------------------------------

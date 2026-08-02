@@ -46,6 +46,16 @@ export const MATERIAL_LOOKS = {
   glass_green: { fill: '#2e5c56', windowKind: 'glass', windowTint: WARM }, // Hullmark/Emerald
   marble_white: { fill: '#b9bec6', windowKind: 'glass', windowTint: '#ffe4bd' }, // FCP white
   granite_red: { fill: '#6e3a33', windowKind: 'grid', windowTint: WARM }, // Scotia deep red
+  /**
+   * Phase 48: brushed STAINLESS STEEL + grey-tinted glass — Commerce Court West (I.M. Pei, 1972).
+   * Added to pay a debt the data itself recorded: building-specs.json's own note read "stainless +
+   * grey glass — no plain 'grey glass' enum exists; mapped to glass_black as the closest
+   * dark-reflective curtain-wall match". That mapping put TWO of the six bank towers on the same
+   * fill, which directly cost the §10.3 "six DISTINCT towers" read. A cool mid-grey with a metallic
+   * lift sits clear of both neighbours in the family: lighter and cooler than precast_grey
+   * (#6a6670, a warm concrete), darker and greyer than marble_white (#b9bec6, FCP's white glass).
+   */
+  steel_stainless: { fill: '#828b96', windowKind: 'glass', windowTint: WARM },
   brick_red: { fill: '#7a4d38', windowKind: 'grid', windowTint: WARM }, // The Well podium
   brick_yellow: { fill: '#a68a4a', windowKind: 'grid', windowTint: WARM },
   limestone: { fill: '#b7a06a', windowKind: 'grid', windowTint: WARM }, // Royal York / Union

@@ -26,6 +26,7 @@ import {
   resolveNamedRenderBoxes,
   type NamedBespoke,
 } from './namedGeometry';
+import { FINANCIAL_NORTH_RENDER_GROUP, FINANCIAL_SOUTH_RENDER_GROUP } from './financialTowers';
 import { NAMED_SIGN_ATLAS, NAMED_SIGN_GLYPHS, namedSignCellAspect, namedSignCellUv, type NamedSignCellId } from './namedSignage';
 import { buildStreets } from './streets';
 
@@ -48,13 +49,20 @@ function preSeamRenderPlan(placements: readonly NamedPlacement[]) {
 // -------------------------------------------------------------------------------------------------
 
 describe('namedGeometry — the registry', () => {
-  it('registers exactly the ids Phase 46 ships bespoke geometry for', () => {
+  it('registers exactly the ids the seam ships bespoke geometry for', () => {
     expect([...namedGeometryBuilders.keys()].sort()).toEqual([
-      'fairmont-royal-york',
-      'new-city-hall',
-      'old-city-hall',
-      'osgoode-hall',
-      'union-station',
+      'cibc-square', // P48
+      'commerce-court-west', // P48 (carries Commerce Court North as a secondary mass)
+      'fairmont-royal-york', // P46
+      'first-canadian-place', // P48
+      'hockey-hall-of-fame', // P48
+      'new-city-hall', // P47
+      'old-city-hall', // P47
+      'osgoode-hall', // P47
+      'royal-bank-plaza', // P48
+      'scotia-plaza', // P48
+      'td-bank-tower', // P48 (carries the Mies banking pavilion as a secondary mass)
+      'union-station', // P46
     ]);
   });
 
@@ -108,7 +116,7 @@ describe('namedGeometry — the box fallback is structural', () => {
     // can't make this comparison vacuously pass; the untouched count is then derived, so adding a
     // builder is a one-number change here and never silently narrows the proof.
     const untouchedIds = named.placements.filter((p) => !namedGeometryBuilders.has(p.id)).map((p) => p.id);
-    expect(named.placements).toHaveLength(17);
+    expect(named.placements).toHaveLength(18);
     expect(untouchedIds).toHaveLength(named.placements.length - namedGeometryBuilders.size);
     expect(plan.filter(untouched)).toEqual(before.filter(untouched));
   });
@@ -200,16 +208,24 @@ describe('namedGeometry — pooled render meshes', () => {
     return { x: (box.min.x + box.max.x) / 2, z: (box.min.z + box.max.z) / 2 };
   }
 
-  it('pools the civic block into ONE mesh and leaves the ungrouped landmarks alone', () => {
+  it('pools each city block into ONE mesh and leaves the ungrouped landmarks alone', () => {
     const byKey = new Map(meshes.map((m) => [m.key, [...m.ids].sort()]));
     expect(byKey.get(CIVIC_HEART_RENDER_GROUP)).toEqual(['new-city-hall', 'old-city-hall', 'osgoode-hall']);
+    // P48: the six bank towers pool into the TWO Bay Street blocks they actually occupy. All six
+    // in one group would span 208 wu and fail the block law below; splitting at King Street gives
+    // measured spans of 65 wu and 86 wu.
+    expect(byKey.get(FINANCIAL_NORTH_RENDER_GROUP)).toEqual(['commerce-court-west', 'first-canadian-place', 'scotia-plaza']);
+    expect(byKey.get(FINANCIAL_SOUTH_RENDER_GROUP)).toEqual(['cibc-square', 'royal-bank-plaza', 'td-bank-tower']);
     expect(byKey.get('union-station')).toEqual(['union-station']);
     expect(byKey.get('fairmont-royal-york')).toEqual(['fairmont-royal-york']);
-    // THE BUDGET CLAIM, pinned: five bespoke ids resolve to three scene meshes. Those two saved
-    // draw calls are what put the LOW tier back inside its 90-call budget (measured 91 unpooled,
-    // 89 pooled) — un-pooling this without finding the calls elsewhere breaks the mobile gate.
-    expect(bespokes.size).toBe(5);
-    expect(meshes).toHaveLength(3);
+    // The Hockey Hall of Fame is ~120 wu from the nearest bank block — legal by the number below,
+    // but it is not that block, so it deliberately pays its own draw call.
+    expect(byKey.get('hockey-hall-of-fame')).toEqual(['hockey-hall-of-fame']);
+    // THE BUDGET CLAIM, pinned: twelve bespoke ids resolve to six scene meshes. Those six saved
+    // draw calls are what keeps the LOW tier inside its 90-call budget — un-pooling any group
+    // without finding the calls elsewhere breaks the mobile gate.
+    expect(bespokes.size).toBe(12);
+    expect(meshes).toHaveLength(6);
   });
 
   it('pooling conserves geometry — not one triangle gained or lost', () => {

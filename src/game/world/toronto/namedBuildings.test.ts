@@ -21,6 +21,7 @@ import {
   HERO_LOTS,
   NAMED_EXCLUDED_IDS,
   NAMED_FILLER_ARCHETYPE_IDS,
+  NAMED_SECONDARY_MASS_IDS,
   buildNamedBuildings,
   type NamedBox,
 } from './namedBuildings';
@@ -250,8 +251,16 @@ describe('buildNamedBuildings — placement set vs the spec file', () => {
     ]);
   });
 
-  it('places every spec building except the excluded + filler-archetype ids', () => {
-    const skip = new Set<string>([...NAMED_EXCLUDED_IDS, ...NAMED_FILLER_ARCHETYPE_IDS]);
+  // Phase 48 added a third skip class: a SECONDARY MASS is a real spec row with a researched
+  // height that another placement's bespoke builder draws (Commerce Court North stands on Commerce
+  // Court West's lot). Listing it here rather than widening NAMED_EXCLUDED_IDS keeps "excluded"
+  // meaning "not on this map".
+  it('the secondary-mass ids are exactly {commerce-court-north}', () => {
+    expect([...NAMED_SECONDARY_MASS_IDS].sort()).toEqual(['commerce-court-north']);
+  });
+
+  it('places every spec building except the excluded + filler-archetype + secondary-mass ids', () => {
+    const skip = new Set<string>([...NAMED_EXCLUDED_IDS, ...NAMED_FILLER_ARCHETYPE_IDS, ...NAMED_SECONDARY_MASS_IDS]);
     const expected = specs.map((s) => s.id).filter((id) => !skip.has(id)).sort();
     const placed = named.placements.map((p) => p.id).sort();
     expect(placed).toEqual(expected);

@@ -203,6 +203,10 @@ describe('CREDITS.brandTrademarks — Phase 24 bank + Phase 26 retail/nostalgia 
     'Toronto City Hall & Nathan Phillips Square',
     'Old City Hall (Toronto)',
     'Osgoode Hall',
+    // Phase 48: the 1885 Bank of Montreal building housing the Hockey Hall of Fame. Massing
+    // homage, and the only entry whose note ALSO has to disclaim sports league/team marks —
+    // the model carries none (hockeyHallOfFame.test.ts pins its empty `signQuads`).
+    'Hockey Hall of Fame (Toronto)',
   ];
 
   const EXPECTED_BRANDS = [
@@ -212,12 +216,12 @@ describe('CREDITS.brandTrademarks — Phase 24 bank + Phase 26 retail/nostalgia 
     ...EXPECTED_LANDMARK_BRANDS,
   ];
 
-  it('covers exactly the five Phase-24 bank brands, the seventeen Phase-26/Phase-45 retail/nostalgia brands, the Phase-31 TTC entry, and the five Phase-46/47 landmark homages', () => {
+  it('covers exactly the five Phase-24 bank brands, the seventeen Phase-26/Phase-45 retail/nostalgia brands, the Phase-31 TTC entry, and the six Phase-46/47/48 landmark homages', () => {
     expect(CREDITS.brandTrademarks.map((entry) => entry.name)).toEqual(EXPECTED_BRANDS);
   });
 
-  it('has exactly 28 entries', () => {
-    expect(CREDITS.brandTrademarks.length).toBe(28);
+  it('has exactly 29 entries', () => {
+    expect(CREDITS.brandTrademarks.length).toBe(29);
   });
 
   it('has unique brand names', () => {

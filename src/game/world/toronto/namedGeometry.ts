@@ -41,6 +41,15 @@
 import { BufferGeometry, Float32BufferAttribute } from 'three';
 import { addFace, createAccum, toGeometry, type Quad, type Uv, type Vec3 } from './bespokeMesh';
 import type { Aabb } from './claimIndex';
+import {
+  buildCibcSquareBespoke,
+  buildCommerceCourtBespoke,
+  buildFirstCanadianPlaceBespoke,
+  buildRoyalBankPlazaBespoke,
+  buildScotiaPlazaBespoke,
+  buildTdBankTowerBespoke,
+} from './financialTowers';
+import { buildHockeyHallOfFameBespoke } from './hockeyHallOfFame';
 import type { NamedBox, NamedPlacement } from './namedBuildings';
 import { namedSignCellUv, type NamedSignCellId } from './namedSignage';
 import { buildNewCityHallBespoke } from './newCityHall';
@@ -167,7 +176,9 @@ export type NamedGeometryBuilder = (placement: NamedPlacement, ctx: NamedGeometr
  *
  * Phase 46: `union-station` (T1) and `fairmont-royal-york` (T2). Phase 47: the civic heart —
  * `new-city-hall` (+ Nathan Phillips Square, carried by the same builder), `old-city-hall`,
- * `osgoode-hall`. Part 12 appends the flatiron, Convocation Hall and the rest.
+ * `osgoode-hall`. Phase 48: the six Bay Street bank towers (financialTowers.ts — the first
+ * MULTI-BUILDING builder module, sharing one street-level vocabulary across six ids) and the
+ * `hockey-hall-of-fame`. Part 12 appends the flatiron, Convocation Hall and the rest.
  */
 export const namedGeometryBuilders: ReadonlyMap<string, NamedGeometryBuilder> = new Map<string, NamedGeometryBuilder>([
   ['union-station', buildUnionStationBespoke],
@@ -175,6 +186,13 @@ export const namedGeometryBuilders: ReadonlyMap<string, NamedGeometryBuilder> = 
   ['new-city-hall', buildNewCityHallBespoke],
   ['old-city-hall', buildOldCityHallBespoke],
   ['osgoode-hall', buildOsgoodeHallBespoke],
+  ['first-canadian-place', buildFirstCanadianPlaceBespoke],
+  ['scotia-plaza', buildScotiaPlazaBespoke],
+  ['td-bank-tower', buildTdBankTowerBespoke],
+  ['commerce-court-west', buildCommerceCourtBespoke],
+  ['royal-bank-plaza', buildRoyalBankPlazaBespoke],
+  ['cibc-square', buildCibcSquareBespoke],
+  ['hockey-hall-of-fame', buildHockeyHallOfFameBespoke],
 ]);
 
 // --- resolution --------------------------------------------------------------------------------

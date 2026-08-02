@@ -542,5 +542,24 @@ export const CREDITS: CreditsContent = {
         'were used.',
       ].join(' '),
     },
+    // Phase 48 (financial-district crown pass): the 1885 Bank of Montreal building at Yonge &
+    // Front, home of the Hockey Hall of Fame. Massing homage only — and, uniquely on this list, it
+    // carries an explicit no-sports-marks statement: CLAUDE.md's brand rule admits pixel-art
+    // homages of consumer brands, but league and team marks are outside it, so the model is pure
+    // architecture (arcade, corner entrance, dome) with no iconography of any kind on it.
+    {
+      name: 'Hockey Hall of Fame (Toronto)',
+      note: [
+        'Referenced as an original low-poly massing homage to the 1885 Bank of Montreal building at',
+        'Yonge & Front Streets that houses it — an arcaded stone elevation, a canted corner entrance',
+        'and a domed drum evoking the real Victorian bank, never a traced or exact reproduction of',
+        'the building. NO hockey league, club, team, or trophy marks, logos, or iconography of any',
+        'kind are depicted or reproduced anywhere on it. The Hockey Hall of Fame is an independent',
+        'museum and hall of fame; its trademarks, and those of any league or team, belong to their',
+        'respective owners, the building\'s likeness is referenced for Toronto-cityscape flavour',
+        'only, no affiliation, sponsorship, or endorsement is implied, and no official Hockey Hall',
+        'of Fame assets were used.',
+      ].join(' '),
+    },
   ],
 };

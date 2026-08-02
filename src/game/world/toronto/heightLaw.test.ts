@@ -252,8 +252,17 @@ describe('eye-line law — (d) THE CROSSER LIST (Phase 36 occlusion work order)'
     // the freed budget elsewhere — one relocated back-lot box now rolls tall enough to cross the
     // eye line. Same class, same dither-fade path as the existing seven, no new occlusion
     // obligation (the P45 backdrop precedent above, one row down).
-    expect(batched.backdropTowerBoxes).toBe(38);
-    expect(batched.backLotBoxes).toBe(7);
+    // Phase 48: backdropTowerBoxes 38 -> 36, backLotBoxes 7 -> 5. Same mechanism in both
+    // directions this time. THREE new blocking volumes landed on the Bay/Front corridor — the
+    // Hockey Hall of Fame's data box at Yonge x Front, and the two bespoke SECONDARY MASSES
+    // (financialTowers.ts: the TD banking pavilion on the Front Street plaza and Commerce Court
+    // North on the King frontage) — so the map-wide-CAPPED backdrop and back-lot walks reject
+    // there and respend the freed budget along the rest of the walk, landing on a different mix
+    // of district height ranges. Still 90 backdrop boxes placed; two of them simply no longer
+    // roll tall enough to cross. No new occlusion obligation: every one of these is a batched
+    // box on the Phase-36 dither path already.
+    expect(batched.backdropTowerBoxes).toBe(36);
+    expect(batched.backLotBoxes).toBe(5);
   });
 
   it('the Phase-45 rail-lands buildings stay UNDER the eye line (the dither-path tripwire)', () => {
@@ -312,6 +321,7 @@ describe('eye-line law — (d) THE CROSSER LIST (Phase 36 occlusion work order)'
     expect([...new Set(below)].sort()).toEqual([
       'eaton-centre-galleria',
       'emerald-park', // the twin's secondary tower (21.17) — the main tower crosses, this one doesn't
+      'hockey-hall-of-fame', // P48: an 1885 3-storey banking hall — far under the line
       'new-city-hall', // P47: East tower 19.5 / West twin 16.2 / podium — the whole civic campus sits under the eye line BY DESIGN
       'north-york-civic-centre',
       'old-city-hall', // P47: clock-tower data height → 19.97, under the line
