@@ -190,6 +190,59 @@ re-pinned, never silent.
 - [x] **Phase 47 — City Hall twins + Nathan Phillips Square + Old City Hall + Osgoode Hall** — 2026-07-27/29 (2 sessions: build ran T0–T3 + the whole evidence battery then died mid-integration with 3 tests red; completion session diagnosed, finished the seam work, re-measured): the civic postcard shipped — **New City Hall** 1,516 tris (two segmented-arc crescents w/ concave lit-window bands + ribbed convex backs, saucer on its stem, podium; NPS = plaza + pale emissive rink + 3 Freedom Arches on the OCH axis + **3D block-letter TORONTO sign** w/ its own ring-height collider + flagpoles; square furniture-free BY CLAIM), **Old City Hall** 356 tris (RY pattern: body render box + copper-patina hips, off-centre clock tower to EXACT data height, 4 dials on all four faces w/ hands one rung proud, triple-arch porch), **Osgoode Hall** 294 tris (set-back pile + lawn + visual-only 1867 fence per P37) — every model inside cap AND above floor; `bespokeMesh` grew ARC primitives (first curved-PLAN landmark, kept out of private arithmetic); credits 25→28; ground ladder SPLICED not appended (civicPlaza 0.024/civicRink 0.028 below skid — appending atop would have buried skids + the searchlight pool, P39's own defect class), lawn reuses parkGround; **seam contract grew twice**: `renderBoxes` may be a footprint-matched SUBSEQUENCE (City Hall's 2 tower boxes DROPPED — a buried stub pad still costs a draw call) w/ explicit `renderBoxDataIndices` because array-position keys silently renamed the podium `#2`→`#0` and those keys are the facade seeds AND the P36 item-derived fade keys (+ mis-indexed CROWN decals), and `renderGroup` pools same-block landmarks into ONE mesh (law-tested ≤200 wu span — the fade-together trade is block-local); **THE PERF FINDING**: a 6-run clean-worktree ablation proved the low tier was ALREADY at 99.52% of its tri budget on untouched P46 (119,428/120,000) and that one bench run is not a pass/fail signal (same build measured 102,480 and 120,019 — fixed 60 s circuit, 500 ms sampling, SwiftShader), pre-culling P47 breached BOTH low gates (calls 92/90 in 2 of 4 runs, tris 121,862) → fixed by frustum-culling the named + bespoke landmark meshes (semantically invisible: conservative bounding-sphere reject, shadows cull against the light, raycast occlusion untouched; verified identical framing at the 2 widest poses) → **low 67–70/90 calls · 104.0–118.0k/120k tris over 4 runs, better than the P46 baseline on both**, high 95→72 calls, med 96→73; spawn identity 83→62 calls (pin re-based: now view-dependent) w/ the pre-culling +4 calls/+3,666 tris fully attributed; claims 8058→8081 (+23 attributed); 3,486 tests, smoke 31/31, civic flicker slice CLEAN 9/9 0 hotspots, drive-feel probes all PASS w/ square hpΔ0 proven traffic-off, 0 console errors; low-tier tri ceiling still tight at 98.3% → flagged to P72 (see phase-47-notes.md)
 - [x] **Phase 48 — Financial-district crown pass: six bank silhouettes/materials + Hockey Hall of Fame** — 2026-08-02: six Bay Street banks retrofitted through the P46 seam via new `financialTowers.ts` (the seam's first MULTI-BUILDING module — one shared street-level vocabulary, six builders composing it) — 1,502 tris total for FCP/Scotia/TD/Commerce/RBC/CIBC, each ≤ its cap with a floor AND a pinned suite total; identity earned BELOW the eye line per P38 (podia, colonnades, entrances, pier/mullion rhythms, RBC's serration, CIBC's spandrel banding + park deck) with cheap crowns; TD SPLIT CALL = no second tower, the Mies 1-storey **banking pavilion** instead (the part of the complex the street meets), plus **Commerce Court North** (new `commerce-court-north` spec row + new `NAMED_SECONDARY_MASS_IDS` skip class — a secondary mass is data, not a code literal), both with extraClaim+extraCollider; new §4 material `steel_stainless` pays the debt commerce-court-west's own note recorded (two of six towers shared one fill); **Hockey Hall of Fame** 354 tris at the NW corner of Yonge×Front (arcaded 1885 banking hall + canted corner entrance + copper dome on a drum, NO league/team marks, credits 28→29); CROWN re-tune = NO-CHANGE with the reason recorded (P39 already consolidated `offsetWu`; P38 measured the band invisible) + a new keep-out law; **THE EVIDENCE CAUGHT WHAT THE TESTS COULDN'T** — dense articulation buried the §4 lit windows (blank white FCP, skinned Scotia/RBC sawtooth), fixed structurally by deriving facade rhythm from `WINDOW_PATTERN.columnPitchWu` (tris 2,058→1,502, −27%) under a new measured open-face law (≥0.5, computed from emitted triangles, reads 0.16/0.10 on the defect); P38 crown + skyline verdicts RE-MEASURED and unchanged (0/6 crowns, 0 rooflines); claims 8,081→8,076 fully attributed, spawn 62→63 calls/113,965 tris; 3,627 tests, bench ×3 ×3 tiers all green (low 66-67/90 · 88.8-112.9k/120k, better than the same-session pre-phase 117.3k worst), flicker slice CLEAN 6/6, drive-feel 4/4, smoke 31/31, 0 errors (see phase-48-notes.md)
 
+**FEEL OVERHAUL (user directive 2026-08-04, governs Parts 17–20 — Phases 74–94):** the
+map reads as Toronto but the game does not yet *play* like Smashy Road. Sixteen reported
+items (traffic stacking + too dense to navigate, no mini-explosion damage pops, no
+health-staged cube-smoke ladder, monster-truck handling, lifeless cars, poor pursuit
+tracking, no reachable arrest, roads too narrow, no visible helicopter, getting stuck on
+top of cars, plus new coin + health-pack pickups) and the headline ask: **"Smashy Road
+still feels significantly better — figure out why. Dedicate 10 phases to this."** Master
+plan + evidence-grounded diagnosis (D1–D8, each cited to file:line):
+`.planning/feel-overhaul-overview.md`. Ten phases are tagged **⚑ SR-PARITY**
+(74, 76, 77, 78, 81, 90, 91, 92, 93, 94) as the explicit answer. **"Double the roads"
+means widen the EXISTING ribbons in place** (user clarification 2026-08-04) — no new
+streets, no split carriageways, centrelines untouched.
+
+**EXECUTION ORDER: Parts 17–20 (Phases 74–93) run NEXT — before Parts 12–16.** Content
+detail on a game that does not feel good is unrecoverable spend, and P75's road widening +
+P76's camera + P77's physics change the ground Parts 12–16 build on. Parts 12–16 keep their
+existing numbers (Phases 49–73) — historic notes cite them by number (phase-38-notes.md
+files verdicts into Ph 49 and Ph 59), so renumbering would corrupt the record — and resume
+at Phase 49 after Phase 94. Overlap notes for their resumption are in the overview.
+
+### Part 17 — Feel Parity Foundations (`.planning/part-17-feel-drive-model.md`)
+- [!] **Phase 74 ⚑ — Feel lab: telemetry harness, Smashy Road reference analysis, the Feel Spec** — **USER GATE** — 2026-08-04: instrument shipped **with ZERO prod-file edits** (sha256 on all 3 `dist/assets/*.js` chunks IDENTICAL before/after — strictly stronger than P33's "chunk-grep-proven", which the survey found was never a committed gate): `dev/feelTelemetry.ts` (rAF sampler off `onImpact`'s prod-neutral seam + `playerRef`/`getDrivingInput`, every metric a time integral or physical quantity — never a frame count — stalled frames DISCARDED not clamped w/ self-reported `notes`), `dev/feelProbes.ts` (5 controlled manoeuvres, isolation echoed per result), `dev/feelDrives.ts` (4 district-derived routes), `dev/feelSpec.ts` (22-row oracle, 7 GATE, `evaluateFeelMetric` returns `insufficient-runs` below `minRunsForVerdict`), `scripts/feel-lab.mjs` (+`pnpm feel:lab`, `--slice=i/n`, per-slice results.json, contact sheets); reference research sourced+tagged (**14 unverifiable questions, almost no numbers** → every spec row carries `reference-verified`/`measured-baseline`/`design-target`) + 17-row gap table, each gap phase-owned; **THE INSTRUMENT DEFECT**: first battery read 26/27 stuck events "unrecoverable" 100% `building` — artefact, because the synthetic driver's unwedge (3.0 s) sat BEYOND the detector's verdict budget (1.5+1.0), so every wedge was unrecoverable *by construction*; control sweep 5/9/15 m/s → 5/5/6 events (flat in speed) isolated it; fixed → **26→4 (−85%) on identical routes+seed w/ zero game changes**, inequality now test-pinned; **TWO ERRORS IN MY OWN PLAN caught by implementers** (`durationSec` gate could never fail; `brakeDistM` ≥95% entry could never pass — governor×damping plateaus at 94%); baseline: `downtownDense` **92 m in 60 s at commanded 15 m/s**, `minorWeave` **30.7% airtime / 1.57 rad roll / 3 flips**, `chase3` **1.4 m/s mean w/ 7 pursuers + 12 unrecoverable stucks and no arrest ever fires** (D3 quantified), `spineCruise` clean control (454–581 m, 0 unrec); **turn radius NOT MEASURABLE** — @20 refused pre-flight (needs 8.6 m lateral > 8.5 m clear on the map's WIDEST ribbon; r=v/ω → 8.78 m @15, 11.71 m @20) ⇒ "turn radius becomes measurable" IS a P75 acceptance test; 3,970 tests (+343), bundle byte-identical, smoke 31/31 (1 flake, re-run clean), bench ×3 green (67/150·151.0k, 71/120·148.6k, 68/90·110.9k), 143 shots / 5 evidence trees, 0 errors (see phase-74-notes.md). **AWAITING USER:** sign off the Feel Spec (gate/watch split; the 3 response GATE targets deliberately left to P78); + 3 reference-vs-build calls (tank cap 3 vs our 2, tanker civilians, armed army heli)
+- [ ] **Phase 75 — Road expansion v2: double-width mains + grass medians + junction rebuild**
+- [ ] **Phase 76 ⚑ — Camera v3: readability in the widened corridors** — **USER GATE**
+- [ ] **Phase 77 ⚑ — Collision response v2: the player is never trapped by another vehicle**
+- [ ] **Phase 78 ⚑ — Drive model v2: arcade response, grip, turn-in, brake, speed envelope**
+
+### Part 18 — The Living, Navigable Street (`.planning/part-18-traffic-roads-street-life.md`)
+- [ ] **Phase 79 — Traffic v3 bodies + density: fewer cars, dynamic-by-default, always shovable**
+- [ ] **Phase 80 — Traffic v3 behaviour: brake, swerve, yield, honk, panic scatter**
+- [ ] **Phase 81 ⚑ — Per-car feel re-grade + monster-truck rebuild**
+- [ ] **Phase 82 — Intersections & curb life: signals that matter, turning traffic, ambient motion**
+- [ ] **Phase 83 — Pickups: coins (score, no heat) + health packs (+10% of car max HP, rare)**
+- [ ] **Phase 84 — Street gate: navigability battery + perf recert on the widened map**
+
+### Part 19 — The Chase (`.planning/part-19-pursuit-arrest-chase.md`)
+- [ ] **Phase 85 — Pursuit nav v3: committed tracking, interception, ram lines**
+- [ ] **Phase 86 — Arrest v2: pin detection + a BUSTED that actually fires + arrest beat**
+- [ ] **Phase 87 — Helicopter you can actually see: into the visible band, chase presence**
+- [ ] **Phase 88 — Escalation & spawn geography: cops from ahead, roadblocks, pacing curve**
+- [ ] **Phase 89 — Chase gate: full ★-ladder feel battery**
+
+### Part 20 — Damage Language & Juice (`.planning/part-20-damage-language-juice.md`)
+- [ ] **Phase 90 ⚑ — Cube-debris VFX core: the voxel-pop primitive on the existing pool**
+- [ ] **Phase 91 ⚑ — Mini-explosion damage pops (visual-only) on every meaningful hit**
+- [ ] **Phase 92 ⚑ — Smoke escalation ladder: black → red/black → yellow/orange/red/black (reversible)**
+- [ ] **Phase 93 ⚑ — Impact juice: hit-stop, squash, shake, camera kick, audio layer**
+- [ ] **Phase 94 ⚑ — Feel recertification + final gate** — **USER GATE**
+
+---
+
+**DEFERRED until after Phase 94** (see EXECUTION ORDER above) — Parts 12–16 below.
+
 ### Part 12 — Yonge Street & Culture Landmarks (`.planning/part-12-yonge-culture-landmarks.md`)
 - [ ] **Phase 49 — Eaton Centre v2 glass galleria + Dundas (Sankofa) Square screen canyon v2**
 - [ ] **Phase 50 — Yonge neon canyon: Massey Hall, Elgin/Winter Garden, marquees, blade signs, Sam's v2**
@@ -301,7 +354,11 @@ already makes.
   flat/vertex colours — no photo textures anywhere. Tri budgets: CN Tower ≤ 600,
   Rogers ≤ 500, filler box ≤ 12 — **budgets rise deliberately in Parts 11–12** (e.g.
   CN v2 ≤ 2,500) per the overview's tri-budget addendum; re-pin, never silently.
-- **Camera bearing: RE-LOCKED 2026-07-26** (was briefly UNLOCKED the same day for the
+- **Camera bearing: RE-LOCKED 2026-07-26**, with a SCHEDULED re-open at the **Phase 76
+  USER GATE** (feel overhaul): Phase 75 doubles the road widths, which raises the
+  corridor-airspace ceiling that *set* rig E — so the input to the P33/P34 decision
+  changes and the user gets to pick again. Until that gate, rig E is law; no session may
+  change the bearing without it. (Was briefly UNLOCKED 2026-07-26 for the
   Phase 33 USER GATE; Phase 34 adopted the pick as law): **yaw 45° / pitch 58° /
   baseDist 26 / FOV 38 — rig E**, `config/camera.ts`'s `CAMERA` block, superseding the
   pre-P34 45/50/24/45 rig (kept in `CAMERA_PRESETS` as historical preset 'A' for
@@ -440,6 +497,7 @@ Score = Σ heat events + 5 × tier per second while ≥ ★1.
 | map-researcher subagent contract | `.claude/agents/map-researcher.md` |
 | Part files (phase scopes, this roadmap's detail) | `.planning/part-*.md` |
 | Immersion overhaul master plan (Parts 9–16 arc + cross-cutting rules) | `.planning/immersion-overhaul-overview.md` |
+| Feel overhaul master plan (Parts 17–20 arc + diagnosis D1–D8) | `.planning/feel-overhaul-overview.md` |
 | Asset-pack licence survey (feeds Phase 70) | `.planning/asset-pack-research.md` |
 | Session-authored phase plans | `.planning/phases/phase-NN-plan.md` |
 | Session handoff notes | `.planning/phases/phase-NN-notes.md` |

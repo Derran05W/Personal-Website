@@ -83,3 +83,65 @@ describe('window.__smashy.blackoutAll / relightAll — active count, not the fro
     off();
   });
 });
+
+// Phase 74 — feel lab bridge wiring. dev/feelTelemetry.ts / dev/feelProbes.ts /
+// dev/feelDrives.ts each carry their own exhaustive behavioural test suites; this block only
+// proves the four-step bridge convention (import → declare → thunk) was actually followed for
+// every new member — the exact thing a Playwright battery script needs before it can call any
+// of them by name off window.__smashy.
+describe('window.__smashy — Phase 74 feel lab bridge members', () => {
+  it('exposes the telemetry start/stop/reset/read/running/markPhase functions', () => {
+    expect(typeof window.__smashy!.feelTelemetryStart).toBe('function');
+    expect(typeof window.__smashy!.feelTelemetryStop).toBe('function');
+    expect(typeof window.__smashy!.feelTelemetryReset).toBe('function');
+    expect(typeof window.__smashy!.feelTelemetryRead).toBe('function');
+    expect(typeof window.__smashy!.feelTelemetryRunning).toBe('function');
+    expect(typeof window.__smashy!.feelMarkPhase).toBe('function');
+  });
+
+  it('exposes the probe-suite entry points', () => {
+    expect(typeof window.__smashy!.startFeelProbes).toBe('function');
+    expect(typeof window.__smashy!.formatFeelProbeReport).toBe('function');
+  });
+
+  it('exposes the route-drive entry points', () => {
+    expect(typeof window.__smashy!.startFeelDrive).toBe('function');
+    expect(typeof window.__smashy!.isFeelDriveRunning).toBe('function');
+    expect(typeof window.__smashy!.activeFeelDriveRoute).toBe('function');
+    expect(typeof window.__smashy!.formatFeelDriveReport).toBe('function');
+    expect(typeof window.__smashy!.feelRoutes).toBe('function');
+  });
+
+  it('feelTelemetryRunning() is false and feelTelemetryRead() returns a legible empty snapshot before any start() call', () => {
+    expect(window.__smashy!.feelTelemetryRunning()).toBe(false);
+    const snapshot = window.__smashy!.feelTelemetryRead();
+    expect(snapshot.timing.samples).toBe(0);
+    expect(snapshot.running).toBe(false);
+  });
+
+  it('isFeelDriveRunning() is false and activeFeelDriveRoute() is null before any drive starts', () => {
+    expect(window.__smashy!.isFeelDriveRunning()).toBe(false);
+    expect(window.__smashy!.activeFeelDriveRoute()).toBeNull();
+  });
+
+  it('feelRoutes() reports exactly the four named routes, with metadata but no rect thunk', () => {
+    const routes = window.__smashy!.feelRoutes();
+    expect(Object.keys(routes).sort()).toEqual(
+      ['chase3', 'downtownDense', 'minorWeave', 'spineCruise'].sort(),
+    );
+    for (const id of Object.keys(routes) as (keyof typeof routes)[]) {
+      const def = routes[id];
+      expect(typeof def.label).toBe('string');
+      expect(Array.isArray(def.districtIds)).toBe(true);
+      expect(def.districtIds.length).toBeGreaterThan(0);
+      expect(typeof def.anchor).toBe('string');
+      expect(typeof def.cruiseFracOfTopSpeed).toBe('number');
+      expect(typeof def.requireTier).toBe('number');
+      expect(typeof def.answers).toBe('string');
+      // Deliberately omitted — see feelRoutes' doc comment in debugBridge.ts: `rect` is a
+      // `() => DriveRect` thunk on the source FEEL_ROUTES record and does not survive
+      // page.evaluate's structured-clone boundary, so the bridge strips it.
+      expect('rect' in def).toBe(false);
+    }
+  });
+});

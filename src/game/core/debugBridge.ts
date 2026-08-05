@@ -81,6 +81,34 @@ import {
   type CnProgramMode,
 } from '../world/toronto/cnNightProgram';
 import { CN_TOWER } from '../config/cnTower';
+import {
+  isFeelTelemetryRunning,
+  markFeelPhase,
+  readFeelTelemetry,
+  resetFeelTelemetry,
+  startFeelTelemetry,
+  stopFeelTelemetry,
+  type FeelTelemetryOptions,
+  type FeelTelemetrySnapshot,
+} from '../dev/feelTelemetry';
+import {
+  formatProbeSuiteReport,
+  startFeelProbes,
+  type FeelProbeOptions,
+  type FeelProbeSuiteResult,
+} from '../dev/feelProbes';
+import {
+  activeFeelDriveRoute,
+  FEEL_ROUTES,
+  FEEL_ROUTE_IDS,
+  formatFeelDriveReport,
+  isFeelDriveRunning,
+  startFeelDrive,
+  type FeelDriveOptions,
+  type FeelDriveReport,
+  type FeelRouteId,
+} from '../dev/feelDrives';
+import type { DistrictId } from '../config/torontoDistricts';
 
 // Phase 7 traffic verification: exactly-once event proof. The civHit/civWrecked emitter
 // payloads are empty, so scripted checks can't scrape them from the DOM — count them here
@@ -814,6 +842,141 @@ declare global {
        * pass null to clear the override and fall back to the run's seeded pick. False on an
        * unknown mode. Purely cosmetic — no heat, no state, no persistence. */
       setCnProgram: (next: { mode?: string; paletteIndex?: number } | null) => boolean;
+      // --- Phase 74 feel lab -----------------------------------------------------------------
+      /**
+       * Phase 74 feel lab (dev/feelTelemetry.ts): start (or RESTART) the per-frame telemetry
+       * sampler. Idempotent-by-construction — calling this while already running RESETS the
+       * accumulator and re-bases the session clock rather than attaching a second rAF loop, so a
+       * probe/drive that always opens its own measured window with a fresh call gets a clean run
+       * every time. Samples the LIVE player vehicle (`vehicles/playerRef.ts`) and driving input
+       * (`input/index.ts`) once per rendered frame off its own `requestAnimationFrame` loop — it
+       * does NOT depend on a probe or drive being active, so a human can also start it from the
+       * devPanel and just drive by hand. `opts.tuning` overrides individual `FeelTelemetryTuning`
+       * fields (a flat spread — see feelTelemetry.ts); `opts.car` overrides the resolved-car params
+       * for a probe measuring a car it just switched to, before the store has settled. Safe with no
+       * player vehicle yet — the sampler simply records nothing until one appears; `feelTelemetryRead()`
+       * still returns a legible empty snapshot rather than throwing. */
+      feelTelemetryStart: (opts?: FeelTelemetryOptions) => void;
+      /** Phase 74 feel lab: detach the rAF sampler + the contact-spine subscription. The
+       * ACCUMULATED DATA SURVIVES a stop — `feelTelemetryRead()` still returns the completed run
+       * afterward. Safe to call when not running (no-op). */
+      feelTelemetryStop: () => void;
+      /** Phase 74 feel lab: zero the accumulated telemetry and re-base the session clock to now,
+       * WITHOUT detaching the sampler (stays running if it was running). For back-to-back manual
+       * manoeuvres from the devPanel; the probe/drive harnesses manage their own start/reset
+       * internally and must NOT have this called around them (it would erase what they measured). */
+      feelTelemetryReset: () => void;
+      /**
+       * Phase 74 feel lab: a plain, JSON-serializable snapshot of everything sampled so far —
+       * `response` (launch/brake/steer-response timings), `cornering` (per-speed-bucket turn
+       * radius, lateral-slip fraction, steer-clamp fraction), `contact` (per-`EntityKind` rates +
+       * speed loss), `stuck` (events with the `cause` heuristic — see feelTelemetry.ts's
+       * `classifyStuckCause` for exactly why it IS a heuristic and what it can and can't see, and
+       * `unrecoverableCount` for the Phase 74 gate number), `stability` (airtime/roll/pitch/flip),
+       * and a `notes` array of caveats that ride ALONG with the data (stalled samples excluded
+       * from every integral, teleport skips, events dropped past the 200-per-array cap). Two
+       * fields are deliberately FRAME ratios rather than time integrals (`cornering.steerClampFrac`,
+       * `stability.airtimeFrac`) and are always reported next to their frame denominator — read the
+       * file header before trusting either across runs at different framerates. Safe to call at any
+       * time: before a start it returns an empty session against the currently-selected car rather
+       * than throwing, and mid-run any open window closes VIRTUALLY into the snapshot
+       * (`endReason: 'open'`) without disturbing the live accumulator. Round-trips cleanly through
+       * `page.evaluate` (no Maps/functions, only numbers/strings/arrays).
+       */
+      feelTelemetryRead: () => FeelTelemetrySnapshot;
+      /** Phase 74 feel lab: whether the rAF sampler is currently attached. False does NOT mean "no
+       * data" — a stopped session's accumulated snapshot is still readable via
+       * `feelTelemetryRead()`. */
+      feelTelemetryRunning: () => boolean;
+      /** Phase 74 feel lab: label a point in the current telemetry session (probe boundaries,
+       * route legs, "entered corridor", …) — the recorded mark carries the CUMULATIVE counters at
+       * that instant (distance travelled, contact records, stuck count so far), so a later reader
+       * can slice any metric by phase from timestamps alone, without this bridge exposing a
+       * separate windowing API. No-op before a `feelTelemetryStart()` call. */
+      feelMarkPhase: (label: string) => void;
+      /**
+       * Phase 74 feel lab (dev/feelProbes.ts): run the five controlled-manoeuvre probes (launch,
+       * brake, stepSteer, turnRadius, slalom) on a cleared straight — the Yonge spine, south of
+       * Bloor — with civilian traffic, transit and pack-parked cars switched OFF and the player
+       * made invincible for the duration (HP-only; verified this phase not to touch any
+       * force/impulse path, see feelProbes.ts's header). Every isolation switch is restored in a
+       * `finally`, always, even on a thrown error — a lab tool that leaves the city permanently
+       * traffic-free is a far worse bug than anything it exists to measure. Resolves with a
+       * `FeelProbeSuiteResult`: one typed result per probe, each carrying a `status`
+       * ('ok' | 'insufficientRunway' | 'interrupted' | 'inconclusive') that MUST be checked before
+       * trusting its numbers — a truncated or blocked manoeuvre never reports a plausible-looking
+       * wrong number silently. Idempotent while in flight: a second call before the first resolves
+       * returns the SAME promise rather than overlapping two scripted drivers on one car.
+       * `opts.probes` narrows which of the five run (default: all five, in the fixed order
+       * launch → brake → stepSteer → turnRadius → slalom); `opts.includeSamples` attaches the full
+       * per-frame trace to every result (large — omitted by default). Also prints the same report
+       * `formatFeelProbeReport` below renders, to the browser console, on completion.
+       */
+      startFeelProbes: (opts?: FeelProbeOptions) => Promise<FeelProbeSuiteResult>;
+      /** Phase 74 feel lab: pure formatter for the one-line-per-probe report `startFeelProbes()`
+       * already prints to the console when it resolves — exposed separately so a battery script
+       * can re-render a STORED `FeelProbeSuiteResult` (e.g. read back out of results.json) without
+       * re-running the suite. */
+      formatFeelProbeReport: (suite: FeelProbeSuiteResult) => string;
+      /**
+       * Phase 74 feel lab (dev/feelDrives.ts): drive one of the four named routes (`feelRoutes()`
+       * below) on the LIVE city — traffic, transit, pack-parked cars, furniture and infill all ON,
+       * exactly the shipped game — with the player made invincible for the window (HP-only, so a
+       * wreck-TRIGGERING contact is still recorded as data; the two paths that bypass HP entirely,
+       * water/out-of-bounds, can still end a run early — the drive REVIVES and keeps going, counted
+       * in `driver.revives`, rather than truncating the sample). Teleports to the route's derived
+       * start anchor, plans the WHOLE waypoint path up front from `opts.seed` (default 1) so two
+       * same-seed runs are byte-reproducible, then governs to `opts.cruiseFracOfTopSpeed` (or the
+       * route's own default) of the resolved car's top speed for `opts.seconds` (default the
+       * module's own DEFAULT_SECONDS; used as a CEILING instead of the end condition when
+       * `opts.stopAfterWaypoints` is set). `chase3` additionally grants heat to ★3 and waits for the
+       * pursuit roster to arm (see the report's `tierArmed`) before the measured window opens —
+       * `tierArmed: false` on that route invalidates the run. Resolves with a `FeelDriveReport`
+       * carrying `dev/feelTelemetry.ts`'s OWN snapshot for JUST that window (the accumulator is
+       * reset at window open, so a concurrent manual `feelTelemetryStart()` session is untouched)
+       * plus driver stats (waypoints driven/planned, timeouts, unstick re-routes, grind escapes,
+       * revives) and achieved-pace speed stats (mean/median/p95/max against the governed target).
+       * Idempotent while in flight for the SAME route (returns the in-flight promise unchanged); a
+       * MISMATCHED route requested while another is running logs a console warning and still
+       * returns the in-flight run's promise — check `activeFeelDriveRoute()` first if that
+       * distinction matters to the caller.
+       */
+      startFeelDrive: (opts?: FeelDriveOptions) => Promise<FeelDriveReport>;
+      /** Phase 74 feel lab: whether a route drive is currently in flight. */
+      isFeelDriveRunning: () => boolean;
+      /** Phase 74 feel lab: which route is currently driving, or null when idle. Lets a caller
+       * distinguish "the promise I'm holding is MY request" from "it's someone else's in-flight
+       * request" (see `startFeelDrive`'s mismatched-route-warning behaviour above). */
+      activeFeelDriveRoute: () => FeelRouteId | null;
+      /** Phase 74 feel lab: pure formatter for the same report `startFeelDrive()` already prints to
+       * the console on completion — exposed separately so a battery script can re-render a STORED
+       * `FeelDriveReport` without re-running the drive. */
+      formatFeelDriveReport: (report: FeelDriveReport) => string;
+      /**
+       * Phase 74 feel lab: the four named routes' static metadata — id, human label, the district
+       * ids whose union bounding box is the route's rect, the derived start-anchor kind, the
+       * DEFAULT cruise fraction of the resolved car's top speed (overridable per-call via
+       * `startFeelDrive`'s `opts.cruiseFracOfTopSpeed`/`opts.cruiseSpeedMps`), the wanted tier that
+       * must be live before the route's measured window opens (0 for every route but `chase3`), and
+       * which overview diagnosis item (`answers`) the route is evidence for. Deliberately omits
+       * `FEEL_ROUTES`' own `rect` field — a `() => DriveRect` THUNK, not a plain value, so it does
+       * not survive `page.evaluate`'s structured-clone boundary; a caller that needs the resolved
+       * rect reads it off a `FeelDriveReport.rect` from an actual run instead. Static data with no
+       * world dependency — safe to read before the world has mounted.
+       */
+      feelRoutes: () => Readonly<
+        Record<
+          FeelRouteId,
+          {
+            readonly label: string;
+            readonly districtIds: readonly DistrictId[];
+            readonly anchor: string;
+            readonly cruiseFracOfTopSpeed: number;
+            readonly requireTier: number;
+            readonly answers: string;
+          }
+        >
+      >;
     };
   }
 }
@@ -999,4 +1162,42 @@ window.__smashy = {
   setTransit: (value) => setDevToggle('transit', value),
   cnProgram,
   setCnProgram,
+  // Phase 74 feel lab
+  feelTelemetryStart: (opts) => startFeelTelemetry(opts),
+  feelTelemetryStop: () => stopFeelTelemetry(),
+  feelTelemetryReset: () => resetFeelTelemetry(),
+  feelTelemetryRead: () => readFeelTelemetry(),
+  feelTelemetryRunning: () => isFeelTelemetryRunning(),
+  feelMarkPhase: (label) => markFeelPhase(label),
+  startFeelProbes: (opts) => startFeelProbes(opts),
+  formatFeelProbeReport: (suite) => formatProbeSuiteReport(suite),
+  startFeelDrive: (opts) => startFeelDrive(opts),
+  isFeelDriveRunning: () => isFeelDriveRunning(),
+  activeFeelDriveRoute: () => activeFeelDriveRoute(),
+  formatFeelDriveReport: (report) => formatFeelDriveReport(report),
+  feelRoutes: () => {
+    const out = {} as Record<
+      FeelRouteId,
+      {
+        label: string;
+        districtIds: readonly DistrictId[];
+        anchor: string;
+        cruiseFracOfTopSpeed: number;
+        requireTier: number;
+        answers: string;
+      }
+    >;
+    for (const id of FEEL_ROUTE_IDS) {
+      const def = FEEL_ROUTES[id];
+      out[id] = {
+        label: def.label,
+        districtIds: def.districtIds,
+        anchor: def.anchor,
+        cruiseFracOfTopSpeed: def.cruiseFracOfTopSpeed,
+        requireTier: def.requireTier,
+        answers: def.answers,
+      };
+    }
+    return out;
+  },
 };

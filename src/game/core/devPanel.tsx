@@ -62,6 +62,15 @@ import { liveCamera } from '../fx/cameraRef';
 import { getClipIndexSize } from '../world/toronto/cameraClipIndex';
 import { readCameraClipStats, resetCameraClipStats } from '../world/toronto/cameraClipStats';
 import { cameraVantages } from '../world/toronto/cameraVantages';
+import {
+  isFeelTelemetryRunning,
+  readFeelTelemetry,
+  resetFeelTelemetry,
+  startFeelTelemetry,
+  stopFeelTelemetry,
+} from '../dev/feelTelemetry';
+import { startFeelProbes } from '../dev/feelProbes';
+import { FEEL_ROUTE_IDS, startFeelDrive, type FeelRouteId } from '../dev/feelDrives';
 
 // Task 5 debug-tint colour: the ONE end-to-end proof that an archetype's district-grouped
 // [start,count] ranges (world/instancing.ts) are correct — a single button recolours every
@@ -72,6 +81,14 @@ const TINT_COLOR = new Color('#ff2222');
 // there) and the Venues folder's existing literal: just above the suspension settle, so the wheel
 // rays are in ground contact on the very first physics step after the reset.
 const TELEPORT_DROP_Y = 0.85;
+
+// Phase 74 feel lab: the route picked by the "Feel lab (P74)" folder's dropdown, for the "run
+// drive" button below to read at click time. Module-scope rather than React state on purpose —
+// the folder's `useControls` factory (like every other folder in this file) runs exactly ONCE
+// (`deps: []`), so its button/dropdown closures share this one cell for the life of the mount;
+// leva itself owns the WIDGET's displayed value once registered, same as every other dropdown
+// here (see the Camera lab (P33) folder's `preset` control).
+let feelSelectedRouteId: FeelRouteId = 'downtownDense';
 
 // Phase 15 Task 4 debug tooling: sound-test board -------------------------------------------
 // Reasonable-for-a-preview param bag per SoundName (audio/synth.ts's SoundParams — a loose,
@@ -1029,6 +1046,67 @@ export default function DevPanel() {
         ),
       };
       schema['seeded (clear override)'] = button(() => setCnProgram(null));
+      return schema as unknown as LevaSchema;
+    },
+    [],
+  );
+
+  // --- Feel lab (P74): telemetry harness + probe/drive triggers ---------------------------
+  // The feel-parity cockpit (overview D1-D8, phase-74-plan.md): controlled-manoeuvre probes
+  // (dev/feelProbes.ts), scripted route drives on the live city (dev/feelDrives.ts), and the
+  // per-frame telemetry sampler both ride on (dev/feelTelemetry.ts). Every control below calls
+  // the dev/feel*.ts entry points DIRECTLY — the same functions core/debugBridge.ts's
+  // window.__smashy.startFeelDrive/startFeelProbes/feelTelemetryStart etc. wrap for the
+  // Playwright battery — never a parallel path, so a human clicking a button here and the
+  // scripted battery calling the bridge by name can never diverge (same precedent as the Camera
+  // lab (P33) folder above, whose `preset` control calls fx/cameraLab.ts directly rather than
+  // going through window.__smashy). Each of `startFeelDrive`/`startFeelProbes` already prints
+  // its own report to the console on completion (feelDrives.ts/feelProbes.ts's own
+  // console.info) — the buttons here are just the trigger, exactly like the chaos-bench button
+  // above; a leva button's onClick is synchronous, so the promise settles in the background and
+  // a console.error surfaces any failure (no live world/player yet, an unknown route, …).
+  useControls(
+    'Feel lab (P74)',
+    () => {
+      const schema: Record<string, unknown> = {
+        route: {
+          value: feelSelectedRouteId,
+          options: [...FEEL_ROUTE_IDS],
+          onChange: (id: string, _path: string, ctx: { initial: boolean }) => {
+            // leva fires onChange once at registration — don't stomp a script's own selection.
+            if (ctx.initial) return;
+            feelSelectedRouteId = id as FeelRouteId;
+          },
+        },
+      };
+      schema['run drive'] = button(() => {
+        console.info(`[feelDrive] starting '${feelSelectedRouteId}' — watch the console for the report…`);
+        startFeelDrive({ route: feelSelectedRouteId }).catch((err: unknown) => {
+          console.error('[feelDrive] failed:', err);
+        });
+      });
+      schema['run probes'] = button(() => {
+        console.info('[feelProbes] starting the 5-probe suite — watch the console for the report…');
+        startFeelProbes().catch((err: unknown) => {
+          console.error('[feelProbes] failed:', err);
+        });
+      });
+      schema['telemetry: start'] = button(() => startFeelTelemetry());
+      schema['telemetry: stop'] = button(() => stopFeelTelemetry());
+      schema['telemetry: reset'] = button(() => resetFeelTelemetry());
+      schema['telemetry running'] = monitor(() => (isFeelTelemetryRunning() ? 'yes' : 'no'), {
+        interval: 500,
+      });
+      // Two live numbers from the running (or last-stopped) telemetry session — a stuck count
+      // that STAYS at 0 and a contact rate that looks sane are the fastest "is this working"
+      // read a human gets without opening the console. See feelTelemetry.ts's
+      // isUnrecoverableStuck for exactly what the first number counts.
+      schema['unrecoverable stuck'] = monitor(() => readFeelTelemetry().stuck.unrecoverableCount, {
+        interval: 500,
+      });
+      schema['contact events/min'] = monitor(() => readFeelTelemetry().contact.eventsPerMin.toFixed(1), {
+        interval: 500,
+      });
       return schema as unknown as LevaSchema;
     },
     [],
