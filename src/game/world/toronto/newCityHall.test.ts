@@ -290,8 +290,12 @@ describe('Nathan Phillips Square — a street-referenced rect', () => {
   });
 
   it('is anchored on the campus centreline derived from University and Bay', () => {
+    // PHASE 75: the west offset re-pinned 24 → 19 (SQUARE.westOfCampusWu). University Avenue is an
+    // `artery`, so its widening pushed Osgoode Hall's set-back lot east into the strip the old
+    // offset assumed; the square yields that room and the seam above still holds. The anchor RULE
+    // — the midpoint of the two centrelines — is what this test exists to pin, and it is unchanged.
     expect(probes.campusX).toBeCloseTo((university.centerline + bay.centerline) / 2, 12);
-    expect(probes.squareMinX).toBeCloseTo(probes.campusX - 24, 12);
+    expect(probes.squareMinX).toBeCloseTo(probes.campusX - 19, 12);
   });
 
   it('claims the whole rect as blocking DECOR — the one thing that keeps placers off the square', () => {

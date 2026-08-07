@@ -21,8 +21,11 @@
 //
 //   ① venueDress moves BEFORE furniture. Its props derive purely from frontage claims, and
 //     authored venue dressing must outrank fungible generic furniture: this way a random bench
-//     can never displace the flower pots outside a money-shot storefront. venueDress itself gains
-//     no gates — it REGISTERS, it does not check — so its output stays byte-identical.
+//     can never displace the flower pots outside a money-shot storefront. Phase 40 shipped this
+//     with venueDress gaining NO gates at all ("it REGISTERS, it does not check"); Phase 75 gave
+//     it exactly one — its ground props now reject against claims registered BEFORE it (see the
+//     block at the call site). The ordering argument is untouched: outranking what comes after is
+//     not the same as ignoring what is already there, and "later is subordinate" is the law below.
 //   ② lane closures move AFTER furniture, because gap 4 requires them to gate on furniture's
 //     street-parked cars and manhole covers. Both moves are rng-neutral: every layer draws from
 //     its own named mulberry fork, which is seeded by label rather than by call order.
@@ -147,19 +150,50 @@ export function composeWorld(seed: number, tierParams: TorontoTierParams = TORON
     });
   }
 
-  // --- venue dressing: registers, never checks (deviation ① in the header) ----------------------
+  // --- venue dressing: registers, and (Phase 75) gates its GROUND props ------------------------
   // Only the GROUND props claim space. Fascia bands, awnings and the Alo plaque are wall-mounted —
   // config/layering.ts's WALL_STACK territory (Phase 39), not the arbiter's.
-  const dress = buildVenueDress(frontage.venueClaims);
-  dress.props.forEach((prop, i) => {
+  //
+  // PHASE 75 — THE ONE GATE THIS LAYER NOW HAS, and why it does not contradict deviation ①.
+  // Deviation ① is about what comes AFTER venue dressing: authored storefront props must outrank
+  // the fungible generic furniture registered later, so venueDress runs first and furniture yields
+  // to it. That argument says nothing about what is already on the ground when venueDress runs —
+  // and against those claims the composition root's own law applies unchanged ("LATER IS
+  // SUBORDINATE"). The gap was invisible until the road diet was reversed: a venue's camera-visible
+  // FLANK props mount just outside its side wall, which is only free ground while the streetwall
+  // has slack in it. At the doubled widths the frontage walk re-pitched and two venues ended up
+  // 0.24–0.37 wu from their next-door neighbour, so a flank prop stood 0.09 wu inside a generic
+  // frontage building (seed 416/1337 `loblaws-mlg` prop 24 vs `frontage:college:p:64`; seed 7
+  // `hmart-finch` prop 69 vs `frontage:yonge:p:9`) — three seeds, three arbiter-sweep failures.
+  // A prop wedged in a sub-wu slot between two buildings is not dressing anybody can see, so the
+  // honest resolution is the same one every other placer uses: REJECT, never relocate.
+  //
+  // `excludeOwner` is what keeps a venue's props free to stand against their OWN building and each
+  // other (sanction rules (a)/(c) in claimIndex.ts, expressed here as a query instead of an
+  // after-the-fact whitelist). The ORIGINAL prop ordinal stays in the claim id so dropping one
+  // never renumbers its neighbours — claimIndex.ts's "ids come from placement identity, never from
+  // an array position" rule, which the old `forEach` index only satisfied by accident.
+  const dressAll = buildVenueDress(frontage.venueClaims);
+  const keptProps = dressAll.props
+    .map((prop, ordinal) => ({ prop, ordinal }))
+    .filter(
+      ({ prop }) =>
+        !index.overlapsAny(propFootprint(prop.modelId, prop.position[0], prop.position[2], prop.rotationY), {
+          blocking: true,
+          excludeOwner: `venue:${prop.venueId}`,
+        }),
+    );
+  const dress: VenueDress =
+    keptProps.length === dressAll.props.length ? dressAll : { ...dressAll, props: keptProps.map((k) => k.prop) };
+  for (const { prop, ordinal } of keptProps) {
     index.register({
-      id: `venue-prop:${prop.venueId}:${i}`,
+      id: `venue-prop:${prop.venueId}:${ordinal}`,
       kind: 'venueProp',
       source: 'venueDress',
       owner: `venue:${prop.venueId}`,
       aabb: propFootprint(prop.modelId, prop.position[0], prop.position[2], prop.rotationY),
     });
-  });
+  }
   for (const queue of dress.queues) {
     const postHalf = VENUE_QUEUE.postSizeWu.w / 2;
     queue.posts.forEach((post, i) => {
@@ -249,7 +283,7 @@ export function composeWorld(seed: number, tierParams: TorontoTierParams = TORON
   const registerFurniture = (
     items: readonly { readonly modelId: string; readonly position: readonly [number, number, number]; readonly rotationY: number }[],
     prefix: string,
-    kind: 'furniture' | 'manhole' | 'parkedCar',
+    kind: 'furniture' | 'manhole' | 'parkedCar' | 'medianPlanting',
     owner?: string,
   ): void => {
     items.forEach((item, i) => {
@@ -275,6 +309,12 @@ export function composeWorld(seed: number, tierParams: TorontoTierParams = TORON
   registerFurniture(furniture.trashCans.items, 'furniture-trash-can', 'furniture');
   registerFurniture(furniture.busStops.items, 'furniture-bus-stop', 'furniture');
   registerFurniture(furniture.manholes.items, 'furniture-manhole', 'manhole');
+  // PHASE 75 (T4) — the grass median's trees. Their own KIND, because they are the one furniture
+  // population that lives inside a street ribbon: claimIndex.isOnRoadSanctioned grants the class
+  // (see the policy argument there), and medianPlanting.test.ts pins that the class can only ever
+  // stand where roadStrips.medianBandRuns reports grass. The footprint is the TRUNK, not the canopy
+  // (propFootprint's standing exception for 'tree').
+  registerFurniture(furniture.medianPlanting.items, 'furniture-median-planting', 'medianPlanting');
   registerFurniture(furniture.parked.items, 'furniture-parked', 'parkedCar');
 
   // --- lane closures: last, gated on the parked cars + manholes above (deviation ②) --------------

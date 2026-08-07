@@ -117,7 +117,15 @@ export const CAMERA_CLAMP_PADDING_WU = 30;
 const EPS = 1e-6;
 
 /** Signed area via the shoelace formula. Positive for the given (§1) winding, so the raw
- * value is the true +area for PLAYABLE_POLYGON (6,780,000 wu²). */
+ * value is the true +area for PLAYABLE_POLYGON: **2,535,840 wu²**.
+ *
+ * PHASE 75 CORRECTION: this comment used to read 6,780,000 — the PRE-COMPACTION area, stale since
+ * Part-8's DENSITY.scale 0.6 (a 0.6 linear compaction is 0.36 areal, and the fold zone's exemption
+ * lifts the result back to 2,535,840). It was wrong for six phases and it actively misled: the
+ * Phase 75 plan sized the road-widening land trade against 6.78M and understated the cost by 2.8×
+ * (it reported −2.75 % of buildable land; the truth is −7.70 %). Recomputed and re-stated here so
+ * the next reader gets the live number. If the polygon or DENSITY.scale ever moves, re-measure
+ * this rather than scaling the printed value. */
 export function polygonArea(poly: readonly MapVertex[]): number {
   let sum = 0;
   const n = poly.length;

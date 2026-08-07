@@ -12,8 +12,12 @@ describe('CORRIDOR_HALF_WIDTH_WU — D3 derivation', () => {
     expect(CORRIDOR_HALF_WIDTH_WU).toBeCloseTo(ROAD_CLASSES.spine / 2 + CAR_REF.widthWu / 2, 9);
   });
 
-  it('is 6.6 under the current car-derived spine (Part-8 road diet: 5 x 2.2 = 11.0)', () => {
-    expect(CORRIDOR_HALF_WIDTH_WU).toBeCloseTo(6.6, 9);
+  // PHASE 75 RE-PIN: the spine doubled (10 x 2.2 = 22.0), so the Line-1 fold-trigger x-gate widens
+  // with it — 6.6 → 12.1. That is correct behaviour, not drift: the corridor IS Yonge, and the
+  // gate has always been "half the spine plus half a car" so a car anywhere on the ribbon (now
+  // including the outer lanes the widening created) still trips the tunnel transition.
+  it('is 12.1 under the current car-derived spine (Phase 75 re-grade: 10 x 2.2 = 22.0)', () => {
+    expect(CORRIDOR_HALF_WIDTH_WU).toBeCloseTo(12.1, 9);
   });
 
   it('is strictly wider than a flat spine/2 (the whole point of the half-car pad)', () => {

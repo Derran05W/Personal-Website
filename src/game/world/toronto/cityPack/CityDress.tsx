@@ -31,7 +31,7 @@ import { FurnitureDynamicsMount } from './FurnitureDynamicsMount';
 import { ParkedVehicles } from './ParkedVehicles';
 import { TrafficLampOverlay } from './TrafficLampOverlay';
 import { VenueDressLayer } from './VenueDressLayer';
-import { LANE_CLOSURE } from '../../../config/torontoDress';
+import { LANE_CLOSURE, TRAFFIC_LIGHT } from '../../../config/torontoDress';
 import { type BackdropBox, type FrontageLayout, type PlacedBox } from '../frontage';
 import type { FurnitureLayout } from '../furniture';
 import type { DecorPlacement, InfillLayout } from '../infill';
@@ -290,7 +290,14 @@ function StreetFurniture({ furniture, unlit }: { furniture: FurnitureLayout; unl
   const cats = useMemo(
     () => [
       { id: 'traffic-light', placements: toPlacements(furniture.trafficLights) },
-      { id: 'tree', placements: toPlacements(furniture.trees.items) },
+      // PHASE 75 (T4): the grass median's planting rides THIS batch — same `tree` model id, so the
+      // whole layer costs ZERO new draw calls (a BatchedMesh is one call at any instance count).
+      // Median items are APPENDED, never interleaved: every street tree keeps its instance index, so
+      // the trunk colliders below (`trees.items[i]` -> instance i) and furnitureDynamics' launch
+      // pool are untouched. Median trees deliberately get NO collider — the median is visual-only by
+      // Phase 75's D2 drive-feel verdict, and a solid trunk in the middle of Yonge would be strictly
+      // worse than the 0.12 wu kerb that verdict already refused.
+      { id: 'tree', placements: toPlacements([...furniture.trees.items, ...furniture.medianPlanting.items]) },
       { id: 'fire-hydrant', placements: toPlacements(furniture.hydrants.items) },
       { id: 'bench', placements: toPlacements(furniture.benches.items) },
       { id: 'trash-can', placements: toPlacements(furniture.trashCans.items) },
@@ -310,7 +317,19 @@ function StreetFurniture({ furniture, unlit }: { furniture: FurnitureLayout; unl
   const hydrantHalf = useMemo(() => colliderHalfExtents('fire-hydrant'), []);
   const benchHalf = useMemo(() => colliderHalfExtents('bench'), []);
   const trashCanHalf = useMemo(() => colliderHalfExtents('trash-can'), []);
-  const trafficLightHalf = useMemo(() => colliderHalfExtents('traffic-light'), []);
+  // PHASE 75: the mast's collider is its POST, not the model's bounding box. `colliderHalfExtents`
+  // returns the full box, which is nearly all ARM — a solid slab centred on the mast, reaching as
+  // far BEHIND the post as in front of it and standing at head height over the roadway. That was
+  // already ~1.3 wu of invisible wall in the corner of every signalized intersection; the Phase 75
+  // traffic-light scale re-grade (1.0 → 1.74, see config/cityPackScale.ts) would have grown it to
+  // ~3.6 wu of diagonal wall across corners the player cuts. A car cannot hit an overhead signal
+  // arm, so it does not get a collider: this is the arbiter's own "claim the trunk, not the canopy"
+  // convention (config/torontoDress.ts TRAFFIC_LIGHT.postHalfWidthWu / TREE_ROW.trunkHalfWidthWu)
+  // applied to physics, so the claim rect and the collider now describe the same solid.
+  const trafficLightHalf = useMemo(
+    () => ({ hx: TRAFFIC_LIGHT.postHalfWidthWu, hy: colliderHalfExtents('traffic-light').hy, hz: TRAFFIC_LIGHT.postHalfWidthWu }),
+    [],
+  );
   const stopSignHalf = useMemo(() => colliderHalfExtents('stop-sign'), []);
 
   return (

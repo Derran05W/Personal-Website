@@ -14,7 +14,7 @@
 // (frac x manifest x resolver) and assert it against the exported constant — so the test also
 // fails if someone reverts the source to a hand literal that merely LOOKS right today.
 import { describe, expect, it } from 'vitest';
-import { LAMP_OVERLAY, LAMP_HEAD_ANCHOR_FRAC } from './torontoDress';
+import { LAMP_OVERLAY, LAMP_HEAD_ANCHOR_FRAC, TRAFFIC_LIGHT, TRAFFIC_LIGHT_POST_HALF_WIDTH_FRAC } from './torontoDress';
 import { ROUTE_BOARD, ROUTE_BOARD_CLEARANCE_WU } from './torontoTransit';
 import { getCityPackModel } from '../assets/cityPackManifest';
 import { resolveCityPackScale, colliderHalfExtents } from './cityPackScale';
@@ -23,15 +23,24 @@ describe('LAMP_OVERLAY.headAnchor — derived from the traffic-light manifest en
   // Phase 27's road-diet retune dropped the traffic-light scale override 1.35 -> 1.0 and this
   // anchor had to be hand-rescaled to match (-5.4/5.1 -> -4.0/3.78) — a silent drift for one
   // commit. This test is what would have caught it automatically.
-  it('stays within 0.01 wu of the historical hand-tuned anchor (-4.0, 3.78)', () => {
-    expect(LAMP_OVERLAY.headAnchor.x).toBeCloseTo(-4.0, 2);
-    expect(LAMP_OVERLAY.headAnchor.y).toBeCloseTo(3.78, 2);
+  //
+  // PHASE 75 — AND IT DID. The road-diet was reversed (ROAD_CLASSES doubled), the traffic-light
+  // scale override was re-judged 1.0 -> 1.74 against the new widths (see cityPackScale.ts's own
+  // comment: the head has to hang over the near travel lane and above a bus roofline, and the arm
+  // tip has to stop short of the crossing centreline — both now laws in furniture.test.ts), and
+  // this suite failed loudly on the derived anchor exactly as designed. The pins below are
+  // re-derived from the new scale IN THE SAME CHANGE; the derivation proof further down is what
+  // makes that legitimate rather than a rubber stamp.
+  it('tracks the resolved model: 1.74 x the P27-era anchor (-4.0, 3.78) -> (-6.96, 6.58)', () => {
+    expect(LAMP_OVERLAY.headAnchor.x).toBeCloseTo(-4.0 * 1.74, 2);
+    expect(LAMP_OVERLAY.headAnchor.y).toBeCloseTo(3.78 * 1.74, 2);
     expect(LAMP_OVERLAY.headAnchor.z).toBe(0);
   });
 
   it('pins the exact resolved value (fails loudly if manifest dims or the scale override drift)', () => {
-    expect(LAMP_OVERLAY.headAnchor.x).toBeCloseTo(-3.9999887730572374, 9);
-    expect(LAMP_OVERLAY.headAnchor.y).toBeCloseTo(3.780008101379858, 9);
+    // Phase 75 re-pin (was -3.9999887730572374 / 3.780008101379858 at the 1.0 scale).
+    expect(LAMP_OVERLAY.headAnchor.x).toBeCloseTo(-6.959980465119593, 9);
+    expect(LAMP_OVERLAY.headAnchor.y).toBeCloseTo(6.577214096400953, 9);
   });
 
   it('derivation proof: frac x (manifest nativeDims x resolved scale), recomputed independently here, equals the exported value — fails if the source ever reverts to a hand literal', () => {
@@ -41,6 +50,27 @@ describe('LAMP_OVERLAY.headAnchor — derived from the traffic-light manifest en
     const expectedY = LAMP_HEAD_ANCHOR_FRAC.y * (entry.nativeDims.h * scale);
     expect(LAMP_OVERLAY.headAnchor.x).toBeCloseTo(expectedX, 9);
     expect(LAMP_OVERLAY.headAnchor.y).toBeCloseTo(expectedY, 9);
+  });
+});
+
+describe('TRAFFIC_LIGHT.postHalfWidthWu — derived from the traffic-light manifest entry (Phase 75 T3)', () => {
+  // The THIRD constant in this family, and the one that proves the family was the right idea: it
+  // was a hand-picked 0.25 wu from Phase 40, and the Phase 75 scale re-judgement (1.0 -> 1.74)
+  // stranded it under-reporting the rendered post by ~0.19 wu — an ARBITER input silently
+  // describing a mast ~43 % narrower than the one on screen. Same fix, same proof shape.
+  it('resolves to the rendered post at today’s scale (~0.435 wu), not the stranded 0.25', () => {
+    expect(TRAFFIC_LIGHT.postHalfWidthWu).toBeCloseTo(0.435, 3);
+    expect(TRAFFIC_LIGHT.postHalfWidthWu).toBeGreaterThan(0.25);
+  });
+
+  it('is exactly 1.74 x the P40-era hand-picked 0.25 (the value it always meant, re-scaled)', () => {
+    expect(TRAFFIC_LIGHT.postHalfWidthWu).toBeCloseTo(0.25 * 1.74, 2);
+  });
+
+  it('derivation proof: frac x (manifest nativeDims.w x resolved scale), recomputed independently here', () => {
+    const entry = getCityPackModel('traffic-light');
+    const scale = resolveCityPackScale('traffic-light');
+    expect(TRAFFIC_LIGHT.postHalfWidthWu).toBeCloseTo(TRAFFIC_LIGHT_POST_HALF_WIDTH_FRAC * (entry.nativeDims.w * scale), 9);
   });
 });
 

@@ -303,6 +303,14 @@ export function buildPlacesLayer(named: NamedBuildings = buildNamedBuildings()):
   };
 
   // Rainbow crosswalk across Church at ~Alexander (Church-Wellesley, just north of College).
+  //
+  // PHASE 75 (T3) — audited, NO CHANGE NEEDED, recorded so it is not re-discovered. The stripes
+  // span `church.ribbon.minX .. maxX`, so the widening re-derived them for free (8.8 -> 17.6 wu of
+  // rainbow) — this is exactly the ribbon-referenced shape the phase wanted everywhere. The one
+  // thing it does NOT express is a median cut-out: it would paint straight across a planted strip.
+  // Latent, not live: Church is a `major`, and ROAD_MEDIAN's policy for `major` is 'optIn' with no
+  // street opting in (config/torontoMap.ts D3). If Church ever opts in, this is the second place
+  // that has to learn the median (roadPaint.ts's crossing cut-out being the first).
   const crossZ = c('college') - 40;
   const crossColors = ['#e40303', '#ff8c00', '#ffed00', '#008026', '#004dff', '#750787'];
   const stripeW = 1.5;

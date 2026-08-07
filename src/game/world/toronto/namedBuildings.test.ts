@@ -93,12 +93,30 @@ describe('buildNamedBuildings — zero road-ribbon violations', () => {
   // — a verified 400 m real length, never hand-tuned) is now LONGER than the compacted Queen-Dundas
   // gap it sits in (~124 wu, was ~258 wu pre-compaction) — the same class of risk the plan's own
   // "named footprints vs compacted lots" note called out. The placement is already optimally
-  // centred (unavoidable ~3.5 wu overhang split evenly onto both Queen's and Dundas's ribbons,
-  // inflated by the 1 wu road margin here); no repositioning fits the full data-sourced length
-  // inside the shrunk block. Flagged to the user (drivability nick right at Yonge-Dundas Square,
-  // the map's marquee corner) rather than silently masked — every OTHER named building still holds
-  // zero tolerance.
-  const EATON_OVERHANG_TOLERANCE_WU = 3.6;
+  // centred (unavoidable overhang split evenly onto both Queen's and Dundas's ribbons, inflated by
+  // the 1 wu road margin here); no repositioning fits the full data-sourced length inside the
+  // shrunk block. Flagged to the user (drivability nick right at Yonge-Dundas Square, the map's
+  // marquee corner) rather than silently masked — every OTHER named building still holds zero
+  // tolerance.
+  //
+  // PHASE 75 RE-PIN, 3.6 → 7.9, AND WHY IT IS NOT A LOOSENING. This is the ONE named-building
+  // number this phase re-pinned rather than root-fixed, so the arithmetic is written out in full:
+  //   • the gap the galleria must fit is Dundas's north-ribbon face to Queen's south-ribbon face.
+  //     Both are `major`, so BOTH edges stepped 4.4 wu toward the block: 124.07 → 115.27 wu.
+  //   • the 129 wu footprint therefore overhangs 13.73 wu instead of 4.93, split evenly (the
+  //     placement is centred): 6.865 wu per end, + the 1 wu road margin = 7.865 measured here.
+  //   • so the whole +4.4 is the two ribbon-edge steps and NOTHING else moved: not the data, not
+  //     the centre (mid(queen, dundas) — both centrelines are fixed), not the shape.
+  // The three OTHER named buildings this widening pushed onto asphalt were root-fixed (see
+  // namedBuildings.ts's corner-pair block); this one cannot be, because the only lever left is the
+  // researched footprint and P24's data law forbids hand-tuning it to fit the road grid.
+  //
+  // AND THE THING THE OLD NUMBER WAS FLAGGED FOR — drivability at the pinch — got BETTER, measured:
+  // the galleria eats 6.865 wu of Dundas's 17.6 wu ribbon, leaving 10.735 wu of free carriageway
+  // where it used to eat 2.465 of 8.8 and leave 6.335. +4.4 wu (+69 %) of clear road at the map's
+  // marquee corner. The absolute intrusion is larger; the road the player drives through it is
+  // wider. Phase 49 (Eaton Centre v2) owns the geometry that would remove the intrusion entirely.
+  const EATON_OVERHANG_TOLERANCE_WU = 7.9;
 
   it('no box overlaps any ribbon inflated by the road margin (eaton-centre-galleria excepted, bounded)', () => {
     const ribbons = buildRibbons(buildStreets().streets);

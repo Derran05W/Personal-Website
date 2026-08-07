@@ -14,7 +14,7 @@
 // TORONTO_CALIBRATION); yonge_line anchors are read from the projection's own calibration so
 // they are never transcribed twice.
 
-import { EDGE_PAD_WU, ROAD_CLASSES, type RoadClass } from '../../config/torontoMap';
+import { EDGE_PAD_WU, ROAD_CLASSES, ROAD_MEDIAN, type RoadClass } from '../../config/torontoMap';
 import { PLAYABLE_POLYGON, pointInPolygon, scaleAboutYonge, ZONE_X_EXTENTS } from './polygon';
 import { type LatLon, type MapPoint, scaleBaseY, TORONTO_PROJECTION, ZONE_BOUNDARIES } from './projection';
 
@@ -38,6 +38,15 @@ export interface Street {
   readonly positionRef: string | null;
   readonly width: number;
   readonly halfWidth: number;
+  /**
+   * PHASE 75 — the RESOLVED median width (wu) for this street: the class policy
+   * (config/torontoMap.ts's ROAD_MEDIAN) combined with this street's own opt-in flag, 0 when it
+   * carries none. Resolved once, here, so no downstream consumer (ribbons, paint, the traffic
+   * graph, frontage, furniture) ever re-derives the class rule — the same contract `width` /
+   * `halfWidth` already hold for ROAD_CLASSES.
+   */
+  readonly medianWidth: number;
+  readonly medianHalfWidth: number;
   /** x for an 'ns' street, y for an 'ew' street (post boundary-nudge). */
   readonly centerline: number;
   /** [min, max] along the perpendicular axis (y for 'ns', x for 'ew'). */
@@ -90,6 +99,14 @@ interface StreetDef {
   /** Proxy anchor id, or `null` for Yonge (spine, x=1500). */
   readonly positionRef: string | null;
   readonly span: readonly [SpanEnd, SpanEnd];
+  /**
+   * PHASE 75 — per-street median OPT-IN. Only meaningful on a class whose ROAD_MEDIAN policy is
+   * 'optIn' (currently `major`): setting it there plants a median on that one street without
+   * touching code. On an 'always' class it is redundant (the class already carries one) and on a
+   * 'never' class it is a loud build error — see `resolveMedianWidth`. NO street sets it as of
+   * Phase 75 (D3: a median on a 17.6 wu major would leave 7.7 wu carriageways).
+   */
+  readonly median?: true;
 }
 
 // The full §3a table + Eglinton (the fold flavour mini-node, §2 — not in the §3a class table;
@@ -156,6 +173,25 @@ function anchorLatLon(id: string): LatLon | null {
   const cal = TORONTO_PROJECTION.calib.yongeLine.find((a) => a.id === id);
   if (cal) return { lat: cal.lat, lon: cal.lon };
   return STREET_ANCHORS[id] ?? null;
+}
+
+/**
+ * PHASE 75 — resolve a street's median width (wu) from its class policy plus its own opt-in flag.
+ * The ONE place the rule is applied; `Street.medianWidth` is its output and everything downstream
+ * reads that number.
+ *
+ * Loud on the illegal combination: an opt-in flag on a 'never' class is a data mistake (somebody
+ * asked for a median on a minor street), and silently returning 0 would hide it. 'always' classes
+ * ignore the flag by construction — they already carry one.
+ */
+export function resolveMedianWidth(cls: RoadClass, optIn: boolean): number {
+  const policy = ROAD_MEDIAN.policy[cls];
+  if (policy === 'never') {
+    if (optIn) throw new Error(`streets: road class '${cls}' can never carry a median (ROAD_MEDIAN.policy)`);
+    return 0;
+  }
+  if (policy === 'optIn' && !optIn) return 0;
+  return ROAD_MEDIAN.widthWu[cls];
 }
 
 /** Raw centreline coord for a def (x for 'ns', y for 'ew'), before any boundary-nudge. */
@@ -270,6 +306,7 @@ export function buildStreets(): BuiltStreets {
     const centerline = centerlines.get(def.id)!;
     const width = ROAD_CLASSES[def.cls];
     const halfWidth = width / 2;
+    const medianWidth = resolveMedianWidth(def.cls, def.median === true);
     const span = resolveSpan(def, centerlines);
     const ribbon = ribbonOf(def.axis, centerline, halfWidth, span);
     const start: MapPoint = def.axis === 'ns' ? { x: centerline, y: span[0] } : { x: span[0], y: centerline };
@@ -282,6 +319,8 @@ export function buildStreets(): BuiltStreets {
       positionRef: def.positionRef,
       width,
       halfWidth,
+      medianWidth,
+      medianHalfWidth: medianWidth / 2,
       centerline,
       span,
       ribbon,

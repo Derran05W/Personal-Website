@@ -258,8 +258,13 @@ describe('Union Station v2 — the sunken carriageway (moat)', () => {
       maxZ: front.ribbon.maxY,
     };
     expect(overlaps(moat, ribbon)).toBe(false);
-    // …and no vertex of the whole mesh crosses the kerb either.
-    expect(Math.min(...verts.map((v) => v.z))).toBeGreaterThanOrEqual(moat.minZ - 1e-6);
+    // …and no vertex of the whole mesh crosses the kerb either. The bound is rounded to the
+    // precision the vertex actually has: `verts` is read back out of a Float32Array, and the moat's
+    // north row of vertices sits exactly ON `moat.minZ`, so the stored value is fround(minZ) —
+    // which at this coordinate's magnitude is up to 1.2e-4 wu away from the float64 original, i.e.
+    // ~240× the 1e-6 slack below. PHASE 75 exposed that (Front's kerb moved 4.4 wu with the road
+    // widening and the new value happens to round DOWN); the assertion itself is unchanged.
+    expect(Math.min(...verts.map((v) => v.z))).toBeGreaterThanOrEqual(Math.fround(moat.minZ) - 1e-6);
   });
 });
 

@@ -180,9 +180,12 @@ describe('Osgoode Hall — the lawn is derived from the RIBBONS, never from lite
   it('THE SEAM WITH THE CIVIC SQUARE: the lawn never reaches Nathan Phillips Square\'s claim', () => {
     // Two agents built these layers in parallel this phase, so the boundary is pinned here rather
     // than discovered at integration. `campusX` mirrors newCityHall's placement rule (the midpoint
-    // of the University and Bay centrelines) and the square's west edge is campusX − 24.
+    // of the University and Bay centrelines) and the square's west edge is campusX − 19.
+    // PHASE 75: 24 → 19 with SQUARE.westOfCampusWu — University Avenue's widening moved this
+    // building east into the strip the old offset assumed, so the square's west edge moved with it
+    // (the reasoning is recorded at the constant). Same seam, same direction, re-measured.
     const campusX = (university.centerline + bay.centerline) / 2;
-    const squareMinX = campusX - 24;
+    const squareMinX = campusX - 19;
     expect(probes.lawnSMaxX).toBeLessThan(squareMinX);
     // …and it never runs more than 3 wu past the building's own footprint either.
     expect(probes.lawnSMaxX).toBeLessThanOrEqual(dataBox.cx + dataBox.hx + 3);

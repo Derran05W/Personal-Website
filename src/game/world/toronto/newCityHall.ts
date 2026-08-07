@@ -176,9 +176,20 @@ const THRESHOLD_RISE_WU = 0.55;
 /** Nathan Phillips Square, street-referenced. Each offset is measured from a resolved edge and
  * says what it clears. */
 const SQUARE = {
-  /** West edge, west of the campus centreline. Osgoode Hall's massing exclusion ends ~2.8 wu
-   * further west at this offset, so the square never touches its lawn (asserted in the test). */
-  westOfCampusWu: 24,
+  /** West edge, west of the campus centreline. Osgoode Hall's massing exclusion ends ~2.4 wu
+   * further west at this offset, and its lawn ~2.9 wu, so the square never touches either
+   * (asserted in the test).
+   *
+   * PHASE 75 — 24 → 19, and the 5 wu is not slack this constant had lying around: it is the room
+   * University Avenue took. The strip between University's sidewalk and this edge has to hold
+   * Osgoode Hall's west lawn + its 16 wu footprint + its 3 wu massing exclusion, and University is
+   * an `artery`, so its east ribbon edge moved 4.95 wu east into exactly that strip. At 24 the
+   * arithmetic no longer closes for ANY legal Osgoode placement (the chain needs 25.93 wu of the
+   * 25.93 available, before the square's own 1 wu clearance), which is why this moves rather than
+   * the landmark absorbing all of it. The square is a plaza sized by fractions of its own rect, so
+   * everything inside it (rink, arches, sign, flagpoles) re-derives; measured 71.4 → 62.0 wu wide,
+   * with Bay's widening accounting for 4.4 of the loss. */
+  westOfCampusWu: 19,
   /** East edge, clear of Bay's ribbon: 3 wu of sidewalk band + 4 wu of margin. */
   bayClearanceWu: 7,
   /** North edge, south of the podium's own data box. */

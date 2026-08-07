@@ -9,8 +9,9 @@
 // at mount (seed/tier), never live-mutated mid-run, so it stays outside the legacy-world live
 // leva panel by design (see torontoDress.ts's TorontoTierParams doc comment).
 
-import { colliderHalfExtents } from './cityPackScale';
+import { CAR_REF, colliderHalfExtents } from './cityPackScale';
 import { TRAFFIC_STREETCAR, type StreetcarTuning } from './streetcar';
+import { LANE_OFFSET_WU, type RoadClass } from './torontoMap';
 import type { QualityTier } from './quality';
 
 /** Tier-scaled active roster size per mode (Part-8 table: "10-14 active, tier-scaled"; this
@@ -42,20 +43,78 @@ export const TORONTO_TRANSIT_WEIGHTING = {
   defaultWeight: 1,
 } as const;
 
-/** Perpendicular offset (wu) applied to a STREETCAR route's resolved centreline (D2: "median for
- * streetcar ROW segments"). Streetcars run the true median/centreline (0 offset) on every
- * streetcar street — Spadina/Queens Quay have a REAL streetcar ROW median in reality, but since
- * our street model has no separate curb-lane data for streetcars, every streetcar route shares
- * the same centreline convention (a documented simplification, not a bug — see
- * phase-31-notes.md). BUS routes no longer read this: Phase 31's lane-offset fix moved buses onto
- * the direction-correct, per-class LANE_OFFSET_WU lane (config/torontoMap.ts — the SAME civilian
- * lane geometry roadGraph.ts's traffic graph uses), resolved as a closed loop
+/**
+ * Perpendicular geometry for a STREETCAR route's resolved track (D2: "median for streetcar ROW
+ * segments").
+ *
+ * PHASE 31 (the reasoning this block has always carried, preserved): streetcars ran the true
+ * median/centreline — a literal 0 offset. Spadina/Queens Quay have a REAL streetcar ROW median in
+ * reality, and since the street model has no separate curb-lane data for streetcars, every
+ * streetcar route shared that one centreline convention (a documented simplification, not a bug —
+ * phase-31-notes.md). BUS routes do not read this block: Phase 31's lane-offset fix moved buses
+ * onto the direction-correct, per-class LANE_OFFSET_WU lane (config/torontoMap.ts — the SAME
+ * civilian lane geometry roadGraph.ts's traffic graph uses), resolved as a closed loop
  * (world/toronto/transitRoutes.ts's resolveBusLoop) instead of a single fixed kerb offset driven
  * there-and-back — the old constant kerb offset made a bus's return leg drive the oncoming lane
- * (live-diagnosed wrong-way bug). */
+ * (live-diagnosed wrong-way bug).
+ *
+ * PHASE 75 — THE 0 IS NOW A BUG, so it is replaced by a DERIVATION (streetcarTrackOffsetWu
+ * below). The road re-grade planted a one-car-wide grass median down the spine and the arteries
+ * (config/torontoMap.ts's ROAD_MEDIAN), and the true centreline is now the middle of that planted
+ * strip: 510 Spadina — an artery route — would have driven the whole line through the grass, and
+ * every other streetcar route would have straddled the centre of a 17.6 wu road that no longer has
+ * anything down the middle of it.
+ *
+ * WHERE THE TRACK GOES — the INNER lane, NOT the bus/civilian lane. Rejected alternative first:
+ * putting streetcars on LANE_OFFSET_WU (sharing the bus lane) is wrong three times over.
+ * (1) Phase 75 D5 keeps ONE lane per direction, so "sharing" means OCCUPYING it, and a streetcar
+ * is a kinematic IMPLACABLE body that stops dead and never creeps (config/streetcar.ts) — parking
+ * one on the only lane chain is the exact immovable-obstacle-in-a-single-lane failure the feel
+ * overhaul's D2 is about. (2) A streetcar route is an OPEN there-and-back polyline ('bounce'), not
+ * a direction-correct loop, so on a shared lane its return leg would drive the oncoming lane — the
+ * Phase 31 wrong-way bug, re-introduced. (3) Real streetcars run the innermost lane (or a centre
+ * ROW) anyway, never the kerb lane the buses use.
+ *
+ * So the track sits in the strip the traffic graph leaves EMPTY: between the inner kerb (the
+ * median edge, or the centreline on a class that carries none) and the traffic lane's inner flank.
+ * That strip is real asphalt no lane chain, bus loop or parked row occupies, which makes it a
+ * de-facto dedicated ROW — the Spadina/Queens Quay read, for free, on every route. The bounce
+ * still shares ONE physical track in both directions (unchanged from Phase 31's simplification —
+ * a single-track line), but it can no longer meet civilian traffic head-on in a lane, because it
+ * is not in a lane.
+ */
 export const TORONTO_TRANSIT_OFFSET = {
-  streetcarOffsetWu: 0,
+  /**
+   * Which side of the centreline the shared single track sits on. +1 is +x on an 'ns' street
+   * (east) and +y on an 'ew' street (south) — world/toronto/transitRoutes.ts's `pointAt`
+   * convention. A CONSTANT, not a per-direction sign: one track, driven both ways (see above).
+   * The side is arbitrary by construction — the strip is symmetric about the centreline and empty
+   * on both sides — so this is a convention, not a tuning.
+   */
+  streetcarTrackSign: 1,
 } as const;
+
+/**
+ * PHASE 75 — the streetcar track's perpendicular offset (wu) from a street's centreline: the
+ * MIDPOINT of the empty strip between the inner kerb and the traffic lane, i.e.
+ *
+ *     (medianHalfWidth + [LANE_OFFSET_WU[cls] − CAR_REF.widthWu / 2]) / 2
+ *      ^ the inner kerb      ^ the traffic lane's inner flank (a car centred on the lane)
+ *
+ * Derived from the same three numbers the road itself is graded from — never hand-picked — so it
+ * re-flows automatically if the widths, the median or the lane rule ever move again. Resolves to
+ * spine 3.025 / artery 2.75 / major 1.65 / minor 1.1 at the Phase 75 widths, each with equal
+ * clearance to the kerb it sits inside and to the traffic lane it sits inboard of.
+ *
+ * Takes the RESOLVED median half-width (world/toronto/streets.ts's `Street.medianHalfWidth`)
+ * rather than re-deriving the class policy, so a street that ever opts a median in
+ * (ROAD_MEDIAN.policy 'optIn') moves its streetcar track with it. Config never imports world/, so
+ * the caller passes the number in.
+ */
+export function streetcarTrackOffsetWu(cls: RoadClass, medianHalfWidthWu: number): number {
+  const trafficLaneInnerFlankWu = LANE_OFFSET_WU[cls] - CAR_REF.widthWu / 2;
+  return (medianHalfWidthWu + trafficLaneInnerFlankWu) / 2;
+}
 
 /** TTC-homage livery colours (D3: "red/white body tint" + a route board). Reused as the single
  * flat tint every bus body wears (a two-tone texture isn't available without a pipeline-side

@@ -1088,10 +1088,30 @@ const CCW_PITCH_MULTIPLE = 2;
 const CCW_PIER_WIDTH_FRAC = 0.28;
 /** Commerce North's limestone piers (wu). */
 const CCN_PIER_HALF_W_WU = 0.4;
-/** Commerce North: gap (wu) its south facade keeps off King's ribbon edge. namedBuildings.ts's own
- * FLUSH_GAP_WU — the §5 "2–4 wu" band — so the 1931 tower walls King exactly like every flushed
- * named building walls its street. */
-const CCN_FLUSH_GAP_WU = 3;
+/**
+ * Commerce North: gap (wu) its south CLAIM edge keeps off King's ribbon edge — inside the §5
+ * "2–4 wu" band namedBuildings.ts's own FLUSH_GAP_WU sits in, so the 1931 tower walls King the way
+ * every flushed named building walls its street.
+ *
+ * PHASE 75 (road widening) — 3 → 2, THE BAND FLOOR, and the reason is a measured land loss, not a
+ * preference. King is a `major`, so its half-width went 4.4 → 8.8 wu and its NORTH ribbon edge
+ * stepped 4.4 wu north; Adelaide is a `minor`, so its south edge stepped 3.3 wu south. The
+ * King↔Adelaide block therefore lost 7.7 wu of depth. Commerce Court WEST does not move with either
+ * (namedBuildings authors its z off King's CENTRELINE — `c('king') - 37` — and spends its one
+ * `frontage` flush on the Bay axis), so the Adelaide side absorbed its 3.3 out of slack it had and
+ * the whole 4.4 landed on the King frontage stack, which is what this file owns. Measured on the
+ * built table: the forecourt between the two towers went 7.30 → 2.90 wu, i.e. 1.10 wu below
+ * CCN_MIN_PLAZA_WU, and `commerceNorth()` threw (correctly — see that guard).
+ *
+ * That 1.10 wu has to come out of the stack between King's edge and Pei's south wall, and exactly
+ * two of its four terms are ours to spend: this gap (1.0 wu of sanctioned give down to the band
+ * floor) and the 0.4 wu of claim inflation that used to be applied to the two faces carrying no
+ * piers (see `commerceNorth`). The 1931 tower's 13 wu footprint is DATA and the 4 wu forecourt is a
+ * deliberate guard; neither is a lever. 1.0 + 0.4 = 1.4 covers the 1.10 with 0.30 to spare.
+ * financialTowers.test.ts independently pins BOTH ends of that: the claim edge stays ≥ 2 wu off the
+ * ribbon (a real kerb gap) and the forecourt stays > 4 wu.
+ */
+const CCN_FLUSH_GAP_WU = 2;
 /** The minimum forecourt (wu) that must survive between the two towers, or the layout throws
  * rather than quietly burying the 1931 building in Pei's slab. */
 const CCN_MIN_PLAZA_WU = 4;
@@ -1109,7 +1129,8 @@ const CCN_PIER_PROUD_WU = CCN_PIER_DEPTH_WU - SHAFT_BURY_WU;
 interface CommerceNorth {
   /** The 1931 tower's WALL footprint — `footprint_wu` from the data, exactly. */
   readonly rect: MassRect;
-  /** `rect` inflated by the pier projection: the claim + collider footprint. */
+  /** `rect` inflated by the pier projection ON THE TWO FACES THAT CARRY PIERS: the claim +
+   * collider footprint (see `commerceNorth` for why the other two are flush). */
   readonly claim: MassRect;
   readonly height: number;
   readonly fill: string;
@@ -1124,21 +1145,32 @@ function streetById(streets: readonly Street[], id: string): Street {
 function commerceNorth(L: TowerLayout, ctx: NamedGeometryCtx): CommerceNorth {
   const spec = secondarySpec('commerce-court-north');
   const half = spec.footprint_wu / 2;
-  const outerHalf = half + CCN_PIER_PROUD_WU;
   const king = streetById(ctx.streets, 'king');
   // The CLAIM's south edge takes the flush gap (that is the edge the street actually meets), so the
   // wall itself sits one pier projection further back.
   const south = king.ribbon.minY - CCN_FLUSH_GAP_WU - CCN_PIER_PROUD_WU;
   const north = south - 2 * half;
-  if (north - CCN_PIER_PROUD_WU - L.zMax < CCN_MIN_PLAZA_WU) {
+  // THE FORECOURT GUARD (Phase 48): Pei's plaza is the researched street event on this lot, so a
+  // King frontage too shallow to hold both towers AND the forecourt is a loud build failure, never
+  // a silent squeeze. It fired for real at Phase 75's road widening — see CCN_FLUSH_GAP_WU for the
+  // measured land accounting that answered it. `north` is the claim's north edge as well as the
+  // wall's: the back pair of faces carries no piers (below).
+  if (north - L.zMax < CCN_MIN_PLAZA_WU) {
     throw new Error('financialTowers: the King frontage cannot hold Commerce Court North + its plaza');
   }
-  // West facade aligned with Pei's own west wall — which namedBuildings flushed to Bay Street, so
-  // the 1931 tower lands on the King × Bay corner, where it stands.
-  const rect: MassRect = { cx: L.xMin + outerHalf, cz: (north + south) / 2, hx: half, hz: half };
+  // West WALL aligned with Pei's own west wall — which namedBuildings flushed to Bay Street, so the
+  // 1931 tower lands on the King × Bay corner, where it stands.
+  const rect: MassRect = { cx: L.xMin + half, cz: (north + south) / 2, hx: half, hz: half };
+  // The claim grows by the pier projection on the SOUTH and EAST faces ONLY, because those are the
+  // only two faces piers stand on (`appendMassPiers` lays its rows on the camera-visible pair, and
+  // the setback stack cuts back off the same pair, so the north and west walls stay put all the way
+  // up). Inflating all four sides — as this did before Phase 75 — claimed 0.4 wu of ground on each
+  // blind face that no stone ever occupies, and on the north face that ground is the forecourt.
+  // Growing one side of a pair by `d` is a centre shift of d/2 and a half-extent growth of d/2.
+  const grow = CCN_PIER_PROUD_WU / 2;
   return {
     rect,
-    claim: { cx: rect.cx, cz: rect.cz, hx: outerHalf, hz: outerHalf },
+    claim: { cx: rect.cx + grow, cz: rect.cz + grow, hx: half + grow, hz: half + grow },
     height: namedHeight(spec.real_h_m),
     fill: lookForMaterial(spec.material).fill,
   };

@@ -28,6 +28,8 @@ import {
   DRESS_DENSITY_SCALAR,
   HYDRANT_ROW,
   MANHOLE_ROW,
+  manholeOffsetWu,
+  MEDIAN_PLANTING,
   PARKED,
   POWER_BOX,
   SIDEWALK_ROW,
@@ -50,6 +52,7 @@ import { districtAt, type ResolvedDistrict } from './districts';
 import { PLAYABLE_POLYGON, pointInPolygon } from './polygon';
 import { mapToWorld, type MapPoint } from './projection';
 import { type Intersection } from './roadGraph';
+import { medianBandRuns } from './roadStrips';
 import { type MapRect, type Street } from './streets';
 import { busRouteStreetCoverage, isOnBusRoute } from './transitRoutes';
 import { BLOCKING_QUERY, EXCLUSION_ZONE_KINDS, type PlacementContext } from './worldContext';
@@ -122,6 +125,18 @@ export interface FurnitureLayout {
   readonly trashCans: DistrictOrdered<FurniturePlacement>;
   readonly busStops: DistrictOrdered<FurniturePlacement>;
   readonly manholes: DistrictOrdered<FurniturePlacement>;
+  /**
+   * PHASE 75 (T4) — sparse trees on the raised grass MEDIAN of the spine + arteries. A SEPARATE
+   * array from `trees` on purpose, and the separation is load-bearing twice over:
+   *   • COLLIDERS. cityPack/CityDress.tsx mounts a tree-trunk collider per item of `trees.items`;
+   *     the median planting is visual-only (the median itself is, by Phase 75's D2 drive-feel
+   *     verdict), so it must not appear in the collidered array. Disjointness IS the guarantee.
+   *   • INSTANCE IDS. The two populations still render as ONE `tree` BatchedMesh (zero new draw
+   *     calls) with the median items appended AFTER the street trees, so every street tree keeps
+   *     its instance index and the furniture launch pool's `trees.items[i] -> instance i` mapping
+   *     is untouched.
+   */
+  readonly medianPlanting: DistrictOrdered<FurniturePlacement>;
   readonly parked: DistrictOrdered<ParkedVehicle>;
   readonly colliderSpecs: FurnitureColliderSpecs;
   /** category -> placed count, for tests/debug/the verification-plan dump (D16 "record exact"). */
@@ -551,10 +566,15 @@ function buildManholes(
     const crossings = intersectionsByStreet.get(street.id) ?? [];
     const streetRng = rng.fork(`manhole:${street.id}`);
     const stops = walkSpan(street, effectiveSpacing, streetRng);
+    // Phase 75: the offset is measured from the edge of the street's CENTRE MARKER, not from the
+    // bare centreline — on a median street the marker is a 2.2 wu raised grass strip, and the flat
+    // 1.5 wu offset left the cover's own footprint 0.04 wu off the kerb chamfer. Reduces to the
+    // unchanged 1.5 wu on every street without a median (config/torontoDress.ts's manholeOffsetWu).
+    const offsetWu = manholeOffsetWu(street.medianHalfWidth);
     let side: 1 | -1 = 1;
     for (const along of stops) {
-      if (nearAnyCrossing(along, crossings, MANHOLE_ROW.centerlineOffsetWu + 1)) continue;
-      const p = pointAlong(street, along, MANHOLE_ROW.centerlineOffsetWu * side);
+      if (nearAnyCrossing(along, crossings, offsetWu + 1)) continue;
+      const p = pointAlong(street, along, offsetWu * side);
       side = side === 1 ? -1 : 1; // alternate sides of the centreline
       const district = districtAt(p, districts);
       if (!district) continue;
@@ -571,6 +591,79 @@ function buildManholes(
     }
   }
   return thinToCap(out, MANHOLE_ROW.capMapWide);
+}
+
+// --- median planting (Phase 75 T4) --------------------------------------------------------------
+
+/**
+ * Sparse trees down the raised grass median of every median-carrying street.
+ *
+ * WHERE THERE IS GRASS is not re-derived here: `roadStrips.medianBandRuns` is the one derivation,
+ * and `roadPaint.ts` paints from the identical call. A run reports the strip's perpendicular centre,
+ * its half-width, and the along-street segments that survive the 36 crossing cut-outs
+ * (MEDIAN_CUT_SETBACK_WU, itself derived from the crosswalk band so every zebra lands on bare
+ * asphalt), the ribbon-union covers, and the 5 terminus insets. A street with no median produces no
+ * run, so a non-median street can never be planted — there is no flag to get wrong.
+ *
+ * THE RHYTHM, per segment: candidates are spread EVENLY across the segment's plantable range
+ * (`[a + canopyHalf, b − canopyHalf]`, so no canopy hangs past the grass into a crossing), at the
+ * largest count whose step still clears MEDIAN_PLANTING.pitchWu. `n − 1 = floor(L / pitch)` gives
+ * `step = L / (n − 1) >= pitch` by construction, and a segment shorter than one pitch gets a single
+ * tree at its centre. Even spacing rather than a jittered walk (walkSpan's idiom for sidewalk rows)
+ * because a median IS a formal planting — the jitter that makes a sidewalk row feel organic would
+ * just read as a mistake down the middle of a boulevard.
+ *
+ * The only stochastic input is the cosmetic yaw, drawn from this layer's own rng fork.
+ *
+ * Placements are ON their ribbon by design, so — like manholes and parked cars — this category is
+ * exempt from `dropOnRibbon`, and its claims are sanctioned by `claimIndex.isOnRoadSanctioned`'s
+ * medianPlanting clause. It still gates against the arbiter (nothing else should be standing on a
+ * median, and if something is, the tree yields — reject-never-relocate, like every other placer).
+ */
+function buildMedianPlanting(
+  streets: readonly Street[],
+  intersections: readonly Intersection[],
+  districts: readonly ResolvedDistrict[],
+  arbiter: FurnitureArbiter,
+  rng: Rng,
+  densityScalar: number,
+): readonly FurniturePlacement[] {
+  const out: FurniturePlacement[] = [];
+  const kept: Aabb[] = [];
+  const pitch = MEDIAN_PLANTING.pitchWu / densityScalar;
+  const canopyHalf = MEDIAN_PLANTING.canopyHalfWu;
+
+  for (const run of medianBandRuns(streets, intersections)) {
+    const streetRng = rng.fork(`median:${run.street.id}`);
+    for (const [segLo, segHi] of run.segments) {
+      const lo = segLo + canopyHalf;
+      const hi = segHi - canopyHalf;
+      if (hi < lo) continue; // segment too short to hold a whole canopy
+      const usable = hi - lo;
+      const gaps = Math.floor(usable / pitch);
+      const count = gaps + 1;
+      for (let i = 0; i < count; i++) {
+        const along = count === 1 ? (lo + hi) / 2 : lo + (usable * i) / gaps;
+        // Dead centre of the strip: the planting is the strip's own axis, and centring is what keeps
+        // the canopy's overhang symmetric across the two carriageways (the measured lane clearance
+        // in MEDIAN_PLANTING's comment assumes it).
+        const p = pointAlong(run.street, along, 0);
+        if (!pointInPolygon(p, PLAYABLE_POLYGON)) continue;
+        const district = districtAt(p, districts);
+        if (!district) continue;
+        const rotationY = seededSpin(streetRng);
+        // Claims the TRUNK, never the canopy (furnitureFootprint's documented exception) — the same
+        // rule the sidewalk tree rows use, for the same reason: the canopy is 2.5 wu of airspace the
+        // player drives straight under.
+        const fp = furnitureFootprint(MEDIAN_PLANTING.modelId, p, rotationY);
+        if (arbiter.taken(fp)) continue;
+        if (kept.some((r) => overlaps(fp, r))) continue;
+        kept.push(fp);
+        out.push(toWorldPlacement(MEDIAN_PLANTING.modelId, p, rotationY, district.id));
+      }
+    }
+  }
+  return thinToCap(out, MEDIAN_PLANTING.capMapWide);
 }
 
 // --- parked vehicles (D18) -------------------------------------------------------------------
@@ -855,6 +948,15 @@ export function buildFurniture(
   const manholesRaw = buildManholes(streets, intersectionsByStreet, districts, arbiter, base.fork('manhole'), densityScalar);
   const manholes = orderByDistrict(manholesRaw);
   claimAll(manholes.items, 'manhole');
+  // MEDIAN PLANTING (Phase 75 T4) — built and claimed LAST among the furniture categories, which is
+  // what makes it provably churn-free: every other category was already placed and claimed against
+  // an index this layer had not yet touched, so adding the median cannot move a single existing
+  // placement (ablated: every other furniture count is byte-identical). It still rejects against
+  // everything above it, and lane closures (composeWorld's deviation ②) gate on it in turn.
+  // NOT `dropOnRibbon`-filtered: it lives inside the ribbon by design, like manholes and parked.
+  const medianPlantingRaw = buildMedianPlanting(streets, intersections, districts, arbiter, base.fork('median-planting'), densityScalar);
+  const medianPlanting = orderByDistrict(medianPlantingRaw);
+  claimAll(medianPlanting.items, 'median-planting');
   // Phase 25.8 (D8): the parked-vehicle hard cap scales with the SAME QUALITY_TIERS field the
   // legacy world's cityInstances.ts thinning already uses (parkedCarKeepFraction) — a new
   // consumer of an existing tier field, not a new concept. Never below 1.
@@ -889,6 +991,7 @@ export function buildFurniture(
     trashCans,
     busStops,
     manholes,
+    medianPlanting,
     parked,
     colliderSpecs,
     counts: {
@@ -901,6 +1004,7 @@ export function buildFurniture(
       trashCans: trashCans.items.length,
       busStops: busStops.items.length,
       manholes: manholes.items.length,
+      medianPlanting: medianPlanting.items.length,
       parked: parked.items.length,
     },
   };

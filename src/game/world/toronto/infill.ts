@@ -743,7 +743,18 @@ function buildLaneClosures(
     for (let k = 0; k < coneCount; k++) {
       const stepAlong = c.along + (k - coneCount / 2) * LANE_CLOSURE.coneSpacingWu;
       const taperFrac = 0.25 + (0.5 * k) / Math.max(1, coneCount - 1);
-      const perp = side * c.street.halfWidth * taperFrac;
+      // PHASE 75 — the taper is measured across the CARRIAGEWAY, not across the half-ribbon. It
+      // used to be `side * halfWidth * taperFrac`, which silently assumes the road's centre is
+      // drivable; on a median street the centre is grass, so the fraction was being taken from
+      // inside a planted strip. Reduces EXACTLY to the old expression on a median-free class
+      // (medianHalfWidth 0), so majors are untouched; on University/Bloor/Spadina the taper now
+      // runs from just outside the median edge to near the curb, which is what a coned-off lane
+      // means. (Honest measurement: at the shipped 2.2 wu median the OLD formula's innermost cone
+      // already cleared the grass by 1.075 wu, so this is a derivation fix, not a defect fix — it
+      // becomes load-bearing the moment a median widens or a `major` opts in, both of which
+      // ROAD_MEDIAN already permits as data.)
+      const carriageway = c.street.halfWidth - c.street.medianHalfWidth;
+      const perp = side * (c.street.medianHalfWidth + carriageway * taperFrac);
       const p = pointAlongStreet(c.street, stepAlong, perp);
       // REJECT, never relocate — a cone that would stand in a parked car, on a manhole cover or
       // across a painted crosswalk band is simply skipped; the taper reads fine with a gap.

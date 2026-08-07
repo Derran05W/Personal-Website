@@ -9,7 +9,11 @@
 import { DENSITY } from './torontoMap';
 import { TORONTO_DISTRICTS, type DistrictId } from './torontoDistricts';
 import { resolveCityPackScale } from './cityPackScale';
+import { CAMERA, CAMERA_GROUND_BAND_MAX_WU } from './camera';
 import { getCityPackModel } from '../assets/cityPackManifest';
+
+/** Local deg→rad (config leaves stay import-light; camera.ts keeps its own private copy). */
+const DRESS_DEG2RAD = Math.PI / 180;
 
 /**
  * Which road classes count as "full" for the traffic-light signalization rule (D16): both
@@ -18,6 +22,33 @@ import { getCityPackModel } from '../assets/cityPackManifest';
  * directly) so the rule reads as an explicit policy choice, not an accident of the width table.
  */
 export const TRAFFIC_LIGHT_FULL_CLASSES = ['spine', 'artery', 'major'] as const;
+
+/** Resolved traffic-light footprint (world units) — manifest native dims x today's scale
+ * override, read live so everything derived from the mast's real size (TRAFFIC_LIGHT's post claim,
+ * LAMP_OVERLAY's head anchor) tracks either input if it ever changes. Hoisted above TRAFFIC_LIGHT
+ * at Phase 75 so the post claim can derive from it too. */
+function resolvedTrafficLightDims(): { readonly w: number; readonly h: number } {
+  const entry = getCityPackModel('traffic-light');
+  const scale = resolveCityPackScale('traffic-light');
+  return { w: entry.nativeDims.w * scale, h: entry.nativeDims.h * scale };
+}
+
+const TRAFFIC_LIGHT_DIMS = resolvedTrafficLightDims();
+
+/**
+ * PHASE 75 — the mast POST's footprint half-width as a FRACTION of the resolved model width, the
+ * same pin-the-quotient idiom LAMP_HEAD_ANCHOR_FRAC uses and for the same reason: the pack model's
+ * bounding box is nearly all ARM, so the real post width is not derivable from the manifest, but
+ * the post/model ratio is a property of the mesh and survives any scale retune.
+ *
+ * 0.04684 is the quotient of the Phase-40 hand-picked 0.25 wu against the model width it was
+ * picked at (5.33766 x the then-1.0 scale), rounded to 5 decimals. At Phase 75's re-judged 1.74
+ * override it resolves to ~0.435 wu — which is what the rendered post actually measures, and what
+ * the P40 literal had silently stopped describing (it under-reported by ~0.19 wu, i.e. the arbiter
+ * believed the mast was ~43 % narrower than it is). Same "claim the trunk, not the canopy"
+ * convention as TREE_ROW.trunkHalfWidthWu; anchorPins.test.ts proves the derivation.
+ */
+export const TRAFFIC_LIGHT_POST_HALF_WIDTH_FRAC = 0.04684;
 
 export const TRAFFIC_LIGHT = {
   /** Extra setback (wu) beyond the corner's own (nsHalfWidth, ewHalfWidth) point — "ribbon edge
@@ -34,8 +65,19 @@ export const TRAFFIC_LIGHT = {
    * anything standing on the sidewalk, so claiming that box would falsely block a quarter of
    * every corner. Same "claim the trunk, not the canopy" convention TREE_ROW.trunkHalfWidthWu
    * established for street trees.
+   *
+   * PHASE 75 (T3) — NOW DERIVED, closing the note T1 left here. T1 re-judged the traffic-light
+   * scale override 1.0 → 1.74 against the doubled roads (the arm has to span a 17.6-22.0 wu
+   * crossing), which left this hand-picked 0.25 describing a post that no longer exists: the
+   * rendered post measures ~0.435 wu half-width at that scale, so the arbiter believed the mast was
+   * ~43 % narrower than it is. That is exactly the silent-drift class Phase 27 hit with
+   * LAMP_OVERLAY.headAnchor, and T1 deferred it here only because widening an ARBITER input
+   * re-flows every furniture category placed after the masts — churn this task owns end to end.
+   * It is now TRAFFIC_LIGHT_POST_HALF_WIDTH_FRAC x the resolved model width, so a future scale
+   * retune or manifest regen moves the claim WITH the mast instead of stranding it.
+   * (The arm/head numbers quoted above are the pre-P75 ones; the head now sits at 6.58 wu.)
    */
-  postHalfWidthWu: 0.25,
+  postHalfWidthWu: TRAFFIC_LIGHT_POST_HALF_WIDTH_FRAC * TRAFFIC_LIGHT_DIMS.w,
 } as const;
 
 /** Deterministic NS/EW signal-phase clock (D17), consumed by world/toronto/lampClock.ts. Cosmetic
@@ -79,15 +121,8 @@ export const LAMP_HEAD_ANCHOR_FRAC = {
   y: 0.81049,
 } as const;
 
-/** Resolved traffic-light footprint (world units) — manifest native dims x today's scale
- * override, read live so LAMP_OVERLAY tracks either input if it ever changes. */
-function resolvedTrafficLightDims(): { readonly w: number; readonly h: number } {
-  const entry = getCityPackModel('traffic-light');
-  const scale = resolveCityPackScale('traffic-light');
-  return { w: entry.nativeDims.w * scale, h: entry.nativeDims.h * scale };
-}
-
-const TRAFFIC_LIGHT_DIMS = resolvedTrafficLightDims();
+// (`resolvedTrafficLightDims` / `TRAFFIC_LIGHT_DIMS` were hoisted to the top of this file at
+// Phase 75 — TRAFFIC_LIGHT.postHalfWidthWu derives from the same resolved dims now.)
 
 export const LAMP_OVERLAY = {
   headAnchor: {
@@ -192,6 +227,86 @@ export const TREE_ROW = {
   trunkHalfWidthWu: 0.25,
 } as const;
 
+/**
+ * PHASE 75 (T4) — THE GRASS MEDIAN'S PLANTING (`.planning/part-17-feel-drive-model.md`: "a raised
+ * planted strip: grass, low kerb visual, sparse trees/planters from the pack via the arbiter").
+ * The grass and its kerb are geometry (world/toronto/roadPaint.ts); this is what stands on them.
+ *
+ * MODEL — `tree`, the SAME id the sidewalk rows and the park rings use, and that reuse is a hard
+ * requirement rather than a convenience: the whole planting rides the street-furniture layer's
+ * EXISTING `tree` BatchedMesh (one draw call for every instance of a model at any count), so the
+ * layer costs **zero new draw calls**. Any other pack id — `planter-bushes` is the only other
+ * plausible fit — is in no batch this layer already renders and would cost one.
+ *
+ * CANOPY vs TRAVEL LANE (measured, the placement's binding constraint). The resolved tree is
+ * 4.91 × 5.15 × 8.10 wu (manifest native dims × resolveCityPackScale('tree')), so its circumscribed
+ * canopy half-extent is 2.576 wu against a median half-width of 1.10 — the foliage overhangs the
+ * kerb by 1.476 wu each side. That is over ASPHALT, never over a LANE: the nearest travel-lane
+ * flank sits at `LANE_OFFSET_WU − CAR_REF.widthWu/2` = 4.40 wu (artery) / 4.95 (spine) from the
+ * centreline, so the canopy clears it by 1.82 wu on the tightest class. `medianPlanting.test.ts`
+ * pins that inequality, so a tree-scale or lane-offset retune fails loudly instead of quietly
+ * hanging branches over traffic. What the trees do NOT get is a footprint claim at canopy size —
+ * they claim the TRUNK (TREE_ROW.trunkHalfWidthWu), the arbiter's standing "claim the trunk, not
+ * the canopy" convention.
+ *
+ * COLLIDERS — NONE, and that is a decision, not an omission. The median is visual-only by Phase
+ * 75's D2 (its 0.12 wu kerb is exactly the height Phase 25.8 measured LAUNCHING this raycast
+ * vehicle, and Phase 37 measured 0.9 wu rows being curb-HOPPED — there is no height between the
+ * two that behaves), and a collidable trunk in the middle of Yonge would be strictly worse than the
+ * kerb we already refused. Structurally: the median planting is its OWN array on FurnitureLayout,
+ * and cityPack/CityDress.tsx mounts tree trunk colliders from `trees.items` alone — keeping the two
+ * arrays disjoint IS the guarantee, and furniture.test.ts asserts the disjointness.
+ */
+const MEDIAN_PLANTING_MODEL_ID = 'tree';
+
+/** Resolved median-planting footprint/height (world units) — manifest native dims × today's scale,
+ * read live so a pack regen or a scale retune moves every law derived from it. Same idiom as
+ * `resolvedTrafficLightDims` above. */
+const MEDIAN_PLANTING_DIMS = ((): { readonly canopyHalfWu: number; readonly h: number } => {
+  const entry = getCityPackModel(MEDIAN_PLANTING_MODEL_ID);
+  const scale = resolveCityPackScale(MEDIAN_PLANTING_MODEL_ID);
+  return { canopyHalfWu: (Math.max(entry.nativeDims.w, entry.nativeDims.d) * scale) / 2, h: entry.nativeDims.h * scale };
+})();
+
+export const MEDIAN_PLANTING = {
+  /** Pack model id — see the block comment: reusing the street-tree batch is what makes the layer
+   * free in draw calls. */
+  modelId: MEDIAN_PLANTING_MODEL_ID,
+  /**
+   * Circumscribed half-extent (wu) of the RESOLVED canopy — manifest native dims × today's scale,
+   * read live so a pack regen or a scale retune moves it. Circumscribed (the larger of w/d) because
+   * the placements take a seeded spin, the same conservative rule claimIndex.footprintHalfExtents
+   * applies to every spun prop. Two consumers: the lane-clearance law above, and the placer's
+   * along-strip containment (a tree's foliage may overhang the kerb, but not a crosswalk — so its
+   * canopy, not just its trunk, has to fit inside the grass segment lengthwise).
+   */
+  canopyHalfWu: MEDIAN_PLANTING_DIMS.canopyHalfWu,
+  /** Resolved canopy height (wu) — 8.10. Pinned for the "well under the eye line" law. */
+  heightWu: MEDIAN_PLANTING_DIMS.h,
+  /**
+   * THE SPARSITY LAW, derived — never a picked pitch.
+   *
+   * "Sparse" has to mean something measurable, and the thing it has to be sparse *against* is the
+   * frame: a strip down the middle of the road the phase exists to open up must never read as a
+   * wall. So the minimum pitch is the length of median the CAMERA CAN SHOW AT ONCE. Then at most
+   * one median tree is ever in shot, and "wall" is impossible by construction rather than by taste.
+   *
+   * `CAMERA_GROUND_BAND_MAX_WU` (28.04) is that band measured along the boresight. Every street on
+   * this map is axis-aligned and the rig's yaw is fixed at 45°, so every street crosses the band
+   * obliquely at exactly that angle and the run of street inside it is `band / cos(yaw)` — 39.65 wu,
+   * 1.42× the sidewalk tree pitch (TREE_ROW.spacingWu, 28). Both relations are law-tested.
+   */
+  pitchWu: CAMERA_GROUND_BAND_MAX_WU / Math.cos(CAMERA.yawDeg * DRESS_DEG2RAD),
+  /**
+   * Map-wide hard cap, the same perf guard every row category carries. The pitch already bounds the
+   * count: the four median-carrying streets yield 4,850.7 wu of grass across 36 segments once the
+   * crossing cut-outs and terminus insets are taken out, which lands 136 trees at seed 416. This is
+   * therefore headroom (against a future `major` median opt-in), NOT a shaping dial — thinning here
+   * would punch holes in the even rhythm the pitch exists to create.
+   */
+  capMapWide: 160,
+} as const;
+
 export const HYDRANT_ROW = {
   spacingWu: 60,
   capMapWide: 140,
@@ -220,12 +335,36 @@ export const BUS_STOP_ROW = {
 export const MANHOLE_ROW = {
   spacingWu: 45,
   capMapWide: 220,
-  /** Offset from the STREET CENTRELINE (not ribbon edge — these sit ON the road), alternating
-   * sides along the street (D16: "centreline +/-1.5 wu"). */
+  /**
+   * Offset from the edge of the street's CENTRE MARKER (not the ribbon edge — these sit ON the
+   * road), alternating sides along the street (D16: "centreline +/-1.5 wu").
+   *
+   * PHASE 75: re-read as a clearance FROM THE CENTRE MARKER rather than from the bare centreline,
+   * and resolved per street by `manholeOffsetWu` below. On a street with no median the centre
+   * marker is the painted line (zero half-width) and the number is unchanged — 1.5 wu, exactly as
+   * D16 wrote it. On a median street the marker is a 2.2 wu raised grass strip, and a flat 1.5 wu
+   * offset put the cover's own footprint (0.36 wu half-width) 0.04 wu from the kerb chamfer, i.e.
+   * a manhole grazing the planting. Nothing caught it: manholes are ON_ROAD-sanctioned in the
+   * placement arbiter, so no overlap law fires. Expressed against the median half-width — the same
+   * shape config/torontoMap.ts's `carriagewayCentreWu` gives the lane offset — the cover lands in
+   * the carriageway on every class, by construction.
+   */
   centerlineOffsetWu: 1.5,
   /** Only on spine + major (D16), never arteries/minors (keeps the count arithmetic honest). */
   eligibleClasses: ['spine', 'major'] as readonly string[],
 } as const;
+
+/**
+ * PHASE 75 — the manhole row's offset from a street's centreline, given that street's resolved
+ * median half-width (`Street.medianHalfWidth`, 0 where it carries none). The ONE place the rule
+ * lives; world/toronto/furniture.ts reads it and never re-derives.
+ *
+ * Reduces EXACTLY to MANHOLE_ROW.centerlineOffsetWu when there is no median, so every non-median
+ * street's covers are byte-identical to their pre-Phase-75 positions.
+ */
+export function manholeOffsetWu(medianHalfWidthWu: number): number {
+  return medianHalfWidthWu + MANHOLE_ROW.centerlineOffsetWu;
+}
 
 export const STOP_SIGN = {
   /** Corner offset, same convention as TRAFFIC_LIGHT.cornerOffsetWu — stop-sign corners use one
@@ -245,8 +384,24 @@ export const PARKED = {
   insetFromRibbonEdgeWu: 1.4,
   /** Never within this distance (wu, along-street) of an intersection corner. */
   minDistFromCornerWu: 12,
-  /** Only on majors+ (spine/artery/major) — parking on a 3.5-car minor would eat the whole
-   * drivable width. */
+  /**
+   * Only on majors+ (spine/artery/major).
+   *
+   * PHASE 75 RE-JUDGEMENT (verdict: UNCHANGED, but the reason is different). The original reason —
+   * "parking on a 3.5-car minor would eat the whole drivable width" — is now measurably FALSE: a
+   * minor is 13.2 wu, a parked row on both sides costs 2 × CAR_REF.widthWu, and what is left is
+   * 8.8 wu = 4 cars abreast, i.e. WIDER than the entire pre-Phase-75 minor. Keeping a dead
+   * rationale in place is exactly the silent-drift class this phase is cleaning up, so it is
+   * replaced by the real one:
+   *
+   * eligibility is a DISTRIBUTION question, not a capacity one. `cap` is a hard map-wide 200 with
+   * even-stride thinning, so admitting ~2,600 wu of minor-street frontage to the candidate pool
+   * does not add cars — it moves them OFF the mains, which are the streets the player drives and
+   * the pursuit navigates. That trade is a traffic-density judgement with a measurement harness
+   * attached, and Phase 79 ("Traffic v3 bodies + density: fewer cars") owns it together with `cap`
+   * itself. Deciding it blind here, in a phase whose whole purpose is navigability, would be a
+   * guess. REVISIT AT P79, with the two numbers moved together.
+   */
   eligibleClasses: ['spine', 'artery', 'major'] as readonly string[],
   /** Rigid-body spec (D12): plain dynamic + sleep, no event/registry wiring this phase. Mass/
    * damping are data for the mounting task (Opus T5) to apply — this module never touches

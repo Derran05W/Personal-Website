@@ -134,12 +134,21 @@ const MONEY_SHOTS: readonly { readonly id: string; readonly x: number; readonly 
   { id: 'money-parkinglot', x: 1350, z: 33 },
 
   // --- Phase 41 surface & shimmer capture matrix (.planning/tools/p41-matrix.mjs VANTAGES) ----
-  // Leg 1/2 'dashFar': fold-corridor stretch of the Yonge spine — lane-dash minification study.
-  // Its own comment names this "cameraVantages()'s own 'fold-corridor' anchor: the fold band's
-  // midpoint" — so this coincides exactly with cam-fold-corridor AND district-foldCorridor's
-  // centroid (all three land on the real fold-corridor midpoint). Kept as its own id: each name
-  // cites a different phase's evidence trail even though the physical spot is the same.
-  { id: 'money-dash-far', x: 1500, z: 1032 },
+  // Leg 1/2 'dashFar': lane-dash minification study, still in the fold corridor.
+  //
+  // PHASE 75 RE-TARGET — this anchor LOST ITS SUBJECT and had to move. It sat at (1500, 1032) on
+  // the Yonge spine, chosen as the fold band's midpoint (coinciding with cam-fold-corridor and
+  // district-foldCorridor). Phase 75 gave the spine a grass median, and a median street paints NO
+  // centre dashes (the median IS the centre marker — see roadPaint.ts's `emitCentreDashes`). The
+  // anchor would have gone on measuring a stretch of road with no dashes in it: a curated evidence
+  // pose quietly reporting on nothing, which is worse than a missing pose.
+  //
+  // Moved to Eglinton — the fold zone's own EW `major`, centreline y = 1104.85, span x [1334,1666],
+  // no median and therefore dashed. x = 1560 sits east of the Yonge junction box (dashes are skipped
+  // within ROAD_CLASSES.spine/2 = 11 wu of a crossing), so the frame actually contains dashes. Still
+  // the fold corridor, ~73 wu from the original spot — the study is preserved, the subject restored.
+  // The other two fold ids (cam-fold-corridor, district-foldCorridor) keep the original midpoint.
+  { id: 'money-dash-far', x: 1560, z: 1104.8 },
   // Leg 4 'grazingGround': open ground near Mel Lastman Square — grazing-angle ground-noise study.
   { id: 'money-grazing-ground', x: 1455, z: 660 },
   // Leg 4b 'parkBoundary': a district/park-tint boundary crossing the frame diagonally.

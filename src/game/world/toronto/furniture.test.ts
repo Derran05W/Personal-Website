@@ -11,7 +11,11 @@ import {
   BENCH_ROW,
   BUS_STOP_ROW,
   HYDRANT_ROW,
+  LAMP_OVERLAY,
+  SIDEWALK_ROW,
+  STOP_SIGN,
   MANHOLE_ROW,
+  manholeOffsetWu,
   PARKED,
   POWER_BOX,
   TORONTO_TIER_IDENTITY,
@@ -21,10 +25,11 @@ import {
   TREE_ROW,
   type TorontoTierParams,
 } from '../../config/torontoDress';
+import { ROUTE_BOARD, ROUTE_BOARD_CLEARANCE_WU } from '../../config/torontoTransit';
 import { busRouteStreetCoverage, isOnBusRoute } from './transitRoutes';
 import { QUALITY_TIERS } from '../../config/quality';
-import { colliderHalfExtents, resolveCityPackScale } from '../../config/cityPackScale';
-import { ROAD_CLASSES, SIDEWALK, type RoadClass } from '../../config/torontoMap';
+import { CAR_REF, colliderHalfExtents, resolveCityPackScale } from '../../config/cityPackScale';
+import { LANE_OFFSET_WU, ROAD_CLASSES, ROAD_MEDIAN, SIDEWALK, type RoadClass } from '../../config/torontoMap';
 import { TORONTO_DISTRICTS } from '../../config/torontoDistricts';
 import { getCityPackModel, hasCityPackModel } from '../../assets/cityPackManifest';
 import { type FurniturePlacement, type ParkedVehicle } from './furniture';
@@ -94,36 +99,95 @@ describe('traffic lights — signalization rule (D16)', () => {
   // Live-verification FIX 2 (Part-8, "density/life flip"): on the 6.6-8.8 wu dieted roads the
   // resolved ~7.2-wu-wide mast arm (at the old 1.35 scale override) spanned the entire road, with
   // the head hovering near the car at intersection centres. cityPackScale.ts's 'traffic-light'
-  // override dropped 1.35 -> 1.0. Asserts the mast's resolved arm reach, measured from its corner
-  // position (ribbon edge + TRAFFIC_LIGHT.cornerOffsetWu), stays short of EVERY full-class
-  // pairing's nearer crossing-street centreline (min of the two corner-to-centreline distances) —
-  // for every combination TRAFFIC_LIGHT_FULL_CLASSES can produce at a signalized intersection.
-  describe('mast arm reach stays short of the crossing centreline (every full-class pairing)', () => {
+  // override dropped 1.35 -> 1.0.
+  //
+  // PHASE 75 — THE SAME BUG, INVERTED, AND THE LAW NOW BRACKETS IT FROM BOTH SIDES. This block
+  // used to bound arm reach only from ABOVE, so at the doubled ROAD_CLASSES it passed trivially and
+  // protected nothing: the 1.0-scale mast hung its signal head 6.8-9.0 wu from the crossed
+  // centreline while the near travel lane sits at 4.4-6.05, i.e. over the kerb-side shoulder of
+  // every approach, and at 3.78 wu high — BELOW the transit route boards. The scale was re-judged
+  // to 1.74 (see config/cityPackScale.ts) and these are the two-sided laws that fix it:
+  //
+  //   UPPER — the arm TIP must stop short of the crossing centreline (the P27 over-span defect).
+  //           Kept in its original axis-simplified form AND re-stated exactly, along the real
+  //           corner→centre diagonal the mast is actually rotated onto (armRotationY).
+  //   LOWER — the signal HEAD (LAMP_OVERLAY.headAnchor, the thing a driver reads — not the model's
+  //           bounding box) must hang over the NEAR TRAVEL LANE: within lane centre ± a car half
+  //           width, on both axes, at every intersection that mounts a mast. And it must hang
+  //           above everything that drives under it.
+  //
+  // Both are computed from ROAD_CLASSES + LANE_OFFSET_WU + the manifest, so the literal scale can
+  // never drift out of range again without one of them failing loudly.
+  describe('mast arm reach is bracketed from both sides (Phase 75)', () => {
     // The pack model's own bounding box doesn't tell us exactly where the pole sits inside it, so
-    // a small allowance (well under the >2 wu the old 1.35 scale overshot by) covers that
-    // measurement uncertainty without hiding a real regression.
+    // a small allowance covers that measurement uncertainty without hiding a real regression.
     const ARM_REACH_TOLERANCE_WU = 0.2;
-    const reach = getCityPackModel('traffic-light').nativeDims.w * resolveCityPackScale('traffic-light');
+    /** Model bounding width = the arm's full reach from the mast. */
+    const armReach = getCityPackModel('traffic-light').nativeDims.w * resolveCityPackScale('traffic-light');
+    /** The signal HEAD's reach — 0.749 of the model width, per LAMP_HEAD_ANCHOR_FRAC. */
+    const headReach = Math.abs(LAMP_OVERLAY.headAnchor.x);
 
-    const pairs: readonly (readonly [RoadClass, RoadClass])[] = TRAFFIC_LIGHT_FULL_CLASSES.flatMap((ns) =>
+    const FULL = new Set<string>(TRAFFIC_LIGHT_FULL_CLASSES);
+    const ALL_CLASSES = Object.keys(ROAD_CLASSES) as RoadClass[];
+    const fullPairs: readonly (readonly [RoadClass, RoadClass])[] = TRAFFIC_LIGHT_FULL_CLASSES.flatMap((ns) =>
       TRAFFIC_LIGHT_FULL_CLASSES.map((ew): readonly [RoadClass, RoadClass] => [ns, ew]),
     );
+    /** Every pairing that actually mounts a mast: signalized (both full) or diagonal (one full).
+     * minor x minor gets a stop sign instead, so it is excluded by construction. */
+    const mastPairs: readonly (readonly [RoadClass, RoadClass])[] = ALL_CLASSES.flatMap((ns) =>
+      ALL_CLASSES.filter((ew) => FULL.has(ns) || FULL.has(ew)).map((ew): readonly [RoadClass, RoadClass] => [ns, ew]),
+    );
 
-    it.each(pairs)('%s x %s: reach (%#) stays short of the nearer centreline', (nsCls, ewCls) => {
-      const nsHalf = ROAD_CLASSES[nsCls] / 2 + TRAFFIC_LIGHT.cornerOffsetWu;
-      const ewHalf = ROAD_CLASSES[ewCls] / 2 + TRAFFIC_LIGHT.cornerOffsetWu;
-      const nearerCentreline = Math.min(nsHalf, ewHalf);
-      expect(reach, `${nsCls}x${ewCls} reach=${reach.toFixed(2)} vs ${nearerCentreline.toFixed(2)}`).toBeLessThanOrEqual(
+    const cornerDist = (cls: RoadClass): number => ROAD_CLASSES[cls] / 2 + TRAFFIC_LIGHT.cornerOffsetWu;
+    /** Where a point `reachWu` along the arm lands, as distances from the two centrelines. The arm
+     * is aimed at the intersection centre (furniture.ts's armRotationY), so it runs on the corner
+     * diagonal and its axial reach is the full reach scaled by that corner's direction cosine. */
+    function armPoint(nsCls: RoadClass, ewCls: RoadClass, reachWu: number): { x: number; z: number } {
+      const cx = cornerDist(nsCls);
+      const cz = cornerDist(ewCls);
+      const d = Math.hypot(cx, cz);
+      return { x: cx - (reachWu * cx) / d, z: cz - (reachWu * cz) / d };
+    }
+    const laneBand = (cls: RoadClass): readonly [number, number] => [
+      LANE_OFFSET_WU[cls] - CAR_REF.widthWu / 2,
+      LANE_OFFSET_WU[cls] + CAR_REF.widthWu / 2,
+    ];
+
+    it.each(fullPairs)('%s x %s UPPER: reach (%#) stays short of the nearer centreline', (nsCls, ewCls) => {
+      const nearerCentreline = Math.min(cornerDist(nsCls), cornerDist(ewCls));
+      expect(armReach, `${nsCls}x${ewCls} reach=${armReach.toFixed(2)} vs ${nearerCentreline.toFixed(2)}`).toBeLessThanOrEqual(
         nearerCentreline + ARM_REACH_TOLERANCE_WU,
       );
     });
 
-    it('would have failed badly under the pre-Part-8-retune 1.35 scale (regression guard)', () => {
-      const oldReach = getCityPackModel('traffic-light').nativeDims.w * 1.35;
-      const tightest = Math.min(
-        ...pairs.map(([nsCls, ewCls]) => Math.min(ROAD_CLASSES[nsCls] / 2 + TRAFFIC_LIGHT.cornerOffsetWu, ROAD_CLASSES[ewCls] / 2 + TRAFFIC_LIGHT.cornerOffsetWu)),
-      );
-      expect(oldReach).toBeGreaterThan(tightest + ARM_REACH_TOLERANCE_WU);
+    it.each(mastPairs)('%s x %s UPPER: the arm tip never crosses either centreline', (nsCls, ewCls) => {
+      const tip = armPoint(nsCls, ewCls, armReach);
+      expect(tip.x, `${nsCls}x${ewCls} tip.x=${tip.x.toFixed(2)}`).toBeGreaterThan(0);
+      expect(tip.z, `${nsCls}x${ewCls} tip.z=${tip.z.toFixed(2)}`).toBeGreaterThan(0);
+    });
+
+    it.each(mastPairs)('%s x %s LOWER: the head hangs over the near travel lane on both axes', (nsCls, ewCls) => {
+      const head = armPoint(nsCls, ewCls, headReach);
+      const [nsLo, nsHi] = laneBand(nsCls);
+      const [ewLo, ewHi] = laneBand(ewCls);
+      expect(head.x, `${nsCls}x${ewCls} head.x=${head.x.toFixed(2)} lane [${nsLo.toFixed(2)},${nsHi.toFixed(2)}]`).toBeGreaterThanOrEqual(nsLo);
+      expect(head.x, `${nsCls}x${ewCls} head.x=${head.x.toFixed(2)} lane [${nsLo.toFixed(2)},${nsHi.toFixed(2)}]`).toBeLessThanOrEqual(nsHi);
+      expect(head.z, `${nsCls}x${ewCls} head.z=${head.z.toFixed(2)} lane [${ewLo.toFixed(2)},${ewHi.toFixed(2)}]`).toBeGreaterThanOrEqual(ewLo);
+      expect(head.z, `${nsCls}x${ewCls} head.z=${head.z.toFixed(2)} lane [${ewLo.toFixed(2)},${ewHi.toFixed(2)}]`).toBeLessThanOrEqual(ewHi);
+    });
+
+    it('LOWER: the head hangs above everything that drives under it (bus roofline, transit route boards)', () => {
+      const tallest = Math.max(ROUTE_BOARD.busHeightWu, ROUTE_BOARD.streetcarHeightWu, colliderHalfExtents('bus').hy * 2);
+      expect(LAMP_OVERLAY.headAnchor.y).toBeGreaterThan(tallest + ROUTE_BOARD_CLEARANCE_WU);
+    });
+
+    it('regression guard: BOTH pre-Phase-75 scales (1.0 and 1.35) now leave the head off the lane', () => {
+      const w = getCityPackModel('traffic-light').nativeDims.w;
+      const headFrac = headReach / (w * resolveCityPackScale('traffic-light'));
+      for (const oldScale of [1.0, 1.35]) {
+        const head = armPoint('spine', 'major', headFrac * w * oldScale);
+        expect(head.x, `scale ${oldScale} head.x=${head.x.toFixed(2)}`).toBeGreaterThan(laneBand('spine')[1]);
+      }
     });
   });
 
@@ -190,6 +254,85 @@ describe('traffic lights — signalization rule (D16)', () => {
   });
 });
 
+// PHASE 75 — the manhole row's offset is measured from the edge of the street's CENTRE MARKER,
+// not from the bare centreline. Nothing else catches this: manholes are ON_ROAD-sanctioned in the
+// placement arbiter, so no overlap law fires when a cover lands in the median.
+describe('manhole offset clears the median (Phase 75)', () => {
+  it('reduces to the unchanged D16 number on a street with no median', () => {
+    expect(manholeOffsetWu(0)).toBe(MANHOLE_ROW.centerlineOffsetWu);
+  });
+
+  it('every eligible street lands its covers in the carriageway — clear of the median AND the kerb', () => {
+    const coverHalf = colliderHalfExtents('manhole-cover').hx;
+    const eligible = new Set<string>(MANHOLE_ROW.eligibleClasses);
+    const streets = buildStreets().streets.filter((s) => eligible.has(s.cls));
+    expect(streets.length).toBeGreaterThan(0);
+    for (const s of streets) {
+      const off = manholeOffsetWu(s.medianHalfWidth);
+      expect(off - coverHalf, `${s.id} cover reaches into the median`).toBeGreaterThan(s.medianHalfWidth);
+      expect(off + coverHalf, `${s.id} cover reaches the kerb`).toBeLessThan(s.halfWidth);
+    }
+  });
+
+  it('the OLD flat 1.5 wu offset grazed the spine median by 0.04 wu (the defect this fixes)', () => {
+    const coverHalf = colliderHalfExtents('manhole-cover').hx;
+    const spine = buildStreets().streets.find((s) => s.id === 'yonge')!;
+    expect(spine.medianWidth).toBe(ROAD_MEDIAN.widthWu.spine);
+    expect(MANHOLE_ROW.centerlineOffsetWu - coverHalf - spine.medianHalfWidth).toBeLessThan(0.1);
+  });
+});
+
+/**
+ * PHASE 75 — every width-derived furniture offset re-derives correctly at the doubled ROAD_CLASSES.
+ * All of these are pure consequences of `s.halfWidth` / SIDEWALK.widthWu, so nothing had to change;
+ * this is the check that they landed where they should, expressed as laws rather than as a note.
+ */
+describe('width-derived offsets after the doubling (Phase 75)', () => {
+  it('sidewalk rows (kerb + facade) stay inside the sidewalk band at every ribbon width', () => {
+    for (const off of [SIDEWALK_ROW.kerbOffsetWu, SIDEWALK_ROW.facadeOffsetWu]) {
+      expect(off).toBeGreaterThan(0);
+      expect(off).toBeLessThan(SIDEWALK.widthWu);
+    }
+  });
+
+  it('the bus shelter still sits inside the band with its back flush at the facade plane', () => {
+    // Phase 40's derived offset (furniture.ts's busStopRowOffsetWu) — sidewalk-relative, so the
+    // ribbon widening cannot touch it. Its near edge stays clear of the kerb.
+    const hz = colliderHalfExtents('bus-stop').hz;
+    const off = SIDEWALK.widthWu - hz;
+    expect(off - hz).toBeGreaterThan(0);
+    expect(off + hz).toBeCloseTo(SIDEWALK.widthWu, 9);
+  });
+
+  it('corner furniture (masts, stop signs, power boxes) stands on the sidewalk, never the road', () => {
+    // cornerPoints() = ribbon edge + cornerOffsetWu, so the corner is on the sidewalk iff the
+    // offset is inside the band — true at any ribbon width.
+    for (const off of [TRAFFIC_LIGHT.cornerOffsetWu, STOP_SIGN.cornerOffsetWu]) {
+      expect(off).toBeGreaterThan(0);
+      expect(off).toBeLessThan(SIDEWALK.widthWu);
+    }
+  });
+
+  it('parked cars still ride the kerb — clear of the travel lane and of the median', () => {
+    // The parked lane is measured from the ribbon EDGE, so it moves outward with the widening
+    // instead of being stranded mid-road. Measured against the sedan envelope the widths
+    // themselves are graded against.
+    const carHalf = CAR_REF.widthWu / 2;
+    const eligible = new Set<string>(PARKED.eligibleClasses);
+    const streets = buildStreets().streets.filter((s) => eligible.has(s.cls));
+    expect(streets.length).toBeGreaterThan(0);
+    for (const s of streets) {
+      const perp = s.halfWidth - PARKED.insetFromRibbonEdgeWu;
+      const outer = perp + carHalf;
+      const inner = perp - carHalf;
+      expect(outer, `${s.id} parked car pokes past the kerb`).toBeLessThanOrEqual(s.halfWidth);
+      expect(s.halfWidth - outer, `${s.id} parked car stranded off the kerb`).toBeLessThanOrEqual(1);
+      expect(inner, `${s.id} parked car blocks the travel lane`).toBeGreaterThan(LANE_OFFSET_WU[s.cls] + carHalf);
+      expect(inner, `${s.id} parked car on the median`).toBeGreaterThan(s.medianHalfWidth);
+    }
+  });
+});
+
 describe('sidewalk rows never overlap a road ribbon', () => {
   const rowCategories: readonly { readonly name: string; readonly items: readonly FurniturePlacement[] }[] = [
     { name: 'trees', items: layout.trees.items },
@@ -209,7 +352,19 @@ describe('sidewalk rows never overlap a road ribbon', () => {
   }
 });
 
-describe('manholes and parked vehicles are always ON their ribbon (on-road, D16/D18)', () => {
+describe('manholes, parked vehicles and the median planting are always ON their ribbon (on-road, D16/D18 + Phase 75 T4)', () => {
+  // PHASE 75 (T4): the median planting is the THIRD exemption from the no-furniture-on-ribbon
+  // invariant, and the only one that is not on the asphalt — it stands on the raised grass strip
+  // inside the ribbon rect. Recorded here alongside the other two so the exemption set is stated in
+  // one place; where exactly on the ribbon it is allowed to be (grass only, never a lane) is the
+  // subject of medianPlanting.test.ts.
+  it('every median tree lands inside some road ribbon', () => {
+    expect(layout.medianPlanting.items.length).toBeGreaterThan(0);
+    for (const t of layout.medianPlanting.items) {
+      expect(onAnyRibbon(t), JSON.stringify(t.position)).toBe(true);
+    }
+  });
+
   it('every manhole lands inside some road ribbon', () => {
     expect(layout.manholes.items.length).toBeGreaterThan(0);
     for (const m of layout.manholes.items) {
@@ -236,6 +391,7 @@ describe('everything lies inside the playable polygon', () => {
     ...layout.trashCans.items,
     ...layout.busStops.items,
     ...layout.manholes.items,
+    ...layout.medianPlanting.items,
     ...layout.parked.items,
   ];
 
@@ -354,6 +510,7 @@ describe('district-ordered ranges (sacred convention)', () => {
     { name: 'trashCans', ordered: layout.trashCans },
     { name: 'busStops', ordered: layout.busStops },
     { name: 'manholes', ordered: layout.manholes },
+    { name: 'medianPlanting', ordered: layout.medianPlanting },
     { name: 'powerBoxes', ordered: layout.powerBoxes },
     { name: 'parked', ordered: layout.parked },
     { name: 'stopSigns', ordered: layout.stopSigns },
@@ -388,6 +545,7 @@ describe('counts — every category is non-empty on the real map (sanity, not a 
       trashCans: layout.trashCans.items.length,
       busStops: layout.busStops.items.length,
       manholes: layout.manholes.items.length,
+      medianPlanting: layout.medianPlanting.items.length,
       parked: layout.parked.items.length,
     });
   });

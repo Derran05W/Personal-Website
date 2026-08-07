@@ -389,6 +389,19 @@ describe('worldEdge — layer size (pinned so a spacing edit is a deliberate act
     // Per-kind counts are a pure function of the polygon perimeter / the BARRIER pitches. They
     // move only when someone edits a spacing constant (or the map itself re-scales) — which is
     // exactly when a human should look at this line.
+    //
+    // PHASE 75 — jerseyBarrier 73 -> 148 (+75), and it is the ONE count here that moved, which is
+    // itself the proof it is the right kind of churn. The ring's four perimeter kinds (fence,
+    // hoarding, rail posts, notch cones) are laid along the POLYGON, which this phase does not
+    // touch — all four are byte-identical. The jersey rows are the only dressing laid across a
+    // ROAD: `spreadAlong(crossCentre ± width/2, jerseyPitch)` over the 19 dead-end streets, so the
+    // count is (road width / jersey pitch) summed over those 19 and it scales with width by
+    // construction. The widths doubled, so the rows roughly doubled: 73 -> 148 is 2.03x, the extra
+    // 0.03 being `spreadAlong`'s inclusive endpoints amortised over 19 shorter-in-relative-terms
+    // rows plus the per-barrier `edgeClearanceWu` polygon filter. The rows still span exactly one
+    // road each and still close their street end-to-end — worldEdge.test.ts's own span/orientation
+    // tests above are unchanged and green, which is what distinguishes "the row got longer because
+    // the road got wider" from "the row leaked".
     expect({
       fencePiece: count('fencePiece'),
       hoardingPanel: count('hoardingPanel'),
@@ -400,8 +413,9 @@ describe('worldEdge — layer size (pinned so a spacing edit is a deliberate act
       hoardingPanel: 396,
       railPost: 166,
       cone: 200,
-      jerseyBarrier: 73,
+      jerseyBarrier: 148,
     });
-    expect(layout.dressing).toHaveLength(2295);
+    // 2295 -> 2370: the +75 jersey barriers above and nothing else.
+    expect(layout.dressing).toHaveLength(2370);
   });
 });

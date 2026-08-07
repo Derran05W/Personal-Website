@@ -404,8 +404,17 @@ const CONTACT_CELL = { width: 420, height: 260 };
 
 /** The lattice size this harness was calibrated against. A change is not necessarily wrong (Parts
  * 11-16 may add money shots) but it invalidates run-to-run comparisons, so it is a loud gate rather
- * than a silent drift. */
-const EXPECTED_VANTAGE_COUNT = 183;
+ * than a silent drift.
+ *
+ * PHASE 75: 183 -> 187. The gate did exactly its job and then became the problem — `results.verdict`
+ * ANDs it, so once P75's widening grew the lattice every run printed "HOTSPOTS" and exited 1 even at
+ * zero hotspots, making the sweep useless as a pass/fail gate. The +5 are all LATTICE poses, not
+ * curated ones: the lattice is derived from drivable ground, and doubling the ribbons added drivable
+ * ground (measured: ribbon union 192,796 -> 373,184 wu²), then -1 when the `money-dash-far` anchor
+ * was re-targeted onto Eglinton and absorbed the lattice pose nearest its new spot (lattice yields
+ * to curated). Attributed in flickerVantages.test.ts.
+ * Re-pinned deliberately here after that audit — never bump this to silence a red run. */
+const EXPECTED_VANTAGE_COUNT = 187;
 
 /** Everything that paints OVER the scene canvas. The canvas is `position: fixed; inset: 0`
  * (GameCanvas.css), so a Playwright element screenshot is a viewport shot clipped to its box — every

@@ -64,8 +64,13 @@ describe('D9 computed examples pinned', () => {
     expect(CITY_PACK_SCALE_OVERRIDES['brown-building']).toBeCloseTo(5.92, 1);
   });
 
-  it('traffic-light scale = 1.0 (Phase 27 road-diet retune, was 1.35 provisional)', () => {
-    expect(CITY_PACK_SCALE_OVERRIDES['traffic-light']).toBe(1.0);
+  // Phase 75 re-judgement against the doubled ROAD_CLASSES (was 1.0 for the Phase 27 road diet,
+  // 1.35 provisional before that). The number is bracketed from BOTH sides by measured laws in
+  // world/toronto/furniture.test.ts — head over the near travel lane and above a bus roofline from
+  // below, arm tip short of the crossing centreline from above — so this pin is a tripwire, not
+  // the justification. See cityPackScale.ts's own comment for the derivation.
+  it('traffic-light scale = 1.74 (Phase 75 re-grade for the doubled roads)', () => {
+    expect(CITY_PACK_SCALE_OVERRIDES['traffic-light']).toBe(1.74);
   });
 
   it('bench scale = 0.9 (provisional, plan-pinned)', () => {

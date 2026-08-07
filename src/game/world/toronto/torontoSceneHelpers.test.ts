@@ -11,6 +11,7 @@ import { PLAYABLE_POLYGON, pointInPolygon, polygonArea } from './polygon';
 import { buildStreets, type MapRect } from './streets';
 import { ZONE_BOUNDARIES } from './projection';
 import { LANE_OFFSET_WU } from '../../config/torontoMap';
+import { CAR_REF } from '../../config/cityPackScale';
 
 /** Map-point for a world position (inverse of mapToWorld's identity swap): world x -> map x,
  * world z -> map y. */
@@ -45,6 +46,16 @@ describe('torontoSceneHelpers — everything stays inside the §1 polygon', () =
     // Phase 32 (D3): the southbound lane, offset off the spine centreline — never dead-centre,
     // so the player starts in the exact lane southbound AI traffic drives.
     expect(p.x).toBeCloseTo(1500 - LANE_OFFSET_WU.spine, 5);
+    // PHASE 75: that offset is now the CARRIAGEWAY centre (the spine gained a grass median), so
+    // the spawn moved from 1500−2.2 to 1500−6.05. Assert the car lands wholly inside the
+    // southbound carriageway — outside the median strip and inside the curb — rather than merely
+    // "somewhere on the offset". Derived on both sides, so a future width/median re-grade
+    // re-checks itself instead of going stale.
+    const yonge = buildStreets().streets.find((s) => s.id === 'yonge')!;
+    const offsetFromCentre = Math.abs(p.x - yonge.centerline);
+    const carHalf = CAR_REF.widthWu / 2;
+    expect(offsetFromCentre - carHalf).toBeGreaterThan(yonge.medianHalfWidth);
+    expect(offsetFromCentre + carHalf).toBeLessThan(yonge.halfWidth);
     // Downtown zone (Bloor -> shore), specifically mid-block between Dundas and Queen — a drift
     // guard against config/torontoMap.ts's TORONTO_SPAWN.y going stale if the anchors/DENSITY
     // scale are ever re-tuned (that literal's own doc comment records the same provenance).

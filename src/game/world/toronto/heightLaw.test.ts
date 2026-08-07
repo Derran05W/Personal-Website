@@ -261,8 +261,23 @@ describe('eye-line law — (d) THE CROSSER LIST (Phase 36 occlusion work order)'
     // of district height ranges. Still 90 backdrop boxes placed; two of them simply no longer
     // roll tall enough to cross. No new occlusion obligation: every one of these is a batched
     // box on the Phase-36 dither path already.
-    expect(batched.backdropTowerBoxes).toBe(36);
-    expect(batched.backLotBoxes).toBe(5);
+    // Phase 75: backdropTowerBoxes 36 -> 43, backLotBoxes 5 -> 3. Fourth time this line
+    // has moved and the same mechanism every time, only with a much bigger input: the backdrop row
+    // is CAPPED map-wide (BACKDROP_TOWER.capMapWide 90) and still places exactly 90, so the count
+    // here is never "more towers", it is always "a different 90". This time the road widening moved
+    // every candidate: a backdrop box stands at `street.halfWidth + sidewalk + setback + its own
+    // half-depth` off the centreline, so doubling the widths pushed the whole row 3.3-5.5 wu
+    // deeper into each block, which re-decides the ribbon/exclusion/polygon rejections all along
+    // the walk and re-spends the freed budget on a different mix of district height ranges. Seven
+    // more of the 90 now roll above CAMERA_EYE_MIN_WU. The back-lot row moves the other way and for
+    // a different reason: it is NOT capped, and the block-interior depth the roads consumed cost it
+    // 24 boxes outright (composeWorld.test.ts's `infill.backlotBox` 305 -> 281), two of which were
+    // crossers — 5 -> 3. So the list nets +5 while the WORK it represents is unchanged in kind:
+    // every one of these is a batched box on the Phase-36 dither path already, no named/hero
+    // material-path volume gained or lost a fade obligation, and `frontageSlots` / `cornerFills` /
+    // `infillPackBuildings` all still hold at zero (asserted above — that is the real law here).
+    expect(batched.backdropTowerBoxes).toBe(43);
+    expect(batched.backLotBoxes).toBe(3);
   });
 
   it('the Phase-45 rail-lands buildings stay UNDER the eye line (the dither-path tripwire)', () => {

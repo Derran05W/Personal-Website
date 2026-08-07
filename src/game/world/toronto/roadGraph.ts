@@ -38,6 +38,14 @@
 // Determinism: node ids come from sorting every unique node position by (x, then z); the graph
 // is a pure function of the street table (no Math.random / Date).
 
+// PHASE 75 SWALLOWED-CARRIAGEWAY SUPPRESSION (see swallowedSpans below): doubling the road widths
+// made Bay's ribbon swallow York's centreline outright, which put York's southbound chain 0.184 wu
+// from Bay's northbound chain — two OPPOSING lane chains on one strip of asphalt, i.e. the Phase 31
+// head-on jam rebuilt between two streets instead of within one. Where a street's centreline lies
+// inside a WIDER street's ribbon, the narrower street's lane chains are suppressed over that span
+// and its traffic is carried by the street that swallowed it. Enforced by roadGraph.test.ts's
+// opposing-lane law (no two lane lines within one car width, anywhere on the map).
+
 import { LANE_OFFSET_WU, ROAD_COLORS, WAYPOINT_SPACING_WU, type RoadClass } from '../../config/torontoMap';
 import { mapToWorld, type MapPoint } from './projection';
 import type { Street } from './streets';
@@ -116,6 +124,48 @@ export function listIntersections(streets: readonly Street[]): readonly Intersec
 
 const keyOf = (x: number, y: number): string => `${Math.round(x * KEY_Q)}:${Math.round(y * KEY_Q)}`;
 
+/** One along-street interval [lo, hi] (map space, same convention as Street.span). */
+export type SpanInterval = readonly [number, number];
+
+/**
+ * PHASE 75 — the spans of `street` whose CARRIAGEWAY has been swallowed by a wider parallel street,
+ * and over which this street therefore emits NO lane chains (its traffic is carried by the street
+ * that swallowed it).
+ *
+ * THE RULE, stated geometrically: a street is swallowed where its own CENTRELINE lies inside
+ * another same-axis street's RIBBON and that other street is WIDER. A centreline inside somebody
+ * else's asphalt is not an independent carriageway — it is a lane of the bigger road — so laying
+ * a second pair of direction chains there manufactures opposing traffic inside one strip of
+ * asphalt. Ties (equal widths) break on id so exactly one street of a pair is ever suppressed and
+ * the result stays deterministic.
+ *
+ * WHY THIS AND NOT A LANE RE-SITE: the only pair this fires on today is Bay (major, half 8.8) x
+ * York (minor, half 6.6), 7.52 wu apart — tangent BEFORE Phase 75 (ribbon gap −0.18 wu) and a 7.88
+ * wu ribbon overlap after it, with York's centreline 1.28 wu inside Bay's east edge. Re-siting
+ * York's two chains east instead was measured and rejected: the legal window for a symmetric pair
+ * is 0.18 wu wide (offsets 5.32–5.50 vs the minor class rule's 3.30), it leaves 0.08 wu of margin
+ * against the very defect being fixed, and it would put a hand-solved per-street literal where the
+ * whole lane geometry is class-derived (config/torontoMap.ts's LANE_OFFSET_WU, pinned street-by-
+ * street in streets.test.ts). Suppression needs no new number at all.
+ *
+ * The shared HUBS are untouched: they are emitted by every street that meets them, so a suppressed
+ * street's junctions keep their nodes (from the crossing streets) and BFS connectivity holds —
+ * verified, not assumed, by roadGraph.test.ts.
+ */
+export function swallowedSpans(street: Street, streets: readonly Street[]): readonly SpanInterval[] {
+  const out: SpanInterval[] = [];
+  for (const other of streets) {
+    if (other.id === street.id || other.axis !== street.axis) continue;
+    const wider = other.width > street.width || (other.width === street.width && other.id < street.id);
+    if (!wider) continue;
+    if (Math.abs(street.centerline - other.centerline) > other.halfWidth) continue; // centreline outside their asphalt
+    const lo = Math.max(street.span[0], other.span[0]);
+    const hi = Math.min(street.span[1], other.span[1]);
+    if (hi > lo) out.push([lo, hi]);
+  }
+  return out;
+}
+
 /**
  * Minimum steps to subdivide one inter-hub gap into, PER DIRECTION (never 1 — see file header:
  * a bare hub-to-hub edge has no lane separation, so every gap gets at least one interior,
@@ -188,9 +238,17 @@ export function buildTorontoRoadGraph(streets: readonly Street[]): TrafficGraph 
         ? { x: street.centerline + sign * laneOffset, y: v }
         : { x: v, y: street.centerline + sign * laneOffset };
 
+    // Phase 75: spans where a wider parallel street has swallowed this one's carriageway — no lane
+    // chains (and therefore no hub of this street's own) are emitted there. A segment counts as
+    // swallowed when its MIDPOINT falls inside a swallowed span; segment ends are hubs, and a
+    // swallowing street's span boundary is itself a crossing on this map, so no segment straddles.
+    const swallowed = swallowedSpans(street, streets);
+    const isSwallowed = (v: number): boolean => swallowed.some(([lo, hi]) => v >= lo - CROSS_EPS && v <= hi + CROSS_EPS);
+
     for (let i = 1; i < stops.length; i++) {
       const prevV = stops[i - 1];
       const v = stops[i];
+      if (isSwallowed((prevV + v) / 2)) continue;
       const hubPrev = hubKey(prevV);
       const hubNext = hubKey(v);
       const d = v - prevV; // stops is sorted ascending, so always > 0

@@ -10,9 +10,11 @@
 // closure + opposite-lane legs). Streetcar resolution is UNCHANGED (still resolveRoute, a single
 // open centreline polyline) — its own describe block and the golden hash below prove that.
 import { describe, expect, it } from 'vitest';
+import { CAR_REF } from '../../config/cityPackScale';
 import { LANE_OFFSET_WU, ROAD_CLASSES } from '../../config/torontoMap';
-import { TORONTO_TRANSIT_OFFSET } from '../../config/torontoTransit';
-import { buildStreets } from './streets';
+import { streetcarTrackOffsetWu, TORONTO_TRANSIT_OFFSET } from '../../config/torontoTransit';
+import { getCarDef } from '../../vehicles/definitions';
+import { buildStreets, type Street } from './streets';
 import type { MapPoint } from './projection';
 import {
   buildTransitRoutes,
@@ -20,6 +22,7 @@ import {
   isOnBusRoute,
   laneSignForSegment,
   routeWorldPoints,
+  streetcarTrackPerpWu,
   type ResolvedTransitRoute,
 } from './transitRoutes';
 
@@ -76,11 +79,17 @@ describe('every route stays within its street(s) ribbon', () => {
     }
   });
 
-  it('a streetcar segment\'s (zero) offset is trivially within the street half-width', () => {
+  it('a streetcar segment\'s derived track offset is inside the ribbon and inboard of the traffic lane', () => {
+    // Phase 75: was "trivially within the half-width" when the offset was a literal 0. It is now
+    // the derived inner-lane strip centre, so the bound has real content on both sides.
     for (const r of routes.filter((x) => x.mode === 'streetcar')) {
       for (const seg of r.segments) {
         const street = streetById.get(seg.streetId)!;
-        expect(TORONTO_TRANSIT_OFFSET.streetcarOffsetWu, `${r.id} on ${seg.streetId}`).toBeLessThan(street.halfWidth);
+        const offset = Math.abs(streetcarTrackPerpWu(street));
+        expect(offset, `${r.id} on ${seg.streetId}`).toBeLessThan(street.halfWidth);
+        expect(offset, `${r.id} on ${seg.streetId} must sit INBOARD of the bus/civilian lane`).toBeLessThan(
+          LANE_OFFSET_WU[street.cls],
+        );
       }
     }
   });
@@ -93,7 +102,7 @@ describe('every route stays within its street(s) ribbon', () => {
         const onAnySegment = r.segments.some((seg) => {
           const street = streetById.get(seg.streetId)!;
           const along = street.axis === 'ns' ? p.y : p.x;
-          const maxOffset = r.mode === 'bus' ? LANE_OFFSET_WU[street.cls] : TORONTO_TRANSIT_OFFSET.streetcarOffsetWu;
+          const maxOffset = r.mode === 'bus' ? LANE_OFFSET_WU[street.cls] : Math.abs(streetcarTrackPerpWu(street));
           const acrossOk =
             street.axis === 'ns'
               ? Math.abs(p.x - street.centerline) <= maxOffset + 1e-6
@@ -280,27 +289,263 @@ describe('bus routes resolve to a closed loop with direction-correct lanes (Phas
   });
 });
 
-describe('streetcar routes run the true centreline (no offset) — unchanged by the Phase 31 bus fix', () => {
-  it('every streetcar mapPoint sits exactly on its street centerline', () => {
-    for (const r of routes.filter((x) => x.mode === 'streetcar')) {
+describe('streetcar routes run the derived inner-lane track (Phase 75 — was the bare centreline)', () => {
+  const streetcarRoutes = routes.filter((x) => x.mode === 'streetcar');
+  /** The streetcar body's own half-width (wu). Toronto streetcars mount with no chassis override
+   * (world/toronto/TorontoTransit.tsx), so ai/streetcarTraffic.ts falls back to the Red Rocket's
+   * resolved chassis — read live here rather than re-typed, so a vehicle re-grade cannot silently
+   * push the body onto the grass without this failing. */
+  const STREETCAR_HALF_WIDTH_WU = getCarDef('redRocket').controller.chassis.halfWidth;
+
+  it('every streetcar mapPoint sits exactly on its street\'s derived track offset', () => {
+    for (const r of streetcarRoutes) {
       for (const seg of r.segments) {
         const street = streetById.get(seg.streetId)!;
         const relevant = r.mapPoints.filter((p) => (street.axis === 'ns' ? p.y >= seg.lo - 1 && p.y <= seg.hi + 1 : p.x >= seg.lo - 1 && p.x <= seg.hi + 1));
         for (const p of relevant) {
           const across = street.axis === 'ns' ? p.x : p.y;
-          expect(across).toBeCloseTo(street.centerline, 6);
+          expect(across).toBeCloseTo(street.centerline + streetcarTrackPerpWu(street), 6);
         }
       }
     }
   });
 
-  // Golden hash: pins the streetcar-only resolved output so ANY accidental perturbation from
-  // the Phase 31 bus-loop work (which shares resolveSegment/emitSegmentPoints with resolveRoute)
-  // fails loudly. Streetcar resolution's own code path (resolveRoute, TORONTO_TRANSIT_OFFSET.
-  // streetcarOffsetWu, 'bounce' cursor mode) is untouched by this phase's fix.
+  it('the track is the derived strip centre — equal clearance to the inner kerb and the traffic lane', () => {
+    // The derivation, restated independently of streetcarTrackOffsetWu's own arithmetic: the track
+    // must sit halfway between the median edge (or the centreline, on a class with none) and the
+    // inner flank of a car centred on LANE_OFFSET_WU.
+    for (const s of streets) {
+      const offset = Math.abs(streetcarTrackPerpWu(s));
+      const toKerb = offset - s.medianHalfWidth;
+      const toTrafficLane = LANE_OFFSET_WU[s.cls] - CAR_REF.widthWu / 2 - offset;
+      expect(toKerb, `${s.id}`).toBeCloseTo(toTrafficLane, 9);
+      expect(toKerb, `${s.id} must have real clearance, not tangency`).toBeGreaterThan(0);
+    }
+  });
+
+  it('one shared track on the conventional side (+1 = east on an ns street, south on an ew street)', () => {
+    expect(TORONTO_TRANSIT_OFFSET.streetcarTrackSign).toBe(1);
+    for (const r of streetcarRoutes) {
+      const street = streetById.get(r.segments[0].streetId)!;
+      // Every point of a single-street route sits on ONE side — a single track driven both ways,
+      // not a two-lane loop (that is the bus's shape; see the loop block above).
+      const sides = new Set(
+        r.mapPoints.map((p) => Math.sign((street.axis === 'ns' ? p.x : p.y) - street.centerline)),
+      );
+      expect(sides, r.id).toEqual(new Set([TORONTO_TRANSIT_OFFSET.streetcarTrackSign]));
+    }
+  });
+
+  it('matches the Phase 75 per-class values (spine 3.025 / artery 2.75 / major 1.65 / minor 1.1)', () => {
+    expect(streetcarTrackOffsetWu('spine', CAR_REF.widthWu / 2)).toBeCloseTo(3.025, 9);
+    expect(streetcarTrackOffsetWu('artery', CAR_REF.widthWu / 2)).toBeCloseTo(2.75, 9);
+    expect(streetcarTrackOffsetWu('major', 0)).toBeCloseTo(1.65, 9);
+    expect(streetcarTrackOffsetWu('minor', 0)).toBeCloseTo(1.1, 9);
+  });
+
+  it('THE MEDIAN LAW — no streetcar path point, and no streetcar BODY, sits on the planted strip', () => {
+    // The bug this phase fixed: at offset 0 every point of 510 Spadina (an artery, median 2.2 wu)
+    // sat dead-centre in the grass. Checked on the body envelope, not just the path point.
+    for (const r of streetcarRoutes) {
+      for (const seg of r.segments) {
+        const street = streetById.get(seg.streetId)!;
+        if (street.medianHalfWidth === 0) continue;
+        const innerFlank = Math.abs(streetcarTrackPerpWu(street)) - STREETCAR_HALF_WIDTH_WU;
+        expect(innerFlank, `${r.id} on ${street.id}: body inner flank vs median kerb`).toBeGreaterThan(
+          street.medianHalfWidth,
+        );
+      }
+    }
+  });
+
+  it('THE LAW HAS TEETH — the pre-Phase-75 zero offset puts every median-street route in the grass', () => {
+    const onMedianStreet = streetcarRoutes.flatMap((r) =>
+      r.segments.map((seg) => streetById.get(seg.streetId)!).filter((s) => s.medianHalfWidth > 0),
+    );
+    expect(onMedianStreet.map((s) => s.id)).toEqual(['spadina']); // 510 Spadina — the one that broke
+    for (const s of onMedianStreet) expect(0 - STREETCAR_HALF_WIDTH_WU).toBeLessThan(s.medianHalfWidth);
+  });
+
+  it('the streetcar body stays clear of the civilian/bus lane it runs inboard of', () => {
+    // The second half of the "inner lane" claim: a streetcar and a car abreast must not overlap.
+    // (Before Phase 75 they DID — at offset 0 the 2.4 wu body straddled the centreline and clipped
+    // both 2.2-capped lanes by 0.1 wu.)
+    for (const r of streetcarRoutes) {
+      for (const seg of r.segments) {
+        const street = streetById.get(seg.streetId)!;
+        const outerFlank = Math.abs(streetcarTrackPerpWu(street)) + STREETCAR_HALF_WIDTH_WU;
+        expect(outerFlank, `${r.id} on ${street.id}`).toBeLessThan(LANE_OFFSET_WU[street.cls] - CAR_REF.widthWu / 2);
+      }
+    }
+  });
+
+  it('GUARDS THE MINOR CASE — no streetcar route rides a class whose track would cross the centreline', () => {
+    // On a `minor` the derived offset is 1.1 wu, so the 1.2 wu body half-width would poke 0.1 wu
+    // across the centreline into the oncoming side. No route does today (all 7 ride majors + one
+    // artery); if one ever moves onto a minor, this fails and the derivation must be re-graded
+    // rather than the route quietly shipping on the wrong side of the road.
+    const crossesCentreline = (s: Street): boolean =>
+      Math.abs(streetcarTrackPerpWu(s)) - STREETCAR_HALF_WIDTH_WU < 0;
+    for (const r of streetcarRoutes) {
+      for (const seg of r.segments) {
+        expect(crossesCentreline(streetById.get(seg.streetId)!), `${r.id} on ${seg.streetId}`).toBe(false);
+      }
+    }
+    // …and the guard is not vacuous: `minor` really is the class that would trip it.
+    expect(streets.some((s) => s.cls === 'minor' && crossesCentreline(s))).toBe(true);
+  });
+
+  // Golden hash: pins the streetcar-only resolved output so ANY accidental perturbation from the
+  // bus-loop work (which shares resolveSegment/emitSegmentPoints with resolveRoute) fails loudly.
+  //
+  // PHASE 75 RE-PIN (0795f0ce -> 8c00cae4), the ONE re-pin this phase's transit track takes, with
+  // both contributing deltas attributed:
+  //   1. THE TRACK MOVED (this task): every streetcar route steps off the centreline onto the
+  //      derived inner-lane offset — 6 major routes by 1.65 wu, 510 Spadina by 2.75 wu.
+  //   2. THE STREET MOVED (Phase 75 T0, before this task touched anything): streets.ts's
+  //      boundary nudge is half-width-derived, so doubling the widths re-nudged Bloor's centreline
+  //      1366.95 -> 1371.90, which is 511 Bathurst's northern span endpoint. Measured in isolation
+  //      at T0's commit the hash was already 0689e8a0 — i.e. the route data moved before the track
+  //      did, and neither delta is hiding inside the other.
   it('matches a pinned golden hash for the 7 streetcar routes', () => {
     const streetcarOnly = routes.filter((r) => r.mode === 'streetcar');
-    expect(stableHash(JSON.stringify(streetcarOnly))).toBe('0795f0ce');
+    expect(stableHash(JSON.stringify(streetcarOnly))).toBe('809c871c');
+  });
+});
+
+// PHASE 75 (T2) — the median law for BOTH transit modes, stated on the resolved polylines rather
+// than on either resolver's arithmetic. Medians are visual-only (config/torontoMap.ts's
+// ROAD_MEDIAN.colliders = false), so a transit vehicle on the grass is a look defect, not a
+// physics one — but it is exactly the look defect this task exists to remove, and the only thing
+// that would have caught the 510-Spadina-through-the-grass regression is a test on the points.
+describe('no transit path point lies inside a median footprint (Phase 75)', () => {
+  const medianStreets = streets.filter((s) => s.medianWidth > 0);
+
+  /** How far into `street`'s planted strip a map point sits (> 0 = on the grass); -Infinity when
+   * the point is not alongside that street at all. */
+  const medianIntrusionWu = (street: Street, p: MapPoint): number => {
+    const along = street.axis === 'ns' ? p.y : p.x;
+    if (along < street.span[0] - 1e-6 || along > street.span[1] + 1e-6) return Number.NEGATIVE_INFINITY;
+    const across = street.axis === 'ns' ? p.x : p.y;
+    return street.medianHalfWidth - Math.abs(across - street.centerline);
+  };
+
+  it('the map really does carry medians (otherwise the laws below are vacuous)', () => {
+    expect(medianStreets.map((s) => s.id).sort()).toEqual(['bloor', 'spadina', 'university', 'yonge']);
+  });
+
+  it('all 15 routes are single-segment — the attribution the laws below rely on', () => {
+    // Every route in data/toronto/transit-routes.json rides exactly one street, so `segments[0]`
+    // identifies the street a given map point is TRAVELLING ON. If a multi-street route is ever
+    // added, the two laws below need per-segment point attribution before they stay honest.
+    for (const r of routes) expect(r.segments.length, r.id).toBe(1);
+  });
+
+  it('THE LAW — no route point rides inside the median of the street it is travelling on', () => {
+    // This is the regression: at the old literal 0 offset, EVERY point of 510 Spadina sat dead
+    // centre in Spadina's planted strip, and 97 Yonge's two lanes straddled Yonge's.
+    for (const r of routes) {
+      const ridden = streetById.get(r.segments[0].streetId)!;
+      if (ridden.medianHalfWidth === 0) continue;
+      for (const p of r.mapPoints) {
+        expect(
+          medianIntrusionWu(ridden, p),
+          `${r.id} point (${p.x.toFixed(2)},${p.y.toFixed(2)}) rides ${ridden.id}'s median`,
+        ).toBeLessThan(0);
+      }
+    }
+  });
+
+  it('points that DO sit in a median belong to a PERPENDICULAR street — a junction, where medians break', () => {
+    // A route whose endpoint token is a cross street terminates on that street's CENTRELINE (e.g.
+    // 19 Bay's northern tip at Bay x Bloor), which is inside the cross street's nominal median
+    // rect. Legitimate, and the same verdict the traffic graph's own hubs carry
+    // (roadGraph.test.ts): a real boulevard's planted strip stops short of a junction so cross and
+    // left-turning traffic can pass — that break IS where these points sit. Pinned so the class
+    // stays "termini at junctions" rather than silently growing a route that rides the grass.
+    const inMedian: string[] = [];
+    for (const r of routes) {
+      const ridden = streetById.get(r.segments[0].streetId)!;
+      for (const p of r.mapPoints) {
+        for (const s of medianStreets) {
+          if (s.id === ridden.id) continue;
+          if (medianIntrusionWu(s, p) > 0) inMedian.push(`${r.id}@${s.id}`);
+        }
+      }
+    }
+    // Six bus termini + one streetcar terminus, every one of them a route endpoint TOKEN that
+    // names the crossing street: the four Yonge splits (36/39 Finch, 84/185 Sheppard), 121 Front's
+    // Yonge tip, 19 Bay's Bloor tip and 511 Bathurst's Bloor tip.
+    expect([...new Set(inMedian)].sort()).toEqual([
+      '121@yonge',
+      '185@yonge',
+      '19@bloor',
+      '36@yonge',
+      '39@yonge',
+      '511@bloor',
+      '84@yonge',
+    ]);
+    for (const entry of new Set(inMedian)) {
+      const [routeId, streetId] = entry.split('@');
+      const r = routes.find((x) => x.id === routeId)!;
+      const ridden = streetById.get(r.segments[0].streetId)!;
+      const cross = streetById.get(streetId)!;
+      // …and it really is a junction of the two: the cross street's centreline is one of this
+      // route's own along-street endpoints.
+      const seg = r.segments[0];
+      expect(
+        Math.min(Math.abs(seg.lo - cross.centerline), Math.abs(seg.hi - cross.centerline)),
+        `${entry} must be a terminus at the crossing`,
+      ).toBeLessThan(1e-6);
+      expect(ridden.axis, entry).not.toBe(cross.axis);
+    }
+  });
+
+  it('the only segment that TRAVERSES its own street\'s median is 97 Yonge\'s two terminus U-turns', () => {
+    // Honest scope: the laws above are about POINTS. A bus loop also has two perpendicular tip
+    // segments (outbound lane -> return lane at each terminus) and on a median street that join
+    // necessarily sweeps across the strip — the same terminus U-turn the traffic graph's own
+    // median tips make. Medians carry no collider, so this is a look question, not a trap; pinned
+    // so it stays two known segments on one known route.
+    const selfCrossings: string[] = [];
+    const perpendicularCrossings: string[] = [];
+    for (const r of routes) {
+      const ridden = streetById.get(r.segments[0].streetId)!;
+      for (let i = 1; i < r.mapPoints.length; i++) {
+        const a = r.mapPoints[i - 1];
+        const b = r.mapPoints[i];
+        for (const s of medianStreets) {
+          const acrossA = s.axis === 'ns' ? a.x : a.y;
+          const acrossB = s.axis === 'ns' ? b.x : b.y;
+          const alongMid = s.axis === 'ns' ? (a.y + b.y) / 2 : (a.x + b.x) / 2;
+          const spansStrip = (acrossA - s.centerline) * (acrossB - s.centerline) < 0;
+          const alongside = alongMid >= s.span[0] - 1e-6 && alongMid <= s.span[1] + 1e-6;
+          if (!spansStrip || !alongside) continue;
+          (s.id === ridden.id ? selfCrossings : perpendicularCrossings).push(`${r.id}@${s.id}`);
+        }
+      }
+    }
+    expect(selfCrossings.sort()).toEqual(['97@yonge', '97@yonge']);
+    // Everything else is a route driving THROUGH a junction on the perpendicular street — the
+    // ordinary case, and precisely what a median break exists for.
+    expect(perpendicularCrossings.length).toBe(17);
+    expect([...new Set(perpendicularCrossings)].sort()).toEqual([
+      '34@yonge',
+      '501@spadina',
+      '501@university',
+      '501@yonge',
+      '504@spadina',
+      '504@university',
+      '504@yonge',
+      '505@spadina',
+      '505@university',
+      '505@yonge',
+      '506@spadina',
+      '506@university',
+      '506@yonge',
+      '509@yonge',
+      '97@bloor',
+    ]);
   });
 });
 

@@ -23,7 +23,7 @@
 // (Addendum A.2 fixed-bearing branch; map north = −Z per projection.mapToWorld).
 
 import buildingSpecsJson from '../../../../data/toronto/building-specs.json';
-import { NAMED_HEIGHT_SCALE } from '../../config/torontoMap';
+import { NAMED_HEIGHT_SCALE, SIDEWALK } from '../../config/torontoMap';
 import { CROWN_DECAL, lookForMaterial, type MaterialLook } from '../../config/torontoMaterials';
 import { hGame } from './heightCurve';
 import { PLAYABLE_POLYGON, pointInPolygon, scaleAboutYonge } from './polygon';
@@ -195,6 +195,30 @@ interface PodiumSpec {
  *   • axis 'x' for a N-S reference street (Bay/Yonge/Spadina): side 'lo' hugs the WEST ribbon
  *     edge (building west of the street), 'hi' the EAST edge;
  *   • axis 'z' for an E-W reference street (Front): 'lo' hugs the NORTH edge, 'hi' the SOUTH edge.
+ *
+ * PHASE 75 — an author may now give a PAIR, one per axis, which is what a CORNER lot actually
+ * wants. The single-frontage rule above is what forced Union Station and the Hockey Hall of Fame
+ * to author their cross-axis offset by hand "to land at the same place the helper would compute",
+ * and a hand-computed ribbon offset is precisely what the road widening invalidated: a centreline
+ * literal does not move when the ribbon grows, so the gap it was chosen to produce silently
+ * closes. Two frontages set two independent coordinates, so a corner building keeps BOTH of its
+ * street gaps by construction, at any future width.
+ *
+ * PHASE 75 / T3 — THE PAIR IS NOW THE FIX, NOT AN OPTION. T1a shipped the mechanism and migrated
+ * only Osgoode Hall (whose builder threw), deliberately leaving the hand-authored corners alone
+ * on the grounds that moving them fixed nothing. The placement re-fit measured that judgement and
+ * REVERSED it: three of them actually intrude on asphalt at the doubled widths —
+ *
+ *     hockey-hall-of-fame   3.50 wu into yonge       (x authored off yonge's CENTRELINE)
+ *     fairmont-royal-york   2.73 wu into university  (x authored off bay's centreline, 90 wu west)
+ *     old-city-hall         2.30 wu into bay         (x authored off bay's centreline, 19 wu east)
+ *
+ * (each measured against the ribbon inflated by namedBuildings.test.ts's 1 wu road margin, so the
+ * bare-asphalt intrusions are 2.50 / 1.73 / 1.30 wu). Every one is the SAME failure: a coordinate
+ * chosen to produce a facade gap off a ribbon edge, but WRITTEN as an offset from a centreline —
+ * so when the half-width grew by 5.5 / 4.95 / 4.4 wu, the gap went with it. All three are corner
+ * lots on this map, and all three now carry the pair. Nothing else in the module changed: the pair
+ * writes the same coordinate the author intended, from the input that actually governs it.
  */
 interface Frontage {
   readonly ref: string;
@@ -206,6 +230,24 @@ interface Frontage {
 /** Default facade-to-ribbon-edge gap (wu) — inside the §5 "2–4 wu" band, > the 1 wu road margin. */
 const FLUSH_GAP_WU = 3;
 
+/**
+ * Osgoode Hall's SET-BACK: the yard (wu) its walls keep between themselves and the far edge of the
+ * public sidewalk, on both of its street faces. Every other named building on this map is flush at
+ * FLUSH_GAP_WU; this one is the seam's only set-back landmark, and the lawn + 1867 fence standing
+ * in that yard are its whole identity (osgoodeHall.ts's header; its test pins both lawns > 3 wu).
+ *
+ * PHASE 75 — the value is authored HERE, as a yard depth, because the road widening proved the old
+ * expression of the same intent (a 21 wu offset off each CENTRELINE) was not the intent at all:
+ * University is an `artery` (+4.95 wu of half-width) and Queen a `major` (+4.4), so the yards
+ * measured 5.05 → 0.10 wu west and 3.80 → −0.60 wu south, i.e. the portico came to stand ON Queen's
+ * sidewalk and `osgoodeLayout` threw. 5.5 wu reproduces both pre-widening reads (west lawn 5.5,
+ * south lawn 5.5 − the 1.8 wu portico = 3.7) and, being measured off the ribbon, cannot collapse
+ * again. The block absorbs it: the ground the building steps into is empty on both sides, and
+ * Nathan Phillips Square's west edge (newCityHall.ts SQUARE.westOfCampusWu) steps east with it.
+ */
+const OSGOODE_YARD_WU = 5.5;
+const OSGOODE_SETBACK_WU = SIDEWALK.widthWu + OSGOODE_YARD_WU;
+
 interface Author {
   readonly id: string;
   /** Centre (map x, z) as a function of the street-centreline lookup. */
@@ -216,8 +258,15 @@ interface Author {
   readonly decalBrand?: LogoBrand;
   readonly twin?: TwinSpec;
   readonly podium?: PodiumSpec;
-  /** Phase 25 flush-frontage: hug this street's ribbon edge (perpendicular axis only). */
-  readonly frontage?: Frontage;
+  /** Phase 25 flush-frontage: hug this street's ribbon edge (perpendicular axis only). A PAIR
+   * (Phase 75) flushes a corner lot on both axes — one entry per axis. */
+  readonly frontage?: Frontage | readonly Frontage[];
+}
+
+/** One frontage or a corner pair, as a list. */
+function frontagesOf(f: Frontage | readonly Frontage[] | undefined): readonly Frontage[] {
+  if (f === undefined) return [];
+  return 'ref' in f ? [f] : f;
 }
 
 /** Midpoint of two street centrelines. */
@@ -246,8 +295,21 @@ const AUTHORS: readonly Author[] = [
   { id: 'royal-bank-plaza', center: (c) => ({ x: c('bay') + 34, z: c('front') - 39 }), shape: 'square', decalBrand: 'rbc', frontage: { ref: 'york', axis: 'x', side: 'hi' } },
   { id: 'cibc-square', center: (c) => ({ x: c('bay') + 50, z: c('front') + 41 }), shape: 'square', decalBrand: 'cibc', frontage: { ref: 'york', axis: 'x', side: 'hi' } },
   // Fairmont Royal York: the wide limestone block N of Front, W of York/Bay. Flush its south
-  // facade to Front's north edge (it keeps its far-west x, so no bank-cluster collision).
-  { id: 'fairmont-royal-york', center: (c) => ({ x: c('bay') - 90, z: c('front') - 44 }), shape: 'square', frontage: { ref: 'front', axis: 'z', side: 'lo' } },
+  // facade to Front's north edge. Phase 75 (T3): its WEST facade is now flushed to University's
+  // east ribbon edge as well. The `c('bay') - 90` offset it used to carry put that facade 2.22 wu
+  // clear of University's asphalt — a gap nobody chose, produced by a centreline offset — and the
+  // artery's +4.95 wu of new half-width swallowed it whole (2.73 wu into the inflated ribbon). The
+  // building was already effectively walling University; stating that against the RIBBON is the
+  // only formulation of the same placement that a future width change cannot collapse again.
+  {
+    id: 'fairmont-royal-york',
+    center: (c) => ({ x: c('bay') - 90, z: c('front') - 44 }),
+    shape: 'square',
+    frontage: [
+      { ref: 'front', axis: 'z', side: 'lo' },
+      { ref: 'university', axis: 'x', side: 'hi' },
+    ],
+  },
   // Union Station: shallow limestone colonnade S of Front. The Bay/York centrelines are ~12.5 wu
   // apart on this map (the documented Bay/York proxy artifact — a 74-wu box can't straddle them
   // without crossing a ribbon), so it hugs Front's south edge extending WEST from the Bay corner.
@@ -299,19 +361,45 @@ const AUTHORS: readonly Author[] = [
     podium: { dx: -13, dz: 0, w: 58, d: 46, realM: 8, material: 'precast_grey' },
   },
   // Old City Hall: NE corner of Queen × Bay (60 Queen St W), flush to Queen's north side — its
-  // south facade + clock tower terminate the Bay view exactly like the real one.
-  { id: 'old-city-hall', center: (c) => ({ x: c('bay') + 19, z: c('queen') - 15 }), shape: 'square', frontage: { ref: 'queen', axis: 'z', side: 'lo' } },
-  // Osgoode Hall: NE corner of Queen × University, deliberately NOT flush — the researched read
-  // is a low pile SET BACK behind its lawn and 1867 fence (osgoodeHall.ts dresses both).
-  { id: 'osgoode-hall', center: (c) => ({ x: c('university') + 21, z: c('queen') - 21 }), shape: 'square' },
+  // south facade + clock tower terminate the Bay view exactly like the real one. Phase 75 (T3):
+  // a CORNER lot, so it now flushes on both axes — the `c('bay') + 19` offset left its west facade
+  // 2.10 wu off Bay's old asphalt and the major's +4.4 wu of half-width put it 1.30 wu INSIDE the
+  // new one. Its west wall is what the Bay canyon looks down; that wall belongs on Bay's ribbon
+  // edge, not on an offset from Bay's centreline.
+  {
+    id: 'old-city-hall',
+    center: (c) => ({ x: c('bay') + 19, z: c('queen') - 15 }),
+    shape: 'square',
+    frontage: [
+      { ref: 'queen', axis: 'z', side: 'lo' },
+      { ref: 'bay', axis: 'x', side: 'hi' },
+    ],
+  },
+  // Osgoode Hall: NE corner of Queen × University, deliberately NOT flush at FLUSH_GAP_WU — the
+  // researched read is a low pile SET BACK behind its lawn and 1867 fence (osgoodeHall.ts dresses
+  // both). Phase 75: the set-back is now measured off both RIBBONS (a corner frontage pair at
+  // OSGOODE_SETBACK_WU) instead of off both centrelines, so the yard survives a road re-grade —
+  // see OSGOODE_YARD_WU for the widening that made a centreline literal untenable. `center` still
+  // states the block it belongs to; both of its coordinates are then snapped by the pair.
+  {
+    id: 'osgoode-hall',
+    center: (c) => ({ x: c('university') + 21, z: c('queen') - 21 }),
+    shape: 'square',
+    frontage: [
+      { ref: 'queen', axis: 'z', side: 'lo', gap: OSGOODE_SETBACK_WU },
+      { ref: 'university', axis: 'x', side: 'hi', gap: OSGOODE_SETBACK_WU },
+    ],
+  },
 
   // --- Phase 48: the Hockey Hall of Fame, in the 1885 Bank of Montreal ------------------------
   // NW corner of Yonge × Front (30 Yonge St, researcher-verified corner). A CORNER building wants
-  // both of its street faces flush, but `frontage` overrides one axis only — so Front carries the
-  // flush (south facade 3 wu off Front's north ribbon edge) and the x offset is authored to land
-  // the east facade the same 3 wu off Yonge's west ribbon edge (yonge centreline 1500, ribbon
-  // minX 1494.5, footprint_wu 9 → half 4.5: 1500 − 13 = 1487, east face 1491.5, gap 3.0 — the
-  // FLUSH_GAP_WU value, arrived at by the same arithmetic the frontage helper would do).
+  // both of its street faces flush; Phase 48 could only flush one axis, so Front carried the flush
+  // and the x offset was hand-authored "by the same arithmetic the frontage helper would do"
+  // (yonge centreline 1500, ribbon minX 1494.5, footprint_wu 9 → half 4.5: 1500 − 13 = 1487, east
+  // face 1491.5, gap 3.0 = FLUSH_GAP_WU). Phase 75 (T3) is exactly the event that comment was
+  // vulnerable to: the spine's half-width went 5.5 → 11.0, Yonge's ribbon minX went 1494.5 → 1489,
+  // and the frozen 1487 put the east facade 2.50 wu INSIDE the asphalt. The pair now computes what
+  // the arithmetic used to state, so the 3 wu gap survives any future width.
   // This is the luckiest corner on the map for the fixed rig: the ornate elevations of a corner
   // banking hall face the intersection, and that intersection is to the SOUTH-EAST — the exact
   // pair of faces the camera can see (Phase 34's pinned face set).
@@ -319,7 +407,10 @@ const AUTHORS: readonly Author[] = [
     id: 'hockey-hall-of-fame',
     center: (c) => ({ x: c('yonge') - 13, z: c('front') - 12 }),
     shape: 'square',
-    frontage: { ref: 'front', axis: 'z', side: 'lo' },
+    frontage: [
+      { ref: 'front', axis: 'z', side: 'lo' },
+      { ref: 'yonge', axis: 'x', side: 'lo' },
+    ],
   },
 ];
 
@@ -403,14 +494,14 @@ export function buildNamedBuildings(): NamedBuildings {
     // `gap` wu off the reference street's ribbon edge; the along-street coordinate stays as authored.
     let cx = x;
     let cz = z;
-    if (a.frontage) {
-      const st = byId.get(a.frontage.ref);
-      if (!st) throw new Error(`namedBuildings: ${a.id} frontage ref "${a.frontage.ref}" not in the street table`);
-      const gap = a.frontage.gap ?? FLUSH_GAP_WU;
-      if (a.frontage.axis === 'x') {
-        cx = a.frontage.side === 'lo' ? st.ribbon.minX - gap - hx : st.ribbon.maxX + gap + hx;
+    for (const f of frontagesOf(a.frontage)) {
+      const st = byId.get(f.ref);
+      if (!st) throw new Error(`namedBuildings: ${a.id} frontage ref "${f.ref}" not in the street table`);
+      const gap = f.gap ?? FLUSH_GAP_WU;
+      if (f.axis === 'x') {
+        cx = f.side === 'lo' ? st.ribbon.minX - gap - hx : st.ribbon.maxX + gap + hx;
       } else {
-        cz = a.frontage.side === 'lo' ? st.ribbon.minY - gap - hz : st.ribbon.maxY + gap + hz;
+        cz = f.side === 'lo' ? st.ribbon.minY - gap - hz : st.ribbon.maxY + gap + hz;
       }
     }
 

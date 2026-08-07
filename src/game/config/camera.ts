@@ -249,13 +249,54 @@ const DEG2RAD = Math.PI / 180;
  * therefore the ceiling ordinary streetwall must stay under. 26·sin58° = 22.05. */
 export const CAMERA_EYE_MIN_WU = CAMERA.baseDist * Math.sin(CAMERA.pitchDeg * DEG2RAD);
 
+/** The top wanted tier (★5) — how many tier steps the framing ramp can add. Hoisted at Phase 75 so
+ * the two "both halves of the ramp saturated" expressions below share one statement of it. */
+const MAX_WANTED_TIER = 5;
+
+/** Absolute camera pitch (deg) at the TOP of the normal-play framing ramp — top speed at ★5, i.e.
+ * the same pose CAMERA_EYE_MAX_WU is measured at. 58 + 5 + 5·1.3 = 69.5. */
+export const CAMERA_PITCH_MAX_DEG = CAMERA.pitchDeg + CAMERA.speedPitchDeg + MAX_WANTED_TIER * CAMERA.tierPitchDeg;
+
 /** Top of the normal-play eye envelope (wu): top speed at ★5, i.e. both halves of the framing ramp
  * saturated — distance (baseDist + speedZoom + 5·tierZoom) at pitch (pitchDeg + speedPitchDeg +
  * 5·tierPitchDeg). 37.5·sin69.5° = 35.13. Anything between EYE_MIN and this is inside the band the
  * eye sweeps as the player gets fast and hot. */
 export const CAMERA_EYE_MAX_WU =
-  (CAMERA.baseDist + CAMERA.speedZoom + 5 * CAMERA.tierZoom) *
-  Math.sin((CAMERA.pitchDeg + CAMERA.speedPitchDeg + 5 * CAMERA.tierPitchDeg) * DEG2RAD);
+  (CAMERA.baseDist + CAMERA.speedZoom + MAX_WANTED_TIER * CAMERA.tierZoom) * Math.sin(CAMERA_PITCH_MAX_DEG * DEG2RAD);
+
+/**
+ * PHASE 75 — THE VISIBLE GROUND BAND, made computable.
+ *
+ * Depth (wu, measured ALONG the camera's boresight on the ground plane) of the strip of ground the
+ * frame actually shows, for an eye `eyeWu` above the car's ground plane at absolute pitch
+ * `absPitchDeg`: where the frustum's TOP edge meets y = 0, less where its BOTTOM edge does. Both
+ * edges are below the horizon at every legal pose (the shallowest is pitchDeg − fov/2 = 39°), which
+ * is Phase 38's measured finding stated as geometry: **no sky, no horizon, ever in frame**, so the
+ * band is finite and the arithmetic below never divides through zero.
+ *
+ * Phase 38 measured this band at 27–29 wu in play and filed it as a verbal law ("the visible-band
+ * law"). It is a pure function of the CAMERA leaves, so it is expressed here instead — a rig change
+ * moves it and no comment can go stale.
+ */
+export function cameraGroundBandWu(eyeWu: number, absPitchDeg: number): number {
+  const top = (absPitchDeg - CAMERA.fov / 2) * DEG2RAD;
+  const bottom = (absPitchDeg + CAMERA.fov / 2) * DEG2RAD;
+  return eyeWu / Math.tan(top) - eyeWu / Math.tan(bottom);
+}
+
+/**
+ * The DEEPEST that band ever gets inside the normal-play eye envelope (wu) — 28.04, at top
+ * speed/★5. Evaluated at both ENDS of the envelope rather than assumed monotonic: the ramp raises
+ * the eye (deeper band) and steepens the pitch (shallower band) at the same time, so which end wins
+ * is a fact about the tuned leaves, not a given. Rest = 22.14, saturated = 28.04.
+ *
+ * Consumers use it as "how much ground is on screen at once" — Phase 75's median planting derives
+ * its pitch from it so no two planters can share a frame (config/torontoDress.ts's MEDIAN_PLANTING).
+ */
+export const CAMERA_GROUND_BAND_MAX_WU = Math.max(
+  cameraGroundBandWu(CAMERA_EYE_MIN_WU, CAMERA.pitchDeg),
+  cameraGroundBandWu(CAMERA_EYE_MAX_WU, CAMERA_PITCH_MAX_DEG),
+);
 
 // --- Phase 33 camera lab: candidate rigs (kept for re-comparison, NOT re-applied on boot) ------
 // The Part-9 user directive re-opened the "Camera bearing: FIXED" lock: the camera phased through

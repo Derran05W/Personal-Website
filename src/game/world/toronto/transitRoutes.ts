@@ -28,14 +28,22 @@
 // OPPOSITE side), and the two legs join at both tips — the path's own last point closes back onto
 // its first. ai/streetcarTraffic.ts's new 'loop' cursor mode (AvenueCursorMode) wraps a bus
 // forward through this forever, never reflecting into what would be the oncoming lane.
-// STREETCARS are deliberately UNCHANGED: they still resolve via resolveRoute to a single OPEN
-// centreline polyline (TORONTO_TRANSIT_OFFSET.streetcarOffsetWu, 0 — the P19 "implacable median"
-// design) and still drive it there-and-back ('bounce', the controller's default) — a real
-// streetcar ROW is a single shared track, not a two-lane road, so there is no "wrong lane" to fix.
+// STREETCARS keep their SHAPE: they still resolve via resolveRoute to a single OPEN polyline and
+// still drive it there-and-back ('bounce', the controller's default) — a real streetcar ROW is a
+// single shared track, not a two-lane road, so there is no "wrong lane" to fix.
+//
+// PHASE 75 — WHERE that streetcar polyline sits moved, because the centreline it used to ride is
+// now planted: the road re-grade put a one-car-wide grass median down the spine and the arteries
+// (config/torontoMap.ts's ROAD_MEDIAN), so 510 Spadina would have run its whole line through the
+// grass. The constant 0 offset is replaced by config/torontoTransit.ts's DERIVED
+// streetcarTrackOffsetWu(cls, medianHalfWidth) — the midpoint of the empty strip between the inner
+// kerb and the traffic lane's inner flank — applied per SEGMENT (routes can cross street classes)
+// on a constant side (TORONTO_TRANSIT_OFFSET.streetcarTrackSign). See that config block for why
+// the track is inboard of the bus lane rather than sharing it.
 
 import transitRoutesJson from '../../../../data/toronto/transit-routes.json';
 import { LANE_OFFSET_WU } from '../../config/torontoMap';
-import { TORONTO_TRANSIT_OFFSET } from '../../config/torontoTransit';
+import { streetcarTrackOffsetWu, TORONTO_TRANSIT_OFFSET } from '../../config/torontoTransit';
 import type { TransitMode, TransitRoute, TransitRouteSegment, TransitRoutesFile } from './data';
 import { mapToWorld, type MapPoint } from './projection';
 import { buildStreets, type Street, type StreetAxis } from './streets';
@@ -60,8 +68,9 @@ export interface ResolvedTransitRoute {
   readonly segments: readonly ResolvedTransitSegment[];
   /** Map-space polyline in travel order (>= 2 points). A BUS route's polyline is a CLOSED LOOP
    * (direction-correct LANE_OFFSET_WU lane out, the opposite lane back, joined at both tips —
-   * see this file's header); a STREETCAR route's polyline is an OPEN centreline (0 offset),
-   * driven there-and-back by the controller's default 'bounce' cursor mode. */
+   * see this file's header); a STREETCAR route's polyline is an OPEN single track on the derived
+   * inner-lane offset (Phase 75 — streetcarTrackPerpWu; it was the bare centreline until the
+   * median landed there), driven there-and-back by the controller's default 'bounce' cursor mode. */
   readonly mapPoints: readonly MapPoint[];
 }
 
@@ -132,16 +141,24 @@ function resolveSegment(
   return { street, fromAlong, toAlong };
 }
 
-/** STREETCAR resolution — UNCHANGED by the Phase 31 lane fix (see this file's header): a single
- * OPEN polyline at a constant perpendicular offset (TORONTO_TRANSIT_OFFSET.streetcarOffsetWu, 0
- * — the true centreline), walked there-and-back by the controller's default 'bounce' mode. */
+/** The signed perpendicular offset (wu) of the streetcar track on one street — the derived
+ * inner-lane strip centre (config/torontoTransit.ts's streetcarTrackOffsetWu) on the conventional
+ * side. Per STREET, not per route: a route that changes street class changes track offset with it.
+ * Exported for direct testing against the street table (Phase 75 median law). */
+export function streetcarTrackPerpWu(street: Street): number {
+  return TORONTO_TRANSIT_OFFSET.streetcarTrackSign * streetcarTrackOffsetWu(street.cls, street.medianHalfWidth);
+}
+
+/** STREETCAR resolution — the same SHAPE the Phase 31 lane fix left alone (see this file's
+ * header): a single OPEN polyline walked there-and-back by the controller's default 'bounce'
+ * mode. Phase 75 moved it off the (now planted) centreline onto the derived inner-lane track. */
 function resolveRoute(route: TransitRoute, streetById: ReadonlyMap<string, Street>): ResolvedTransitRoute {
-  const perp = TORONTO_TRANSIT_OFFSET.streetcarOffsetWu;
   const segments: ResolvedTransitSegment[] = [];
   const points: MapPoint[] = [];
 
   for (const seg of route.segments) {
     const { street, fromAlong, toAlong } = resolveSegment(route.id, seg, streetById);
+    const perp = streetcarTrackPerpWu(street);
     segments.push({ streetId: street.id, lo: Math.min(fromAlong, toAlong), hi: Math.max(fromAlong, toAlong) });
     emitSegmentPoints(points, pointAt(street, fromAlong, perp), pointAt(street, toAlong, perp));
   }

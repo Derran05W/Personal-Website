@@ -9,10 +9,17 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CAR_REF } from '../../config/cityPackScale';
-import { EDGE_PAD_WU, ROAD_CLASSES } from '../../config/torontoMap';
+import {
+  carriagewayCentreWu,
+  defaultMedianWidthWu,
+  EDGE_PAD_WU,
+  LANE_OFFSET_WU,
+  ROAD_CLASSES,
+  ROAD_MEDIAN,
+} from '../../config/torontoMap';
 import { PLAYABLE_POLYGON, pointInPolygon, scaleAboutYonge } from './polygon';
 import { TORONTO_PROJECTION, ZONE_BOUNDARIES } from './projection';
-import { STREET_ANCHORS, STREET_DEFS, buildStreets } from './streets';
+import { STREET_ANCHORS, STREET_DEFS, buildStreets, resolveMedianWidth } from './streets';
 
 interface RawAnchor {
   id: string;
@@ -238,12 +245,16 @@ describe('spans resolve to referenced streets / zone edges — not magic numbers
 // supersedes that table: widths are now whole-car multiples of CAR_REF.widthWu
 // (config/cityPackScale.ts), graded spine(7) > artery(6) > major(5) > minor(3.5). This block
 // pins the DERIVATION, not a bare literal, per the "re-derive, never hand-pin" policy (D4d).
-describe('config sanity — car-derived widths (§3a superseded, CLAUDE.md CITY-PACK REAPPROACH rule 4; Part-8 D3 road diet)', () => {
+describe('config sanity — car-derived widths (§3a superseded, CLAUDE.md CITY-PACK REAPPROACH rule 4; Part-8 D3 road diet, Phase 75 re-grade)', () => {
+  // PHASE 75 RE-PIN (D1, user directive 2026-08-04 "double the roads"): every Part-8 multiplier
+  // doubles (5/4.5/4/3 → 10/9/8/6 cars). The DERIVATION and the ordering invariant below are
+  // unchanged — that is the point of pinning the rule rather than the number; only the car counts
+  // and the values they produce moved.
   it('spine/artery/major/minor are exact whole-car multiples of CAR_REF.widthWu', () => {
-    expect(ROAD_CLASSES.spine).toBeCloseTo(5 * CAR_REF.widthWu, 9);
-    expect(ROAD_CLASSES.artery).toBeCloseTo(4.5 * CAR_REF.widthWu, 9);
-    expect(ROAD_CLASSES.major).toBeCloseTo(4 * CAR_REF.widthWu, 9);
-    expect(ROAD_CLASSES.minor).toBeCloseTo(3 * CAR_REF.widthWu, 9);
+    expect(ROAD_CLASSES.spine).toBeCloseTo(10 * CAR_REF.widthWu, 9);
+    expect(ROAD_CLASSES.artery).toBeCloseTo(9 * CAR_REF.widthWu, 9);
+    expect(ROAD_CLASSES.major).toBeCloseTo(8 * CAR_REF.widthWu, 9);
+    expect(ROAD_CLASSES.minor).toBeCloseTo(6 * CAR_REF.widthWu, 9);
   });
 
   it('the class ordering still holds (spine widest, minor narrowest — §2 "spine reads first")', () => {
@@ -252,17 +263,96 @@ describe('config sanity — car-derived widths (§3a superseded, CLAUDE.md CITY-
     expect(ROAD_CLASSES.major).toBeGreaterThan(ROAD_CLASSES.minor);
   });
 
-  it('matches the Part-8 D3 road-diet values (spine 11.0 / artery 9.9 / major 8.8 / minor 6.6)', () => {
-    expect(ROAD_CLASSES.spine).toBeCloseTo(11.0, 9);
-    expect(ROAD_CLASSES.artery).toBeCloseTo(9.9, 9);
-    expect(ROAD_CLASSES.major).toBeCloseTo(8.8, 9);
-    expect(ROAD_CLASSES.minor).toBeCloseTo(6.6, 9);
+  it('matches the Phase 75 values (spine 22.0 / artery 19.8 / major 17.6 / minor 13.2)', () => {
+    expect(ROAD_CLASSES.spine).toBeCloseTo(22.0, 9);
+    expect(ROAD_CLASSES.artery).toBeCloseTo(19.8, 9);
+    expect(ROAD_CLASSES.major).toBeCloseTo(17.6, 9);
+    expect(ROAD_CLASSES.minor).toBeCloseTo(13.2, 9);
+  });
+
+  it('is exactly double the Part-8 road diet on every class (the directive, as arithmetic)', () => {
+    expect(ROAD_CLASSES.spine).toBeCloseTo(2 * 11.0, 9);
+    expect(ROAD_CLASSES.artery).toBeCloseTo(2 * 9.9, 9);
+    expect(ROAD_CLASSES.major).toBeCloseTo(2 * 8.8, 9);
+    expect(ROAD_CLASSES.minor).toBeCloseTo(2 * 6.6, 9);
   });
 
   it('every street carries a width matching its class', () => {
     for (const s of streets) {
       expect(s.width).toBe(ROAD_CLASSES[s.cls]);
       expect(s.halfWidth).toBeCloseTo(s.width / 2, 9);
+    }
+  });
+});
+
+// PHASE 75 (T0) — the median as resolved street data. The CLASS-level policy laws (which classes,
+// how wide, the kerb constants, the "no new GROUND_STACK rung" decision) live in
+// config/torontoMap.test.ts; this block owns the RESOLUTION onto the built Street records and the
+// coupling between a street's median and the lane offset traffic actually drives.
+describe('median resolution — the class policy + per-street override, resolved onto Street', () => {
+  it('every street exposes a resolved median width and half-width (0 when it carries none)', () => {
+    for (const s of streets) {
+      expect(s.medianWidth, s.id).toBe(resolveMedianWidth(s.cls, false));
+      expect(s.medianHalfWidth, s.id).toBeCloseTo(s.medianWidth / 2, 9);
+      expect(s.medianWidth, s.id).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('only the spine and the arteries carry a median as of Phase 75 (majors are opt-in, none opt in)', () => {
+    const withMedian = streets.filter((s) => s.medianWidth > 0).map((s) => s.id);
+    expect(new Set(streets.filter((s) => s.medianWidth > 0).map((s) => s.cls))).toEqual(
+      new Set(['spine', 'artery']),
+    );
+    // Yonge + University + Spadina + Bloor: every 'always'-class street in the table, and nothing else.
+    expect(withMedian.sort()).toEqual(['bloor', 'spadina', 'university', 'yonge']);
+    expect(streets.every((s) => (s.cls === 'major' || s.cls === 'minor' ? s.medianWidth === 0 : true))).toBe(true);
+  });
+
+  it('a median always fits inside its own ribbon with drivable carriageways on both sides', () => {
+    for (const s of streets) {
+      expect(s.medianHalfWidth, s.id).toBeLessThan(s.halfWidth);
+      const carriageway = s.halfWidth - s.medianHalfWidth;
+      expect(carriageway, `${s.id} carriageway`).toBeGreaterThanOrEqual(2 * CAR_REF.widthWu);
+    }
+  });
+
+  it('THE OVERRIDE MECHANISM WORKS — an opt-in flag plants a median on a major and only on a major', () => {
+    // No street sets it this phase (D3), so the mechanism is exercised directly rather than
+    // through a data row that does not exist yet.
+    expect(resolveMedianWidth('major', false)).toBe(0);
+    expect(resolveMedianWidth('major', true)).toBeCloseTo(ROAD_MEDIAN.widthWu.major, 9);
+    // 'always' classes carry one regardless of the flag…
+    expect(resolveMedianWidth('spine', false)).toBeCloseTo(ROAD_MEDIAN.widthWu.spine, 9);
+    expect(resolveMedianWidth('artery', false)).toBeCloseTo(ROAD_MEDIAN.widthWu.artery, 9);
+    // …and a 'never' class is LOUD about an illegal opt-in rather than silently ignoring it.
+    expect(resolveMedianWidth('minor', false)).toBe(0);
+    expect(() => resolveMedianWidth('minor', true)).toThrow(/never carry a median/);
+  });
+
+  it('no street def opts a median in yet (D3 — the mechanism ships wired, unused)', () => {
+    expect(STREET_DEFS.filter((d) => d.median === true).map((d) => d.id)).toEqual([]);
+  });
+
+  it('THE LANE COUPLING — every street\'s class lane offset is the carriageway centre of its OWN resolved median', () => {
+    // LANE_OFFSET_WU is a per-CLASS table, so it assumes the class DEFAULT median. The first
+    // street that ever opts a major in breaks this assumption — and this test, loudly — forcing
+    // the lane offset to be re-derived per street instead of silently inheriting a class number
+    // that no longer describes the road.
+    for (const s of streets) {
+      expect(s.medianWidth, `${s.id} median vs class default`).toBeCloseTo(defaultMedianWidthWu(s.cls), 9);
+      expect(carriagewayCentreWu(s.width, s.medianWidth), `${s.id} lane offset`).toBeCloseTo(
+        LANE_OFFSET_WU[s.cls],
+        9,
+      );
+    }
+  });
+
+  it('a whole car on either lane centre clears both the median and the curb (the lane law, per street)', () => {
+    const carHalf = CAR_REF.widthWu / 2;
+    for (const s of streets) {
+      const offset = LANE_OFFSET_WU[s.cls];
+      expect(offset - carHalf, `${s.id} inner flank`).toBeGreaterThan(s.medianHalfWidth);
+      expect(offset + carHalf, `${s.id} outer flank`).toBeLessThan(s.halfWidth);
     }
   });
 });

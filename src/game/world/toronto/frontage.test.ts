@@ -402,14 +402,31 @@ describe('buildFrontage — Phase 25.8 (D8) quality-tier wiring', () => {
     expect(new Set(tagged.map((s) => s.venueId))).toEqual(new Set(VENUE_AUTHORS.map((a) => a.id)));
   });
 
-  it('frontageOccupancyScalar changes the generic-slot roll (a different building subset is kept), even though FRONTAGE.hardCap keeps the RENDERED total flat on this map', () => {
+  it('frontageOccupancyScalar changes the generic-slot roll (a different building subset is kept); the shipped tier still saturates FRONTAGE.hardCap, the low tier no longer does', () => {
     const high = buildFrontage(SEED, HIGH);
     const low = buildFrontage(SEED, LOW);
-    // Both tiers' raw (pre-cap) candidate pool comfortably exceeds FRONTAGE.hardCap (900) even at
-    // the low-tier 0.75x occupancy scalar, so thinToCap always trims to exactly the cap — the
-    // scalar's visible effect on THIS map is which 900 buildings get kept, not how many.
-    expect(low.slots.length).toBe(FRONTAGE.hardCap);
+    // The high tier's raw (pre-cap) pool still comfortably exceeds FRONTAGE.hardCap, so thinToCap
+    // trims to exactly the cap and the scalar's visible effect there is WHICH buildings are kept,
+    // not how many. That is the shipped map, and it is unchanged.
     expect(high.slots.length).toBe(FRONTAGE.hardCap);
+    //
+    // PHASE 75 — THE LOW TIER STOPPED SATURATING, and this line is the phase's one honest
+    // density measurement rather than a number to tune away. Doubling the roads consumed ~7.7 % of
+    // the polygon's buildable land (measured: net road area 192,796 -> 373,184 wu² inside a
+    // 2,535,840 wu² polygon), and the streetwall's raw supply fell with it: measured at occupancy
+    // scalars where the cap CANNOT bind, the pool went 1004 -> 896 at 0.5x and 1219 -> 1098 at
+    // 0.6x, i.e. roughly -10 %. At the low tier's 0.75x that -10 % is finally enough to drop the
+    // pool through the cap: 1400 -> 1340 (-4.3 %).
+    //
+    // WHY THE SHIPPED MAP IS UNAFFECTED, stated so nobody re-pins this by reflex: street
+    // centrelines and spans did not move, so total frontage LENGTH is essentially unchanged
+    // (44,181.6 -> 44,122.2 wu, -0.13 %, and even that is not the widening — it is Bloor's
+    // boundary-nudge stepping 4.95 wu south and shortening the six N-S streets that terminate on
+    // it). What shrank is block-interior DEPTH, which costs back lots and deep scatter, not street
+    // fronts. The high tier therefore still has more streetwall than it is allowed to draw.
+    // If a future phase widens further, THIS is the line that will report it first.
+    expect(low.slots.length).toBe(1340);
+    expect(low.slots.length).toBeLessThan(FRONTAGE.hardCap);
     expect(low.slots.map((s) => s.slotId)).not.toEqual(high.slots.map((s) => s.slotId));
   });
 });

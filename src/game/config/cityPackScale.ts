@@ -165,8 +165,33 @@ export const CITY_PACK_SCALE_OVERRIDES: Readonly<Record<string, number>> = {
   // Provisional — no formula given by the plan; tune vs. the sedan in the D14 proof mount.
   // Phase 27 road-diet retune (live-verification FIX 2): 1.35 made the resolved mast arm read as
   // wide as an entire 6.6-8.8 wu dieted road, with the head hovering at car height over the
-  // intersection centre. 1.0 (native scale) brings the arm back to a normal roadside proportion.
-  'traffic-light': 1.0,
+  // intersection centre. 1.0 (native scale) brought the arm back to a normal roadside proportion.
+  //
+  // PHASE 75 RE-JUDGEMENT — 1.0 → 1.74. Phase 27's number was a proportion of the DIETED roads;
+  // Phase 75 doubles them, and the same model that used to over-span a 6.6 wu street now
+  // under-serves a 17.6-22 wu one. Two independent measurements, both re-derived as LAWS in
+  // world/toronto/furniture.test.ts (they bracket this literal, so it can never drift silently
+  // again — the P27 bug, now caught from both sides):
+  //   • REACH. The arm points from its corner mast toward the intersection centre, so its useful
+  //     quantity is the SIGNAL HEAD's position (LAMP_OVERLAY.headAnchor, 0.74938 of the model
+  //     width out) projected onto each street's axis. At 1.0 the head lands 6.8-9.0 wu from the
+  //     crossed centreline while the near travel lane sits at 4.4-6.05 (LANE_OFFSET_WU) — i.e.
+  //     the head hangs over the kerb-side shoulder of every approach, not over any lane. The
+  //     head must reach at least the lane's outer edge (lane centre + CAR_REF half-width) on
+  //     every full-class pairing: that needs ≥ 1.644.
+  //   • CLEARANCE. Uniform scale also lifts the head: 3.78 wu at 1.0, which is BELOW the transit
+  //     route boards (3.9) and barely a car's height over a 3.1 wu bus roofline — the same "head
+  //     hovering at car height" defect P27 was fixing, in the vertical. At 1.74 it sits at 6.58.
+  //   • The ceiling is unchanged and still binds from above: the arm TIP must stop short of the
+  //     nearer crossing centreline, which on the tightest full-class pairing (major × major)
+  //     allows ≤ 1.836.
+  // 1.74 is the midpoint of that [1.644, 1.836] window, so both laws keep ~5% margin. It stays a
+  // LITERAL rather than a formula on purpose: config/torontoMap.ts imports CAR_REF from this
+  // module, so deriving it from ROAD_CLASSES here would be a circular import. The pin-plus-law
+  // pattern is LAMP_HEAD_ANCHOR_FRAC's own precedent ("the fraction is the pin, not a formula").
+  // NOTE: moving this number moves the DERIVED LAMP_OVERLAY.headAnchor with it — config/
+  // anchorPins.test.ts pins that to 9 decimals by design and was re-pinned in the same change.
+  'traffic-light': 1.74,
   'bench': 0.9,
   // Computed from the target constants above.
   'fire-hydrant': FIRE_HYDRANT_TARGET_HEIGHT_WU / getCityPackModel('fire-hydrant').nativeDims.h,

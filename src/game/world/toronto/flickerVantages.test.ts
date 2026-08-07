@@ -38,8 +38,21 @@ describe('flickerVantages', () => {
     // If this test ever needs re-pinning, print `vantages.length` and the per-source counts
     // first and inspect why before accepting a new number — the part-42 plan's sanity band is
     // ~150-260 poses total.
-    expect(vantages.length).toBe(183);
-    expect(bySource('lattice').length).toBe(143);
+    //
+    // PHASE 75 — 183 -> 188, and every one of the +5 is LATTICE (143 -> 148); district (15),
+    // money (18) and camera (7) are curated lists and are byte-identical, which is the shape a
+    // width change should produce. The lattice is a 120 wu grid snapped onto asphalt through the
+    // NavProvider and DROPPED when the snap exceeds LATTICE_SNAP_MAX_WU (90). Widening every
+    // ribbon moves each street's nearest asphalt up to (newHalf - oldHalf) = 5.5 / 4.95 / 4.4 /
+    // 3.3 wu closer to the sampling grid, so five grid points that used to sit just beyond the 90
+    // wu drop threshold now snap inside it. They are new poses on real, drivable road — exactly
+    // what the sweep wants — and 188 is still inside the plan's ~150-260 band.
+    // Then 188 -> 187 (lattice 148 -> 147) when `money-dash-far` was re-targeted onto Eglinton:
+    // lattice poses yield to every curated pose, so the relocated money anchor absorbed the lattice
+    // point nearest its new spot. Coverage is unchanged — that ground is still measured, by the
+    // money pose instead of the lattice one. The curated lists stay 18 / 15 / 7.
+    expect(vantages.length).toBe(187);
+    expect(bySource('lattice').length).toBe(147);
     expect(bySource('district').length).toBe(TORONTO_DISTRICTS.length);
     expect(bySource('money').length).toBe(18);
     expect(bySource('camera').length).toBe(CAMERA_VANTAGE_IDS.length);
@@ -143,7 +156,10 @@ describe('flickerVantages', () => {
       ['money-laneway-p40-dumpster', 1508, 137],
       ['money-parkinglot', 1350, 33],
       // Phase 41 surface & shimmer capture matrix (.planning/tools/p41-matrix.mjs VANTAGES)
-      ['money-dash-far', 1500, 1032],
+      // Phase 75 re-target: the spine gained a median and median streets paint no centre dashes,
+      // so the old (1500, 1032) spot had no dashes left to study. Moved onto Eglinton (the fold
+      // zone's dashed EW major), east of the Yonge junction box. See flickerVantages.ts.
+      ['money-dash-far', 1560, 1104.8],
       ['money-grazing-ground', 1455, 660],
       ['money-park-boundary', 1460, 670],
       ['money-bus-stop', 1507.4, 1942.3],

@@ -34,10 +34,11 @@ describe('worldEdgeGeometry — merged procedural dressing mesh', () => {
     const hoarding = countOf('hoardingPanel');
     const jersey = countOf('jerseyBarrier');
     const railPost = countOf('railPost');
-    // These are the same numbers worldEdge.test.ts's "layer size" pin asserts (396/73/166) —
+    // These are the same numbers worldEdge.test.ts's "layer size" pin asserts (396/148/166) —
     // re-read here from the live layout rather than re-hardcoded, so a deliberate spacing edit
-    // to either file still lines up automatically.
-    expect({ hoarding, jersey, railPost }).toEqual({ hoarding: 396, jersey: 73, railPost: 166 });
+    // to either file still lines up automatically. Phase 75: jersey 73 -> 148, because the rows
+    // span the roads and the roads doubled; the full attribution lives on that pin, not here.
+    expect({ hoarding, jersey, railPost }).toEqual({ hoarding: 396, jersey: 148, railPost: 166 });
     const expectedBoxes = hoarding * 2 + jersey + railPost;
     const g = buildBarrierDressingGeometry();
     expect(g.getAttribute('position').count).toBe(expectedBoxes * BOX_VERTEX_COUNT);

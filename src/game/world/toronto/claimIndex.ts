@@ -111,6 +111,12 @@ export const BLOCKING_CLAIM_KINDS = [
   'queueProp',
   /** Street furniture: masts, stop signs, power boxes, trees, hydrants, benches, bins, shelters. */
   'furniture',
+  /**
+   * Phase 75 — trees standing on a street's raised GRASS MEDIAN. Its own kind rather than plain
+   * 'furniture' because it is the one furniture population that lives INSIDE a street ribbon, and
+   * the ribbon law below is kind-directional; see `isOnRoadSanctioned` for the policy argument.
+   */
+  'medianPlanting',
   /** Manhole covers — ON the asphalt by design (see ON_ROAD_CLAIM_KINDS). */
   'manhole',
   /** Street-parked cars — ON the asphalt by design. */
@@ -451,14 +457,42 @@ export function isSanctionedOverlap(a: Claim, b: Claim): boolean {
 
 /**
  * May this blocking claim legitimately overlap a STREET RIBBON zone? The directional zone law's
- * predicate (asserted map-wide by overlapInvariant.test.ts): ON_ROAD kinds by taxonomy, plus the
- * lane-closure road PLATES — deliberately on the asphalt ("this plate lies ON the asphalt",
- * infill.ts) but registered as bare 'decor'. The exception is OWNER-scoped, not kind-wide: a
- * kind-wide 'decor' exemption would also sanction laneway clutter standing in a roadway, which
- * is exactly the defect class the law exists to catch.
+ * predicate (asserted map-wide by overlapInvariant.test.ts): ON_ROAD kinds by taxonomy, plus two
+ * narrower, deliberately-scoped exceptions.
+ *
+ *   • LANE-CLOSURE ROAD PLATES — deliberately on the asphalt ("this plate lies ON the asphalt",
+ *     infill.ts) but registered as bare 'decor'. OWNER-scoped, not kind-wide: a kind-wide 'decor'
+ *     exemption would also sanction laneway clutter standing in a roadway, which is exactly the
+ *     defect class the law exists to catch.
+ *
+ *   • PHASE 75 — THE MEDIAN PLANTING. The Phase-75 road diet reversal put a raised grass median
+ *     down the spine and the arteries, INSIDE the ribbon rectangle, and planted it. That is the
+ *     first population in the city that is neither on the asphalt nor off the road, and the audit
+ *     recorded it as the arbiter's one known gap (`ON_ROAD_CLAIM_KINDS` had no median-aware kind).
+ *
+ *     It is closed HERE, in the policy home, with a dedicated KIND — not by adding `medianPlanting`
+ *     to ON_ROAD_CLAIM_KINDS, and not by pinning ids into RIBBON_OVERLAP_EXCEPTION_IDS. Both of
+ *     those were considered and rejected for the same reason: they say the wrong thing.
+ *       – ON_ROAD_CLAIM_KINDS means, in its own words, "kinds that legitimately sit ON the
+ *         asphalt". A median tree does not; it stands on a raised planted strip that happens to be
+ *         bounded by the same rectangle. Widening that set would also license a median tree to sit
+ *         anywhere else inside any ribbon — i.e. in a live lane — which is precisely what nobody
+ *         should be able to do by accident later.
+ *       – RIBBON_OVERLAP_EXCEPTION_IDS is the pinned, exhaustive list of one-off authored
+ *         artifacts, asserted EQUAL to what the sweep observes. A seeded, per-seed-variable
+ *         population of ~90 trees is a class, not an artifact, and would turn an exact list into a
+ *         churning one.
+ *
+ *     A kind-level grant is only honest if the kind can only ever BE on a median, so the grant is
+ *     paired with a placement law rather than trusted on its own: `buildMedianPlanting` walks the
+ *     very segments `roadStrips.medianBandRuns` reports (the same derivation roadPaint.ts draws
+ *     grass from), and `medianPlanting.test.ts` asserts map-wide that every placement's footprint
+ *     lies inside an emitted grass segment of a median-carrying street, in both axes. The arbiter
+ *     grants the class; the law pins that the class can only exist where there is grass under it.
  */
 export function isOnRoadSanctioned(claim: Claim): boolean {
   if (ON_ROAD_CLAIM_KINDS.has(claim.kind)) return true;
+  if (claim.kind === 'medianPlanting') return true;
   return claim.kind === 'decor' && claim.owner === 'infill:laneClosure';
 }
 
@@ -480,7 +514,15 @@ export function isOnRoadSanctioned(claim: Claim): boolean {
  *     the eye line.
  */
 export const RIBBON_OVERLAP_EXCEPTION_IDS: ReadonlySet<string> = new Set<string>([
-  'frontage:spadina:n:45', // McDonald's pizza corner at Queen & Spadina (~0.71 wu, designed)
+  // PHASE 75 — the only churn in this list, and it is an ID move, not a new exception:
+  // `spadina:n:45` → `spadina:n:43`. The slot INDEX is a position in frontage.ts's candidate walk,
+  // and that walk skips each crossing by `crossHalfWidth + cornerClearance`; every crossing on
+  // Spadina got wider, so two fewer candidates fit north of this corner and the same physical slot
+  // is now the 43rd. The PLACEMENT is unmoved and unchanged: re-measured at the new widths, the
+  // pizza corner's asphalt-facing edge still reaches exactly 0.71 wu past Queen's ribbon — the same
+  // number frontage.ts's CLAIM_RIBBON_TOLERANCE_WU comment was written around, because both the
+  // slot's along-coordinate and the tolerance are unaffected by how WIDE Queen is.
+  'frontage:spadina:n:43', // McDonald's pizza corner at Queen & Spadina (~0.71 wu, designed)
   'named:eaton-centre-galleria:0', // researched footprint reaches Dundas AND Queen ribbons
   'venue-queue-blob:konjiki-elm:1',
   'venue-queue-blob:konjiki-elm:3',

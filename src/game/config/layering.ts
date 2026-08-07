@@ -89,12 +89,27 @@ export const GROUND_STACK = {
    * everywhere — worldEdgeGeometry.ts reads it, nothing re-types it). Phase 47: 0.024 → 0.032
    * (the civic splice above). */
   edgeBoxBase: 0.032,
-  /** Road ribbons (the asphalt). Phase 45: 0.020 → 0.028 (the rail splice; +0.008 wu is ~8 mm,
-   * invisible as a height and decisive as a depth — the whole point of the ladder). Phase 47:
-   * 0.028 → 0.036. */
+  /** Road ribbons (the asphalt) AND — since Phase 75 — the painted curb strips, which are DISJOINT
+   * PIECES of the same surface rather than decals on it (world/toronto/roadPaint.ts's
+   * `curbStripPieces`). Phase 45: 0.020 → 0.028 (the rail splice; +0.008 wu is ~8 mm, invisible as
+   * a height and decisive as a depth — the whole point of the ladder). Phase 47: 0.028 → 0.036. */
   roadSurface: 0.036,
-  /** Road paint: curb strips + centre-line dashes (was 0.025 = roadSurface + 0.005; Phase 45:
-   * 0.026 → 0.034; Phase 47: 0.034 → 0.042). */
+  /** Road paint: centre-line dashes (was 0.025 = roadSurface + 0.005; Phase 45: 0.026 → 0.034;
+   * Phase 47: 0.034 → 0.042).
+   *
+   * PHASE 75 — the CURB STRIPS LEFT THIS RUNG for `roadSurface`. Measured finding: one ladder step
+   * (0.006 wu) is only ~8 depth-buffer LSBs at 31 wu and ~4 at the far end of the camera's visible
+   * ground band, so a LARGE coplanar decal loses its depth test back to the surface under it at
+   * some camera positions. The ladder is not wrong — a rung separation cannot be made "safe" by
+   * arithmetic at every distance — but it is a tie-BREAKER, not a licence to stack a full-length
+   * area of paint on the road. Big, road-length marks belong in the road's own union; this rung is
+   * for SMALL, sparse marks. Anything approaching curb-strip scale should join the union instead of
+   * taking a rung.
+   *
+   * The dashes that remain here were MEASURED on the same ladder rather than argued safe: at a
+   * dash-bearing major (Sheppard, x 1600 z 693.2) they read 5,503–5,582 px across 25 camera rungs,
+   * a 1.4% spread — flat, and an order of magnitude less on-screen area than the curb strips they
+   * used to share this rung with (44,150 px, itself rock-steady at 0% once it joined the union). */
   roadPaint: 0.042,
   /** Crosswalk zebra bands (was 0.027 = roadSurface + 0.007 — only 0.002 above the paint;
    * Phase 45: 0.032 → 0.040; Phase 47: 0.040 → 0.048). */
