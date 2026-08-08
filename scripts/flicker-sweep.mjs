@@ -413,8 +413,14 @@ const CONTACT_CELL = { width: 420, height: 260 };
  * ground (measured: ribbon union 192,796 -> 373,184 wu²), then -1 when the `money-dash-far` anchor
  * was re-targeted onto Eglinton and absorbed the lattice pose nearest its new spot (lattice yields
  * to curated). Attributed in flickerVantages.test.ts.
- * Re-pinned deliberately here after that audit — never bump this to silence a red run. */
-const EXPECTED_VANTAGE_COUNT = 187;
+ * Re-pinned deliberately here after that audit — never bump this to silence a red run.
+ *
+ * PHASE 76: 187 -> 189. The camera lab added three mid-block poses to cameraVantages() (every
+ * pre-existing anchor was a street-CENTRELINE crossing, which at P75's doubled widths photographs an
+ * intersection rather than a street), and one lattice pose yielded to them under the same
+ * curated-wins dedupe. Net +3 camera / -1 lattice. Attributed in flickerVantages.test.ts, which
+ * pins the per-source breakdown; this constant only mirrors the total. */
+const EXPECTED_VANTAGE_COUNT = 189;
 
 /** Everything that paints OVER the scene canvas. The canvas is `position: fixed; inset: 0`
  * (GameCanvas.css), so a Playwright element screenshot is a viewport shot clipped to its box — every

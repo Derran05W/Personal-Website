@@ -4,25 +4,33 @@
 // it is the one place the shipped rig's ABSOLUTE numbers are written down, so a feel tweak that
 // moves them has to come here and argue with the constraint that chose them.
 //
-// The constraint is the corridor-airspace law, measured live in Phase 33: on the dieted Yonge
-// spine the streetwall face plane sits ~10.7 wu off the centreline, so under the fixed 45° yaw
-// the camera eye stays inside the street's own airspace only while its horizontal radius
-// hr = dist·cos(pitch) ≤ ~14.8 wu. Beyond that the eye is in (or behind) the frontage and the
-// screen is a featureless wall — the user's headline complaint, photographed at that vantage.
-// Downtown facades tower over any sane eye height, so "clear it by rising above the roofline" is
-// not available: staying inside the canyon is the ONLY way through a street here.
+// The constraint is the corridor-airspace law: under the fixed 45° yaw the camera eye stays inside
+// a street's own airspace only while its horizontal radius hr = dist·cos(pitch) stays under a
+// ceiling the STREET sets. Beyond that the eye is in (or behind) the frontage and the screen is a
+// featureless wall — the user's headline complaint, photographed at the fold corridor in Phase 33.
 //
-// The bound is a property of the WORLD (road diet + streetwall setback, Phases 27-28), not of the
-// camera, which is why it is stated as a constant here rather than derived from CAMERA: if the
-// street widens, this number changes and the rig gets headroom back.
+// THE BOUND MOVED HOUSE AT PHASE 76. This header used to state the ceiling as the literal `14.8`
+// while simultaneously observing that it "is a property of the WORLD … if the street widens, this
+// number changes" — which is precisely how it survived Phase 27's road diet AND Phase 75's
+// doubling without moving. It now comes from world/toronto/corridorLaw.ts, which derives the
+// per-class ceilings from Street.halfWidth + SIDEWALK.widthWu and records what the old literal
+// actually was (an EMPIRICAL discriminator fitted to the Phase 33 battery — preset B's own hr,
+// 14.838, rounded down; its stated geometry was computed against a spine width that Phase 27 had
+// already superseded). Read that module's header before touching anything here; the shortfalls the
+// shipped rig knowingly carries are pinned in world/toronto/corridorLaw.test.ts, not hidden.
+//
+// This file keeps the CAMERA half of the law: the shipped rig's absolute numbers, and the
+// assertion that its whole envelope stays inside the bound.
 import { describe, expect, it } from 'vitest';
 import { CAMERA, CAMERA_EYE_MAX_WU, CAMERA_EYE_MIN_WU, CAMERA_PRESETS } from './camera';
 import { STARTER_TOP_SPEED } from './vehicles';
 import { cameraDistance, cameraPitchOffsetDeg, sphericalOffset } from '../fx/cameraRig';
+import { CORRIDOR_EMPIRICAL_MAX_HR_WU } from '../world/toronto/corridorLaw';
 
-/** Max horizontal radius (wu) that keeps the eye inside a dieted street's airspace under yaw 45.
- * Phase 33 Discovery 3 — the number that eliminated every candidate rig above it. */
-const CORRIDOR_MAX_HR_WU = 14.8;
+/** Max horizontal radius (wu) the shipped envelope may reach: the smallest hr the Phase 33 battery
+ * ever measured to be UNSAFE, derived from the preset it was measured on (see corridorLaw.ts's
+ * CORRIDOR_EMPIRICAL_MAX_HR_WU). 14.838 — the honest form of the `14.8` this file used to type. */
+const CORRIDOR_MAX_HR_WU = CORRIDOR_EMPIRICAL_MAX_HR_WU;
 
 /** Absolute pitch (deg) past which the framing reads as vertigo rather than a 3/4 view. A feel
  * ceiling, not a measurement: it is the other jaw of the vice the speed/tier pitch ramp lives in
@@ -135,7 +143,7 @@ describe('§5.3 camera law — the corridor-airspace invariant', () => {
   // failure message names the two knobs that broke it: a future feel pass that pushes speedZoom
   // back up without paying for it in speedPitchDeg fails HERE, not in a bug report about the
   // camera being inside a building at speed.
-  it('holds at top speed with no heat: (baseDist + speedZoom)·cos(pitch + speedPitchDeg) ≤ 14.8', () => {
+  it('holds at top speed with no heat: (baseDist + speedZoom)·cos(pitch + speedPitchDeg) ≤ the bound', () => {
     const hr =
       (CAMERA.baseDist + CAMERA.speedZoom) * Math.cos(((CAMERA.pitchDeg + CAMERA.speedPitchDeg) * Math.PI) / 180);
     expect(hr).toBeLessThanOrEqual(CORRIDOR_MAX_HR_WU);

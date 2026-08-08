@@ -30,7 +30,7 @@
 
 import { CAMERA_EYE_MIN_WU } from './camera';
 import { VEHICLE_TUNING } from './vehicles';
-import { getCityPackModel, type CityPackModelEntry } from '../assets/cityPackManifest';
+import { CITY_PACK_MANIFEST, getCityPackModel, type CityPackModelEntry } from '../assets/cityPackManifest';
 
 /** Sedan visual envelope (user-stated), in world units. Cross-check (asserted in
  * cityPackScale.test.ts, not here — config modules stay side-effect-free): the physics
@@ -99,6 +99,23 @@ export const BUS_TARGET_LENGTH_WU = 10;
 export const STREETWALL_EYE_MARGIN_WU = 1.0;
 
 /**
+ * Phase 76 (camera lab) — the streetwall ceiling implied by an ARBITRARY resting eye height, so a
+ * candidate rig's consequence for city massing can be computed without applying it. The shipped
+ * STREETWALL_MAX_HEIGHT_WU below is now literally this function evaluated at the shipped eye,
+ * rather than the lab restating the subtraction: the point is that the gate reports the SHIPPED
+ * arithmetic, not a lookalike that could drift from it.
+ *
+ * Why the lab needs it at all: STREETWALL_MAX_HEIGHT_WU is derived from CAMERA_EYE_MIN_WU, which is
+ * baseDist·sin(pitch). A camera candidate that raises the eye raises this cap — and once the cap
+ * clears a model's natural frontage-target height it stops BINDING on it, which re-masses the
+ * streetwall across most of the city. That is a visible consequence of a camera pick and belongs in
+ * the gate's evidence, not in the adoption session's surprises (Phase 76 plan §3c).
+ */
+export function streetwallCapForEyeWu(eyeWu: number): number {
+  return eyeWu - STREETWALL_EYE_MARGIN_WU;
+}
+
+/**
  * Phase 35 — the height ceiling (wu) an ORDINARY pack streetwall building may reach: the resting
  * camera eye (config/camera.ts's CAMERA_EYE_MIN_WU, 22.05) less STREETWALL_EYE_MARGIN_WU.
  *
@@ -113,7 +130,7 @@ export const STREETWALL_EYE_MARGIN_WU = 1.0;
  * the eye-line law structural for the whole pack — including models added later, whose aspect ratios
  * nobody will re-check by hand — instead of a per-model number somebody has to remember.
  */
-export const STREETWALL_MAX_HEIGHT_WU = CAMERA_EYE_MIN_WU - STREETWALL_EYE_MARGIN_WU;
+export const STREETWALL_MAX_HEIGHT_WU = streetwallCapForEyeWu(CAMERA_EYE_MIN_WU);
 
 /**
  * Applies STREETWALL_MAX_HEIGHT_WU to a candidate building scale: returns the frontage-derived
@@ -244,11 +261,46 @@ function categoryDefaultScale(entry: CityPackModelEntry): number {
  * coverage" test proves this over the full manifest). */
 export function resolveCityPackScale(id: string): number {
   const entry = getCityPackModel(id);
-  const scale = CITY_PACK_SCALE_OVERRIDES[id] ?? categoryDefaultScale(entry);
-  if (entry.category === 'building' || entry.category === 'building-blank') {
+  const scale = uncappedScale(entry);
+  if (isBuildingEntry(entry)) {
     return capBuildingScaleToEyeLine(entry, scale);
   }
   return scale;
+}
+
+/** The scale rule BEFORE the eye-line cap: explicit override if the plan pins one, otherwise the
+ * category default. Extracted at Phase 76 so the cap's own input is nameable — `resolveCityPackScale`
+ * returns the capped answer, and the lab needs the uncapped one to say whether a candidate rig's
+ * cap would still bind. */
+function uncappedScale(entry: CityPackModelEntry): number {
+  return CITY_PACK_SCALE_OVERRIDES[entry.id] ?? categoryDefaultScale(entry);
+}
+
+function isBuildingEntry(entry: CityPackModelEntry): boolean {
+  return entry.category === 'building' || entry.category === 'building-blank';
+}
+
+/** Height (wu) a building model would reach from its scale rule with NO eye-line cap applied —
+ * i.e. the height the cap is measured against. `brown-building`'s 24.19 is the number Phase 35's
+ * audit found sitting 2.1 wu above the resting eye as ordinary streetwall. */
+export function uncappedBuildingHeightWu(id: string): number {
+  const entry = getCityPackModel(id);
+  return entry.nativeDims.h * uncappedScale(entry);
+}
+
+/**
+ * Phase 76 (camera lab) — every building model whose uncapped height exceeds `capWu`, i.e. the
+ * models a streetwall cap of that size would actually BIND on. Ids in manifest order.
+ *
+ * Deliberately a query over the whole manifest rather than a hardcoded "does it still bind on
+ * brown-building?": the binding set is a fact about the pack + the cap, and a pack regen that adds
+ * a taller model must show up here rather than in a stale comment. Empty result = the cap is inert
+ * and every building renders at its natural frontage-target height.
+ */
+export function buildingsAboveCapWu(capWu: number): readonly string[] {
+  return CITY_PACK_MANIFEST.filter(
+    (entry) => isBuildingEntry(entry) && entry.nativeDims.h * uncappedScale(entry) > capWu,
+  ).map((entry) => entry.id);
 }
 
 export interface ColliderHalfExtents {

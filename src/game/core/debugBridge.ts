@@ -66,7 +66,11 @@ import { fadeTargetCount } from '../world/toronto/occlusionTargets';
 import { getAntiClipPullM } from '../world/toronto/cameraAntiClip';
 import { cameraVantages, type CameraVantage } from '../world/toronto/cameraVantages';
 import { flickerVantages, type FlickerVantage } from '../world/toronto/flickerVantages';
-import { startCameraLabDrive, type CameraLabDriveReport } from '../ai/cameraLabDrive';
+import {
+  startCameraLabDrive,
+  type CameraLabDriveOptions,
+  type CameraLabDriveReport,
+} from '../ai/cameraLabDrive';
 import { decalPolygonOffset } from '../fx/decalPolygonOffsetRef';
 import { cameraJitter } from '../fx/cameraJitterRef';
 import { devCamPoseRef, type DevCamPose } from '../fx/devCamPoseRef';
@@ -774,13 +778,22 @@ declare global {
        * preset's FOV onto the live camera, and arms preset D's spring arm. False for an unknown
        * id. Nothing here is persisted: a reload returns to the shipped rig. */
       setCameraPreset: (id: string) => boolean;
-      /** Phase 33 camera lab: the preset last applied ('A' before any switch — preset A IS the
-       * shipped CAMERA block). */
+      /** Phase 33 camera lab: the preset last applied. Before any switch this is `'E'` — Phase 34
+       * promoted preset E into the shipped CAMERA block, and fx/cameraLab.ts's module default
+       * moved with it. (It read `'A'` until Phase 34 and the doc here went stale; corrected at
+       * Phase 76. Nothing reads the id as a proxy for "unswitched" — it is a label.) */
       getCameraPreset: () => string;
       /** Phase 33 camera lab: the clip counters since the last reset (frames sampled, camera-eye-
        * inside-a-building frames, near-plane-clipping frames, boresight-occluder frames/sum/max,
        * and frames the polygon camera clamp acted on). Compare RATES (counter ÷ frames), never raw
-       * counts — headless frame rates vary run to run. */
+       * counts — headless frame rates vary run to run.
+       *
+       * PHASE 76 adds `.readability` — mean on-screen pursuers, mean warning distance (m), mean
+       * city-in-frame fraction and mean visible ground band (wu), each with its own denominator
+       * and each `null` (never a fake 0) when that denominator is empty. Every definition and its
+       * caveats: world/toronto/cameraReadability.ts. `readability.frames` counts only frames a
+       * player vehicle existed on, so it is ≤ `frames`; `readability.cityBoxesTested` is the
+       * "is the clip index populated" gate for the coverage number. */
       cameraClipStats: () => CameraClipStats;
       /** Phase 33 camera lab: zero the clip counters (call before a measured drive). */
       resetCameraClipStats: () => void;
@@ -800,8 +813,13 @@ declare global {
        * replay the same `waypoints` sequence, which is the battery's reproducibility gate. No heat
        * is granted and no pursuit roster is filled (`tierAtEnd > 0` means the run picked stars up
        * organically and its numbers are contaminated — the tier zoom moves the camera). Idempotent
-       * while already running, like runChaosBench. */
-      startCameraLabDrive: (opts?: { seconds?: number; seed?: number }) => Promise<CameraLabDriveReport>;
+       * while already running, like runChaosBench.
+       *
+       * Options are `CameraLabDriveOptions` — `{seconds?, seed?, stopAfterWaypoints?}`. The type is
+       * IMPORTED rather than restated: it was restated here without `stopAfterWaypoints`, which the
+       * harness has been passing and the implementation honouring since Phase 33, so the bridge
+       * type was silently a lie about the reproducibility mode (fixed at Phase 76). */
+      startCameraLabDrive: (opts?: CameraLabDriveOptions) => Promise<CameraLabDriveReport>;
       /** Phase 39 dev instrument: flips the skid-mark + explosion-scorch decal materials'
        * `polygonOffset` on/off — the scripted mirror of the devPanel "FX" folder's
        * `polygonOffsetDecals` toggle (see fx/decalPolygonOffsetRef.ts's doc comment). */

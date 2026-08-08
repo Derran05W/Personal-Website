@@ -120,9 +120,11 @@ export function cameraDistance(speed: number, tier: number, pullback = 0): numbe
  * cameraDistance's speed term and linearly per tier like its tier term.
  *
  * Why the ramp has a pitch half at all: a purely-distance zoom grows the eye's horizontal radius
- * (dist·cos pitch), and past ~14.8 wu that radius parks the eye inside the streetwall on a dieted
- * street. Trading part of the distance for pitch buys the same "more of the world on screen" while
- * SHRINKING the radius. Rationale + the measured envelope live in config/camera.ts.
+ * (dist·cos pitch), and past a ceiling the STREET sets that radius parks the eye inside the
+ * streetwall. Trading part of the distance for pitch buys the same "more of the world on screen"
+ * while SHRINKING the radius. Rationale + the measured envelope live in config/camera.ts; the
+ * ceiling itself is derived per road class in world/toronto/corridorLaw.ts (Phase 76 — it used to
+ * be quoted here as "~14.8 wu", which was an empirical discriminator, not a street measurement).
  */
 export function cameraPitchOffsetDeg(speed: number, tier: number): number {
   return CAMERA.speedPitchDeg * easeSpeedZoom(speed) + CAMERA.tierPitchDeg * tier;

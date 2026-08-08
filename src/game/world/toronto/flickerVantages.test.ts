@@ -51,8 +51,18 @@ describe('flickerVantages', () => {
     // lattice poses yield to every curated pose, so the relocated money anchor absorbed the lattice
     // point nearest its new spot. Coverage is unchanged — that ground is still measured, by the
     // money pose instead of the lattice one. The curated lists stay 18 / 15 / 7.
-    expect(vantages.length).toBe(187);
-    expect(bySource('lattice').length).toBe(147);
+    //
+    // PHASE 76 — 187 -> 189, and the +2 is a +3/-1 the same dedupe rule explains. The camera lab
+    // added three mid-block poses to cameraVantages() (`minor-midblock`, `spine-midblock`,
+    // `streetwall-canyon`) because every pre-existing anchor was a street-CENTRELINE crossing, and
+    // at Phase 75's doubled widths a junction is 22 x 17.6 wu of open asphalt — i.e. the old set
+    // could not photograph a street, only an intersection. Camera 7 -> 10 is therefore intentional
+    // and asserted dynamically below (`CAMERA_VANTAGE_IDS.length`), not pinned here. Lattice
+    // 147 -> 146: exactly one grid point sat nearest one of the three new curated poses and yielded
+    // to it, the same absorption the Eglinton re-target caused above. Coverage is unchanged — that
+    // ground is now measured by the camera pose. District (15) and money (18) are byte-identical.
+    expect(vantages.length).toBe(189);
+    expect(bySource('lattice').length).toBe(146);
     expect(bySource('district').length).toBe(TORONTO_DISTRICTS.length);
     expect(bySource('money').length).toBe(18);
     expect(bySource('camera').length).toBe(CAMERA_VANTAGE_IDS.length);

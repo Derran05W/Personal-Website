@@ -11,20 +11,34 @@
 // exercised here, in the lab's own file, so the rig suite stays exactly as it was.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { PerspectiveCamera } from 'three';
-import { CAMERA, CAMERA_PRESETS } from '../config/camera';
+import {
+  CAMERA,
+  CAMERA_PRESETS,
+  CAMERA_SHARED_LEAF_DEFAULTS,
+  CAMERA_SHARED_LEAF_KEYS,
+} from '../config/camera';
+import { STREETWALL_MAX_HEIGHT_WU, uncappedBuildingHeightWu } from '../config/cityPackScale';
 import {
   applyCameraPreset,
   createSpringArmState,
   findCameraPreset,
   getCameraPreset,
   getSpringArmState,
+  presetPitchMaxDeg,
   presetRestGeometry,
+  presetSaturatedGeometry,
+  presetStreetwallCap,
   probeNearField,
   resetSpringArm,
+  resolveSharedLeaf,
+  sharedOverridesOf,
   springArmOf,
   stepSpringArm,
 } from './cameraLab';
 import {
+  cameraDistance,
+  cameraPitchOffsetDeg,
+  computeLookTarget,
   getCameraRigModifier,
   resetBaseFov,
   resetCameraRig,
@@ -33,6 +47,7 @@ import {
   setDeathPullback,
   updateCameraRig,
 } from './cameraRig';
+import { STARTER_TOP_SPEED as TOP_SPEED } from '../config/vehicles';
 import { clearClipIndex, setClipIndex, type ClipAabb } from '../world/toronto/cameraClipIndex';
 import { playerVehicle } from '../vehicles/playerRef';
 import type { IVehicleModel, VehicleState } from '../vehicles/IVehicleModel';
@@ -46,6 +61,10 @@ const SHIPPED = {
   fov: CAMERA.fov,
 } as const;
 
+/** The shared (non-geometry) leaves as shipped — read from config's own module-init snapshot, so
+ * this reference cannot itself be contaminated by a test that ran first. */
+const SHIPPED_SHARED = CAMERA_SHARED_LEAF_DEFAULTS;
+
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 function restoreShippedCamera(): void {
@@ -54,6 +73,17 @@ function restoreShippedCamera(): void {
   block.pitchDeg = SHIPPED.pitchDeg;
   block.baseDist = SHIPPED.baseDist;
   block.fov = SHIPPED.fov;
+  // Phase 76: presets may now override the shared ramp/lead/damping leaves, so the belt-and-braces
+  // reset has to cover them too — a leaked speedZoom would silently re-frame every later test.
+  for (const key of CAMERA_SHARED_LEAF_KEYS) block[key] = SHIPPED_SHARED[key];
+}
+
+/** Live snapshot of the shared leaves as they currently sit in the runtime CAMERA block. */
+function readSharedLeaves(): Record<string, number> {
+  const block = CAMERA as object as Record<string, number>;
+  const out: Record<string, number> = {};
+  for (const key of CAMERA_SHARED_LEAF_KEYS) out[key] = block[key];
+  return out;
 }
 
 /** Minimal PerspectiveCamera stand-in — the same surface updateCameraRig touches, mirroring
@@ -141,8 +171,10 @@ afterEach(() => {
 // --- the table ---------------------------------------------------------------------------------
 
 describe('CAMERA_PRESETS — table invariants', () => {
-  it('holds exactly the five lab candidates, with unique ids', () => {
-    expect(CAMERA_PRESETS.map((p) => p.id)).toEqual(['A', 'B', 'C', 'D', 'E']);
+  // Phase 76 re-pin: A-E are Phase 33's five (E shipped); F-L are the Phase 76 candidates, added
+  // APPEND-ONLY so every historic id keeps meaning what it meant in the Phase 33 evidence tree.
+  it('holds the five Phase-33 candidates plus the seven Phase-76 ones, with unique ids', () => {
+    expect(CAMERA_PRESETS.map((p) => p.id)).toEqual(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']);
     expect(new Set(CAMERA_PRESETS.map((p) => p.id)).size).toBe(CAMERA_PRESETS.length);
   });
 
@@ -191,6 +223,15 @@ describe('CAMERA_PRESETS — table invariants', () => {
     ['C', 26.81, 22.5],
     ['D', 18.39, 15.43],
     ['E', 22.05, 13.78], // re-pinned with the corridor-airspace tune (58/26 — see config comment)
+    // Phase 76 candidates. Note H/I/J rest at a SHORTER radius than the shipped rig while sitting
+    // further back — the "pitching up buys follow distance for free" thesis, as arithmetic.
+    ['F', 28.83, 18.02],
+    ['G', 22.05, 13.78], // identical to E by construction: FOV costs no corridor margin
+    ['H', 29.23, 13.02],
+    ['I', 33.38, 13.49],
+    ['J', 29.23, 13.02], // J is H's geometry — only the ramp differs
+    ['K', 22.05, 13.78], // K is E's geometry — only the look-ahead differs
+    ['L', 23.64, 18.47],
   ];
 
   for (const [id, eyeHeight, horizontalRadius] of REST_GEOMETRY) {
@@ -204,11 +245,153 @@ describe('CAMERA_PRESETS — table invariants', () => {
   }
 
   it('the candidates that exist to clear the ~19.4 wu pack streetwall actually do', () => {
-    for (const id of ['B', 'C', 'E']) {
-      expect(presetRestGeometry(findCameraPreset(id)!).eyeHeight, id).toBeGreaterThan(19.4);
+    // Re-pinned at Phase 76 as a property of the whole table rather than a hand-listed trio: the
+    // pre-P34 control rigs (A and its spring-armed variant D) are the ONLY rows that rest below the
+    // pack streetwall's 19.42 wu facade — that IS the problem Phase 33 was measuring — and every
+    // candidate since, Phase 76's included, clears it.
+    for (const p of CAMERA_PRESETS) {
+      const eye = presetRestGeometry(p).eyeHeight;
+      if (p.id === 'A' || p.id === 'D') expect(eye, p.id).toBeLessThan(19.4);
+      else expect(eye, p.id).toBeGreaterThan(19.4);
     }
-    // ...and the control deliberately does not — that IS the problem being measured.
-    expect(presetRestGeometry(findCameraPreset('A')!).eyeHeight).toBeLessThan(19.4);
+  });
+
+  // --- Phase 76: the shared-leaf overrides ------------------------------------------------------
+
+  it('only the candidates that need a shared-leaf override declare one', () => {
+    // H/I: base pitch 66/68 would saturate the SHIPPED pitch ramp past the vertigo ceiling, so a
+    // re-grade is forced. J: the ramp re-grade IS the candidate. K: look-ahead is the whole point.
+    const declaring = CAMERA_PRESETS.filter((p) => sharedOverridesOf(p) !== undefined).map((p) => p.id);
+    expect(declaring).toEqual(['H', 'I', 'J', 'K']);
+  });
+
+  it('an override vocabulary limited to the documented shared leaves, all finite', () => {
+    for (const p of CAMERA_PRESETS) {
+      const overrides = sharedOverridesOf(p);
+      if (!overrides) continue;
+      for (const [key, value] of Object.entries(overrides)) {
+        expect(CAMERA_SHARED_LEAF_KEYS as readonly string[], `${p.id}.${key}`).toContain(key);
+        expect(Number.isFinite(value), `${p.id}.${key}`).toBe(true);
+      }
+    }
+  });
+
+  it('resolves every non-overridden shared leaf to the shipped default', () => {
+    for (const p of CAMERA_PRESETS) {
+      const overrides = sharedOverridesOf(p) ?? {};
+      for (const key of CAMERA_SHARED_LEAF_KEYS) {
+        const expected = key in overrides ? overrides[key] : CAMERA_SHARED_LEAF_DEFAULTS[key];
+        expect(resolveSharedLeaf(p, key), `${p.id}.${key}`).toBe(expected);
+      }
+    }
+  });
+
+  // K is E plus one leaf, and J is H plus one leaf. Those single-variable relationships are what
+  // make the gate's K-vs-E and J-vs-H comparisons attributable, so they are asserted rather than
+  // trusted to the table staying tidy.
+  it('K differs from E in exactly one leaf (lookAhead), and J from H in exactly one (speedZoom)', () => {
+    const geometryOf = (id: string) => {
+      const p = findCameraPreset(id)!;
+      return { yawDeg: p.yawDeg, pitchDeg: p.pitchDeg, baseDist: p.baseDist, fov: p.fov };
+    };
+    const sharedOf = (id: string) => {
+      const p = findCameraPreset(id)!;
+      return Object.fromEntries(CAMERA_SHARED_LEAF_KEYS.map((k) => [k, resolveSharedLeaf(p, k)]));
+    };
+    expect(geometryOf('K')).toEqual(geometryOf('E'));
+    expect(sharedOf('K')).toEqual({ ...sharedOf('E'), lookAhead: 8 });
+    expect(geometryOf('J')).toEqual(geometryOf('H'));
+    expect(sharedOf('J')).toEqual({ ...sharedOf('H'), speedZoom: 8 });
+  });
+
+  // THE LAW THAT MAKES THE OVERRIDES MANDATORY RATHER THAN OPTIONAL. A candidate is only evidence
+  // if it can legally be driven: the ~70° vertigo ceiling (config/camera.law.test.ts's
+  // MAX_ABSOLUTE_PITCH_DEG) bounds the top of the framing ramp, and on the shipped +11.5° ramp a
+  // base pitch of 66/68 saturates at 77.5/79.5. Asserting it table-wide means a future high-pitch
+  // candidate CANNOT be added without a ramp re-grade — the failure lands here rather than in a
+  // battery nobody re-reads.
+  it('no candidate in the table can be driven past the ~70° vertigo ceiling', () => {
+    for (const p of CAMERA_PRESETS) {
+      expect(presetPitchMaxDeg(p), `${p.id} saturated pitch`).toBeLessThanOrEqual(70);
+    }
+  });
+
+  // The three re-graded candidates all target the SHIPPED rig's own saturated pose (58 + 5 + 5·1.3
+  // = 69.5), so the top of the envelope is a constant across the table and pitch differences
+  // between candidates are purely differences of BASE pitch.
+  it('every re-graded candidate saturates at exactly the shipped rig\'s 69.5° top pose', () => {
+    expect(presetPitchMaxDeg(findCameraPreset('E')!)).toBeCloseTo(69.5, 9);
+    for (const id of ['H', 'I', 'J']) {
+      expect(presetPitchMaxDeg(findCameraPreset(id)!), id).toBeCloseTo(69.5, 9);
+    }
+  });
+
+  // MEASUREMENT PIN, not a target: rest-vs-saturated horizontal radius is the honest read of a rig,
+  // and the table's shape is counter-intuitive. E is the ONLY candidate that ends up narrower than
+  // it rests (its pitch ramp is large relative to its distance ramp); the high-table candidates keep
+  // their distance ramp and therefore widen. Pinned so the gate quotes measured numbers.
+  const SATURATED: readonly (readonly [string, number, number])[] = [
+    // id, follow distance, horizontal radius — top speed at ★5, that preset's own ramp
+    ['E', 37.5, 13.13],
+    ['F', 45.5, 15.93],
+    ['G', 37.5, 13.13],
+    ['H', 43.5, 15.23],
+    ['I', 47.5, 16.63],
+    ['J', 47.5, 16.63],
+    ['K', 37.5, 13.13],
+    ['L', 41.5, 18.52],
+  ];
+
+  for (const [id, dist, hr] of SATURATED) {
+    it(`preset ${id} saturates at ${dist} m / radius ${hr} wu`, () => {
+      const sat = presetSaturatedGeometry(findCameraPreset(id)!);
+      expect(sat.dist).toBeCloseTo(dist, 6);
+      expect(sat.horizontalRadius).toBeCloseTo(hr, 2);
+    });
+  }
+
+  // --- Phase 76 §3c: the streetwall cap a candidate implies -------------------------------------
+  // config/cityPackScale.ts's STREETWALL_MAX_HEIGHT_WU is DERIVED from the resting eye, so picking
+  // a camera also picks how tall ordinary streetwall may be. Today it binds on `brown-building`
+  // alone (natural 24.19 wu → 21.05), in 12 of 15 districts; a candidate whose cap clears 24.19
+  // UN-BINDS it and the streetwall grows ~3.1 wu across most of the city. That is a visible
+  // re-massing, and this table is what puts it in front of the user before the pick rather than
+  // after it.
+  describe('implied streetwall cap', () => {
+    it('the shipped rig binds on exactly brown-building (the Phase 35 audit finding)', () => {
+      expect(presetStreetwallCap(findCameraPreset('E')!).capWu).toBeCloseTo(STREETWALL_MAX_HEIGHT_WU, 9);
+      expect(presetStreetwallCap(findCameraPreset('E')!).bindsOn).toEqual(['brown-building']);
+      expect(uncappedBuildingHeightWu('brown-building')).toBeCloseTo(24.19, 2);
+    });
+
+    const CAPS: readonly (readonly [string, number, boolean])[] = [
+      // id, implied cap (wu), does it still bind on anything?
+      ['E', 21.05, true],
+      ['F', 27.83, false],
+      ['G', 21.05, true], // FOV cannot move the eye, so a wide lens costs no re-massing either
+      ['H', 28.23, false],
+      ['I', 32.38, false],
+      ['J', 28.23, false],
+      ['K', 21.05, true],
+      ['L', 22.64, true], // raises the cap 1.59 wu and STILL binds — low+wide buys the least here
+    ];
+
+    for (const [id, capWu, binds] of CAPS) {
+      it(`preset ${id} implies a ${capWu} wu cap that ${binds ? 'still binds' : 'goes inert'}`, () => {
+        const cap = presetStreetwallCap(findCameraPreset(id)!);
+        expect(cap.capWu).toBeCloseTo(capWu, 2);
+        expect(cap.binds).toBe(binds);
+        expect(cap.bindsOn).toEqual(binds ? ['brown-building'] : []);
+      });
+    }
+
+    it('a cap is inert exactly when it clears the tallest natural building height', () => {
+      // The property behind the table: nothing about `brown-building` is hardcoded in the check.
+      for (const p of CAMERA_PRESETS) {
+        const cap = presetStreetwallCap(p);
+        expect(cap.binds, p.id).toBe(cap.capWu < uncappedBuildingHeightWu('brown-building'));
+      }
+    });
   });
 });
 
@@ -267,6 +450,121 @@ describe('applyCameraPreset', () => {
       baseDist: CAMERA.baseDist,
       fov: CAMERA.fov,
     }).toEqual(SHIPPED);
+  });
+});
+
+// --- Phase 76: shared-leaf application + restore-on-switch --------------------------------------
+// THE HIGHEST-RISK DEFECT IN THE PHASE, tested head-on. Once a preset can override a leaf that used
+// to be shared, a switch from an overriding candidate to a non-overriding one MUST put the shipped
+// value back — otherwise every subsequent cell of a battery is measured through the previous
+// candidate's ramp, the contamination is invisible in the frames, and the phase's whole evidence
+// set is quietly worthless. applyCameraPreset designs the failure out (it writes a fully-resolved
+// leaf set every time, so there is no restore list to forget); these cases prove the design holds
+// in every direction a battery can move through the table.
+
+describe('applyCameraPreset — the shared ramp/lead/damping leaves', () => {
+  it('writes an overriding preset\'s values into the runtime CAMERA block', () => {
+    applyCameraPreset('J', null);
+    const j = findCameraPreset('J')!;
+    expect(CAMERA.speedZoom).toBe(resolveSharedLeaf(j, 'speedZoom'));
+    expect(CAMERA.speedPitchDeg).toBe(resolveSharedLeaf(j, 'speedPitchDeg'));
+    expect(CAMERA.tierPitchDeg).toBe(resolveSharedLeaf(j, 'tierPitchDeg'));
+    // ...and the leaves J does NOT override still read the shipped values.
+    expect(CAMERA.tierZoom).toBe(SHIPPED_SHARED.tierZoom);
+    expect(CAMERA.lookAhead).toBe(SHIPPED_SHARED.lookAhead);
+    expect(CAMERA.lerp).toBe(SHIPPED_SHARED.lerp);
+  });
+
+  it('RESTORES every shared leaf when switching to a non-overriding preset', () => {
+    applyCameraPreset('J', null);
+    expect(readSharedLeaves()).not.toEqual({ ...SHIPPED_SHARED }); // the override really landed
+    applyCameraPreset('E', null);
+    expect(readSharedLeaves()).toEqual({ ...SHIPPED_SHARED });
+  });
+
+  it('restores across EVERY overriding → non-overriding pairing, both directions', () => {
+    const overriding = CAMERA_PRESETS.filter((p) => sharedOverridesOf(p) !== undefined);
+    const plain = CAMERA_PRESETS.filter((p) => sharedOverridesOf(p) === undefined);
+    expect(overriding.length).toBeGreaterThan(0);
+    expect(plain.length).toBeGreaterThan(0);
+    for (const o of overriding) {
+      for (const p of plain) {
+        applyCameraPreset(o.id, null);
+        applyCameraPreset(p.id, null);
+        expect(readSharedLeaves(), `${o.id} → ${p.id}`).toEqual({ ...SHIPPED_SHARED });
+        applyCameraPreset(p.id, null);
+        applyCameraPreset(o.id, null);
+        const expectedO = Object.fromEntries(CAMERA_SHARED_LEAF_KEYS.map((k) => [k, resolveSharedLeaf(o, k)]));
+        expect(readSharedLeaves(), `${p.id} → ${o.id}`).toEqual(expectedO);
+      }
+    }
+  });
+
+  it('is HISTORY-FREE: applying X after anything is identical to applying X first', () => {
+    // The property a snapshot/restore implementation gets wrong at the edges and a fully-resolved
+    // write gets right by construction. Walk the whole table, then re-apply each preset and compare
+    // against the cold-module result for that same preset.
+    const cold = new Map<string, Record<string, number>>();
+    for (const p of CAMERA_PRESETS) {
+      applyCameraPreset('E', null); // a known-clean starting point
+      applyCameraPreset(p.id, null);
+      cold.set(p.id, readSharedLeaves());
+    }
+    for (const p of CAMERA_PRESETS) {
+      for (const other of CAMERA_PRESETS) applyCameraPreset(other.id, null); // arbitrary history
+      applyCameraPreset(p.id, null);
+      expect(readSharedLeaves(), p.id).toEqual(cold.get(p.id));
+    }
+  });
+
+  it('is idempotent — re-applying the same preset changes nothing', () => {
+    applyCameraPreset('K', null);
+    const once = readSharedLeaves();
+    applyCameraPreset('K', null);
+    applyCameraPreset('K', null);
+    expect(readSharedLeaves()).toEqual(once);
+  });
+
+  it('stomps a live leva-style tweak to a shared leaf (deliberate: the preset defines the rig)', () => {
+    (CAMERA as object as Mutable<Record<string, number>>).speedZoom = 99;
+    applyCameraPreset('E', null);
+    expect(CAMERA.speedZoom).toBe(SHIPPED_SHARED.speedZoom);
+  });
+
+  it('an unknown id leaves an overriding preset\'s leaves exactly where they were', () => {
+    applyCameraPreset('J', null);
+    const before = readSharedLeaves();
+    expect(applyCameraPreset('Z', null)).toBe(false);
+    expect(readSharedLeaves()).toEqual(before);
+  });
+
+  // The consequence that makes all of the above matter: the shared leaves are what the rig's own
+  // ramp reads, so a leaked override would silently re-frame every later measurement. Proven
+  // through the production functions rather than by re-reading the config block.
+  it('a restored ramp puts the rig\'s own solve back to the shipped envelope', () => {
+    const shippedTop = { dist: cameraDistance(TOP_SPEED, 5), pitch: cameraPitchOffsetDeg(TOP_SPEED, 5) };
+    applyCameraPreset('J', null);
+    expect(cameraDistance(TOP_SPEED, 5)).not.toBeCloseTo(shippedTop.dist, 6);
+    applyCameraPreset('E', null);
+    expect(cameraDistance(TOP_SPEED, 5)).toBeCloseTo(shippedTop.dist, 9);
+    expect(cameraPitchOffsetDeg(TOP_SPEED, 5)).toBeCloseTo(shippedTop.pitch, 9);
+  });
+
+  // K needs ZERO changes to fx/cameraRig.ts: computeLookTarget reads CAMERA.lookAhead at call time
+  // and already scales the lead by easeSpeedZoom(speed), so a plain leaf override is the whole
+  // feature. Both halves asserted — the lead really doubles at speed, and it is still exactly zero
+  // at rest, which is why K is MEANINGLESS ON STILLS and must be judged on drives (plan §5).
+  it('K\'s look-ahead override drives the real look target, and is a no-op at rest', () => {
+    const out = { x: 0, y: 0, z: 0 };
+    const at = { x: 0, y: 0, z: 0 };
+    const vel = { x: TOP_SPEED, y: 0, z: 0 };
+    applyCameraPreset('E', null);
+    const leadE = computeLookTarget(out, at, vel, TOP_SPEED).x;
+    applyCameraPreset('K', null);
+    const leadK = computeLookTarget(out, at, vel, TOP_SPEED).x;
+    expect(leadE).toBeCloseTo(SHIPPED_SHARED.lookAhead, 9);
+    expect(leadK).toBeCloseTo(2 * SHIPPED_SHARED.lookAhead, 9);
+    expect(computeLookTarget(out, at, { x: 0, y: 0, z: 0 }, 0).x).toBe(0);
   });
 });
 

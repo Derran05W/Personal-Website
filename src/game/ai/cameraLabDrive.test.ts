@@ -298,6 +298,26 @@ describe('CameraLabDriveReport shape', () => {
       clampedFrames: 9,
       boresightBlockedFrames: 360,
       boresightHitSum: 540,
+      // Phase 76 readability block — a drive report carries it through unchanged (the report is a
+      // snapshot of readCameraClipStats()); the accumulation rules are pinned in
+      // world/toronto/cameraClipStats.test.ts, not here.
+      readability: {
+        frames: 900,
+        onScreenPursuerSum: 0,
+        onScreenPursuerMax: 0,
+        sightings: 0,
+        sightingDistanceSumM: 0,
+        sightingDistanceMaxM: 0,
+        cityCoverageSum: 108,
+        cityBoxesInFrameSum: 5400,
+        cityBoxesTested: 2300,
+        groundBandFrames: 900,
+        groundBandSumWu: 19_800,
+        onScreenPursuerCount: 0,
+        pursuerWarningDistanceM: null,
+        cityInFrameFraction: 0.12,
+        groundBandWu: 22,
+      },
     },
     waypoints: [12, 34, 56],
     seconds: 60,

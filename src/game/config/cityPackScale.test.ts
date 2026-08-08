@@ -20,6 +20,9 @@ import {
   BUS_TARGET_LENGTH_WU,
   STREETWALL_EYE_MARGIN_WU,
   STREETWALL_MAX_HEIGHT_WU,
+  buildingsAboveCapWu,
+  streetwallCapForEyeWu,
+  uncappedBuildingHeightWu,
 } from './cityPackScale';
 import { CAMERA_EYE_MIN_WU } from './camera';
 
@@ -264,5 +267,35 @@ describe('STREETWALL_MAX_HEIGHT_WU — the eye-line cap on pack building scale',
       const override = CITY_PACK_SCALE_OVERRIDES[entry.id];
       if (override !== undefined) expect(resolveCityPackScale(entry.id), entry.id).toBe(override);
     }
+  });
+});
+
+// Phase 76 (camera lab, plan §3c) — the cap is DERIVED from the resting camera eye, so a camera
+// candidate also picks how tall ordinary streetwall may be. These three exports are what let the
+// lab report that consequence per candidate, off the live manifest, without applying anything.
+// The per-preset table itself lives in fx/cameraLab.test.ts.
+describe('the streetwall cap as a function of eye height (Phase 76)', () => {
+  it('the shipped constant IS this function at the shipped eye (one derivation, not two)', () => {
+    expect(streetwallCapForEyeWu(CAMERA_EYE_MIN_WU)).toBe(STREETWALL_MAX_HEIGHT_WU);
+    expect(streetwallCapForEyeWu(30)).toBeCloseTo(30 - STREETWALL_EYE_MARGIN_WU, 9);
+  });
+
+  it('uncappedBuildingHeightWu reports the height BEFORE the cap', () => {
+    expect(uncappedBuildingHeightWu('brown-building')).toBeCloseTo(24.19, 2);
+    // ...and is a no-op-equivalent for a model the cap never touches.
+    expect(uncappedBuildingHeightWu('big-building')).toBeCloseTo(16.29, 2);
+  });
+
+  it('the shipped cap binds on exactly one model, and a taller eye makes it inert', () => {
+    expect(buildingsAboveCapWu(STREETWALL_MAX_HEIGHT_WU)).toEqual(['brown-building']);
+    // Candidate H's eye (32·sin66° = 29.23) implies a 28.23 cap — above every natural height.
+    expect(buildingsAboveCapWu(streetwallCapForEyeWu(32 * Math.sin((66 * Math.PI) / 180)))).toEqual([]);
+  });
+
+  it('a cap below every natural height binds on the whole building set', () => {
+    const buildings = CITY_PACK_MANIFEST.filter(
+      (e) => e.category === 'building' || e.category === 'building-blank',
+    ).map((e) => e.id);
+    expect(buildingsAboveCapWu(0)).toEqual(buildings);
   });
 });

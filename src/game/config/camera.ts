@@ -6,15 +6,30 @@
 // baseDist 24; the fixed-bearing MODEL is unchanged (no player rotation control, so exactly two
 // faces — south + east — of every box are ever visible).
 //
-// THE CONSTRAINT THAT PICKED IT — the corridor-airspace law, measured live in Phase 33: on the
-// dieted Yonge spine (15.4 wu road + 3 wu sidewalk) the streetwall face plane sits ~10.7 wu off
-// the centreline, so under the 45° yaw the eye only stays inside the street's own airspace while
-// its HORIZONTAL RADIUS hr = dist·cos(pitch) ≤ ~14.8 wu. Rigs that "clear" by rising above the
-// roofline don't exist here — downtown facades are far taller than any sane eye height. E holds
-// hr = 26·cos58 = 13.78 wu with ~1 wu of margin; runner-up B sat at 14.84 (≈0 margin) and went
-// eye-inside on 1 of 4 measured drives when a wedge angled it into the frontage. Every change to
+// THE CONSTRAINT THAT PICKED IT — the corridor-airspace law, measured live in Phase 33: under the
+// 45° yaw the eye only stays inside a street's own airspace while its HORIZONTAL RADIUS
+// hr = dist·cos(pitch) stays under a ceiling the STREET sets. Rigs that "clear" by rising above
+// the roofline didn't exist when this was written — downtown facades were far taller than any sane
+// eye height. E holds hr = 26·cos58 = 13.78 wu; runner-up B sat at 14.84 and went eye-inside on 1
+// of 4 measured drives when a wedge angled it into the frontage. Every change to
 // pitch/baseDist/speedZoom/tierZoom below is a change to that margin — the law test asserts the
 // bound so feel churn can never silently re-break the corridor.
+//
+// PHASE 76 CORRECTED THIS PARAGRAPH TWICE, and the corrections matter more than the original text:
+//   • The ceiling was written here as "~14.8 wu" sourced to the dieted spine's "~10.7 wu" facade
+//     offset. Both figures were stale AND mutually inconsistent (10.7·√2 = 15.13, not 14.8). The
+//     15.4 wu spine they came from was superseded by Phase 27's road diet SIX PHASES before the
+//     Phase 33 lab ran; the width actually live then gave a ceiling of 12.02 wu, so 14.8 was ~23 %
+//     MORE PERMISSIVE than the geometry it claimed to state, not conservative. What 14.8 really
+//     was: preset B's own hr (28·cos58 = 14.838) rounded down — an EMPIRICAL discriminator fitted
+//     to the battery, i.e. the largest bound that still rejects the one rig measured failing.
+//   • The bound now lives in world/toronto/corridorLaw.ts, DERIVED per road class from
+//     Street.halfWidth + SIDEWALK.widthWu, so a road re-grade moves it. Read that module's header
+//     before reasoning about corridor margin here; the excursions the shipped rig knowingly carries
+//     are pinned in corridorLaw.test.ts rather than hidden.
+//   • FINDING 3 there is the one that reframes this whole block: since Phase 35 capped ordinary
+//     streetwall below the resting eye (STREETWALL_MAX_HEIGHT_WU), the eye clears ordinary facades
+//     outright and the corridor is a SECONDARY constraint — the eye line is the primary one.
 export const CAMERA = {
   // Fixed yaw/pitch — no player rotation control; key to the Smashy look. TDD §5.3.
   yawDeg: 45,
@@ -44,8 +59,15 @@ export const CAMERA = {
   // tier), so nothing about the ramp's continuity changed — only where the extra framing goes.
   // Measured envelope (fx/cameraRig.ts's cameraDistance + cameraPitchOffsetDeg are the two
   // consumers): hr 13.78 at rest/★0, 13.62 at top speed/★0, 14.42 at rest/★5, 13.13 at top
-  // speed/★5 — all inside the ~14.8 bound, worst absolute pitch 69.5° at ★5 + top speed (the
+  // speed/★5 — all inside the empirical bound, worst absolute pitch 69.5° at ★5 + top speed (the
   // ~70° vertigo ceiling is the other side of this trade).
+  //
+  // PHASE 76: those four corners are NOT the envelope's extremes. A dense sweep (201 speeds × 6
+  // tiers, pinned in world/toronto/corridorLaw.test.ts) puts the worst hr at 14.4281 — REST at ★4,
+  // not the ★5 corner enumerated above (14.4221). hr peaks at ★4 and comes back DOWN at ★5, where
+  // tierPitchDeg's shortening finally out-runs tierZoom's lengthening. The magnitude is trivial
+  // (0.006 wu) but the shape is not: this ramp is non-monotonic in tier, so anything reasoning
+  // about the envelope must SWEEP it rather than sample the ends.
   speedZoom: 4,
   speedPitchDeg: 5,
   tierZoom: 1.5,
@@ -110,10 +132,18 @@ export const CAMERA = {
   // TDD §5.10 "brief ... camera pull-back"): extra follow-distance (m) added on top of the
   // normal base/speed/tier zoom while the lock window is active. 6 (Phase 9) -> 8 (Phase 16,
   // a more deliberate move once the beat's shake was suppressed) -> 5 (Phase 34): at pitch 58
-  // the corridor law leaves only ~2 m of pure-distance headroom (14.8/cos58 = 27.93 vs a base
+  // the corridor law left only ~2 m of pure-distance headroom (14.8/cos58 = 27.93 vs a base
   // of 26), so the old +8 pushed hr to 16.48 wu and put the eye in the streetwall for the one
   // moment the player is guaranteed to be watching. 5 m paired with the +4° lift below lands
   // hr 14.56 — the beat still steps visibly back, it just steps UP as it does.
+  //   PHASE 76 — THE ARITHMETIC ABOVE IS STALE, THE VALUE IS KEPT ANYWAY. `14.8/cos58` divided the
+  //   empirical discriminator (preset B's hr, not a street measurement) by the base pitch, so the
+  //   "~2 m of headroom" was never the geometric statement it reads as. Under the Phase 75 widths
+  //   the centreline ceiling of the class the grid is mostly made of (major) is 16.69 wu, i.e.
+  //   16.69/cos58 = 31.5 of distance — the old +8 would clear it now. The value stays 5 because it
+  //   was ALSO tuned on how the beat reads (a step back that steps up), not on margin alone; if a
+  //   later phase wants the bigger pull-back back, it is a feel decision with room to make it, and
+  //   corridorLaw.ts is where the real margin is computed.
   deathPullback: 5,
   // Cinematic death-beat framing (Phase 16, fx/cameraRig.ts). The beat eases in over
   // `easeInSec`; WRECKED pulls BACK and lifts slightly, BUSTED converges IN and LOWER
@@ -250,8 +280,11 @@ const DEG2RAD = Math.PI / 180;
 export const CAMERA_EYE_MIN_WU = CAMERA.baseDist * Math.sin(CAMERA.pitchDeg * DEG2RAD);
 
 /** The top wanted tier (★5) — how many tier steps the framing ramp can add. Hoisted at Phase 75 so
- * the two "both halves of the ramp saturated" expressions below share one statement of it. */
-const MAX_WANTED_TIER = 5;
+ * the two "both halves of the ramp saturated" expressions below share one statement of it, and
+ * EXPORTED at Phase 76 so the lab's per-candidate saturated-pose arithmetic (fx/cameraLab.ts's
+ * presetPitchMaxDeg) evaluates the ramp at the same top-of-envelope tier the constants below do,
+ * rather than restating a 5. */
+export const MAX_WANTED_TIER = 5;
 
 /** Absolute camera pitch (deg) at the TOP of the normal-play framing ramp — top speed at ★5, i.e.
  * the same pose CAMERA_EYE_MAX_WU is measured at. 58 + 5 + 5·1.3 = 69.5. */
@@ -298,10 +331,13 @@ export const CAMERA_GROUND_BAND_MAX_WU = Math.max(
   cameraGroundBandWu(CAMERA_EYE_MAX_WU, CAMERA_PITCH_MAX_DEG),
 );
 
-// --- Phase 33 camera lab: candidate rigs (kept for re-comparison, NOT re-applied on boot) ------
+// --- Camera lab: candidate rigs (kept for re-comparison, NOT re-applied on boot) ---------------
+// Rows A-E are Phase 33's; rows F-L are Phase 76's (see their own block below). The table is
+// APPEND-ONLY so a historic id keeps meaning what it meant in the evidence tree that used it.
+//
 // The Part-9 user directive re-opened the "Camera bearing: FIXED" lock: the camera phased through
 // buildings (pack streetwall facades ≈ 19.4 wu vs the old rig's resting eye of 24·sin50° =
-// 18.39 wu). These five candidates were the evidence apparatus for that decision, applied LIVE by
+// 18.39 wu). Those five candidates were the evidence apparatus for that decision, applied LIVE by
 // fx/cameraLab.ts (dev-only) and judged at the Phase 33 USER GATE. Phase 34 promoted the pick (E)
 // into CAMERA above and pinned it as §5.3 law — the identity invariant lives on preset E
 // (cameraLab.test.ts), not on this table being touched. The table itself STAYS: it's the lab's
@@ -315,6 +351,56 @@ export const CAMERA_GROUND_BAND_MAX_WU = Math.max(
 // speedPitchDeg, tierPitchDeg, lerp and lookAhead stay SHARED (they are feel, not framing, and
 // Phase 34 retuned them once — including splitting the ramp into distance AND pitch terms —
 // against the winning geometry, rather than five times here).
+//
+// PHASE 76 AMENDS THAT, narrowly. Sharing the ramp is still the DEFAULT and still the reason
+// A-E are comparable at all, but it stopped being expressible: a candidate whose BASE pitch is
+// 66-68 saturates the shipped +11.5° pitch ramp at 77.5-79.5° absolute, well past the ~70°
+// vertigo ceiling this file records at `speedPitchDeg` — i.e. that candidate cannot legally be
+// DRIVEN, and a battery that drives it anyway is shooting footage of a rig nobody would ship.
+// So a preset may now declare `shared: {…}` overrides on exactly those leaves. Absent fields are
+// not "left alone" — fx/cameraLab.ts's applyCameraPreset writes a FULLY RESOLVED leaf set every
+// time (override ?? CAMERA_SHARED_LEAF_DEFAULTS), so switching off an overriding candidate
+// restores the shipped ramp by construction rather than by remembering to. The alternative — a
+// restore list maintained alongside the override list — is the single defect that would silently
+// invalidate the whole phase's evidence, so it is designed out rather than tested for.
+
+/** The leaves a preset does NOT define as geometry: the speed/tier framing ramp, the look-target
+ * lead, and the damping. Ordinarily shared across every candidate (see the block above); a
+ * candidate may override any subset via `CameraPreset.shared`. This tuple is the single key set —
+ * both the override vocabulary AND the write loop's iteration order — so a leaf can never be
+ * overridable-but-unrestored. */
+export const CAMERA_SHARED_LEAF_KEYS = [
+  'speedZoom',
+  'speedPitchDeg',
+  'tierZoom',
+  'tierPitchDeg',
+  'lookAhead',
+  'lerp',
+] as const;
+
+export type CameraSharedLeaf = (typeof CAMERA_SHARED_LEAF_KEYS)[number];
+
+/** The shipped value of every shared leaf, snapshotted at MODULE INIT — before any preset apply
+ * or leva write can reach the runtime-mutable CAMERA block. This is what a non-overriding preset
+ * restores. Typed `Record<CameraSharedLeaf, number>` on purpose: adding a key to the tuple above
+ * without adding it here is a compile error, and a key that isn't a real CAMERA leaf can't be
+ * initialised at all — the two failure modes a hand-maintained restore list has.
+ *
+ * KNOWN, DELIBERATE BEHAVIOUR CHANGE: before Phase 76 a preset apply never touched these, so a
+ * leva tweak to (say) speedZoom survived a preset switch. It no longer does — the preset defines
+ * the whole rig. Determinism across a battery beats preserving a mid-session slider. */
+export const CAMERA_SHARED_LEAF_DEFAULTS: Readonly<Record<CameraSharedLeaf, number>> = {
+  speedZoom: CAMERA.speedZoom,
+  speedPitchDeg: CAMERA.speedPitchDeg,
+  tierZoom: CAMERA.tierZoom,
+  tierPitchDeg: CAMERA.tierPitchDeg,
+  lookAhead: CAMERA.lookAhead,
+  lerp: CAMERA.lerp,
+};
+
+/** A candidate's per-preset overrides of the shared leaves. Every field optional; an absent field
+ * resolves to CAMERA_SHARED_LEAF_DEFAULTS, never to "whatever the last preset left behind". */
+export type CameraSharedOverrides = { readonly [K in CameraSharedLeaf]?: number };
 
 /** Preset D's spring-arm ("canyon-aware") tunables. The arm reads the Phase-33 static building
  * AABB index (world/toronto/cameraClipIndex.ts) rather than physics raycasts — deterministic, no
@@ -345,6 +431,10 @@ export interface CameraPreset {
   readonly fov: number;
   /** Present only on candidates that run a dynamic arm (D). */
   readonly springArm?: CameraSpringArmConfig;
+  /** Phase 76: per-preset overrides of the otherwise-shared ramp/lead/damping leaves. Present only
+   * on candidates whose base geometry forces a ramp re-grade (H/I/J) or that exist to isolate one
+   * of these leaves (K). Absent = the shipped values, restored on every apply. */
+  readonly shared?: CameraSharedOverrides;
 }
 
 export const CAMERA_PRESETS = [
@@ -408,11 +498,18 @@ export const CAMERA_PRESETS = [
     // re-runnable comparison set for P35/P36). Discovered live in the Phase 33 lab session. The
     // part file's worked example (54/28/38, eye 22.65) AND a 56° variant both FAILED the
     // fold-corridor rest test on the boresight counter (eye outside the flanking building, car
-    // 100% hidden behind the streetwall). Root geometry, measured that session: on the dieted
+    // 100% hidden behind the streetwall). Root geometry, AS RECORDED that session: on the dieted
     // spine (15.4 road + 3 sidewalk) the streetwall face plane sits ~10.7 wu off the centreline,
     // so any rig with horizontal radius dist·cos(pitch) > ~14.8 (i.e. >10.7 per axis under the
     // 45° yaw) parks the eye inside or behind the east frontage — B clears NOT by seeing over
-    // roofs but by keeping its eye inside the canyon airspace. E adopts B's corridor-safe envelope
+    // roofs but by keeping its eye inside the canyon airspace.
+    //   [P76 ANNOTATION — the sentence above is preserved as the historical record and is WRONG on
+    //   its numbers. 15.4 was the Phase 25.6 spine; Phase 27's diet had already cut it to 11.0 six
+    //   phases earlier, giving a real ceiling of 12.02 wu — which E's 13.78 EXCEEDED while measuring
+    //   0.0 % eye-inside, and that contradiction is what led Phase 76 to the actual explanation
+    //   (Phase 35's streetwall cap, corridorLaw.ts FINDING 3). The DECISION E records is unaffected:
+    //   it was made on measured battery evidence, not on this arithmetic.]
+    // E adopts B's corridor-safe envelope
     // one step tighter (58/26 → eye 22.05, horizontal 13.78 — ~1 wu of extra margin) and keeps its
     // narrower 38° lens as the flatten. Identity vs B: closer, calmer perspective; same clearance
     // class. CAMERA_PRESETS's own identity test (cameraLab.test.ts) pins this row against CAMERA
@@ -423,6 +520,176 @@ export const CAMERA_PRESETS = [
     pitchDeg: 58,
     baseDist: 26,
     fov: 38,
+  },
+
+  // === PHASE 76 CANDIDATES (F-L) ================================================================
+  // Phase 75 doubled every road width, which re-opens the decision Phase 33/34 settled: the
+  // corridor-airspace ceiling that ELIMINATED every rig above hr ~14.8 is a property of the street,
+  // and the street changed. CLAUDE.md's camera block schedules this re-open explicitly. These seven
+  // rows (plus E as the control) are the evidence apparatus; the shipped CAMERA is untouched until
+  // the user picks at the Phase 76 USER GATE.
+  //
+  // YAW IS NOT A FREE VARIABLE IN ANY OF THEM — a DECISION, not an oversight. The visible-face pin
+  // (south + east) is a pure function of yaw and is baked into six placement sites map-wide
+  // (namedBuildings.ts, venueDress.ts, frontage.ts, infill.ts, TorontoScene's SignBoard,
+  // routeBoardAtlas.ts). Moving it would re-cut every decal on the map for zero readability gain.
+  //
+  // REST GEOMETRY, for the table below (eye = dist·sin p, hr = dist·cos p; half-frame at the car =
+  // dist·tan(fov/2), i.e. how big the car reads):
+  //   id  pitch dist fov |  eye     hr    half-frame | streetwall cap (eye − 1.0) | cap binds?
+  //   E     58   26   38 | 22.05  13.78     8.95     |        21.05               | YES
+  //   F     58   34   38 | 28.83  18.02    11.71     |        27.83               | no
+  //   G     58   26   50 | 22.05  13.78    12.12     |        21.05               | YES
+  //   H     66   32   44 | 29.23  13.02    12.93     |        28.23               | no
+  //   I     68   36   44 | 33.38  13.49    14.54     |        32.38               | no
+  //   J     66   32   44 | 29.23  13.02    12.93     |        28.23               | no
+  //   K     58   26   38 | 22.05  13.78     8.95     |        21.05               | YES
+  //   L     52   30   46 | 23.64  18.47    12.73     |        22.64               | YES
+  //
+  // THE CAP COLUMN IS A HEADLINE, NOT A FOOTNOTE (plan §3c). config/cityPackScale.ts's
+  // STREETWALL_MAX_HEIGHT_WU is DERIVED from the resting eye (eye − STREETWALL_EYE_MARGIN_WU) and
+  // today binds on `brown-building` alone, pulling its natural 24.19 wu frontage-target height down
+  // to 21.05 as ordinary streetwall in 12 of 15 districts. Any candidate whose cap clears 24.19
+  // UN-BINDS it and the streetwall grows ~3.1 wu across most of the city — plausibly the fix for
+  // "there is no city in the frame", and definitely a re-massing the user must be told about before
+  // choosing. F/H/I/J un-bind it; E/G/K/L do not (L raises the cap 1.59 wu but still binds).
+  // fx/cameraLab.ts's presetStreetwallCap() computes this per preset off the live manifest.
+  {
+    // PURE DISTANCE — the obvious way to spend the new headroom, and the control for "did the
+    // corridor actually open?". Identical to E in every other respect, so any difference is
+    // attributable to the 8 m. hr 13.78 → 18.02 is the largest single-step radius increase in the
+    // table; on the centreline-referenced post-P75 ceilings that is legal on spine (19.80) and
+    // artery (18.24) and illegal on major (16.69) / minor (13.58) — pre-P75 it would have been
+    // illegal on all four, which IS the headroom, stated as a candidate.
+    id: 'F',
+    label: 'F · pulled-back E',
+    yawDeg: 45,
+    pitchDeg: 58,
+    baseDist: 34,
+    fov: 38,
+  },
+  {
+    // FOV IS FREE. The lens changes NOTHING about where the eye sits — hr and eye are identical to
+    // E to the last digit — so G costs exactly zero corridor margin while taking the visible ground
+    // band from 22.14 to 31.25 wu at rest (+41%). If the phase's complaint is "no city in frame",
+    // this is the cheapest possible answer and the one candidate that cannot be wrong for
+    // geometric reasons. Its risk is a rendering one, not a camera one: fov 50 pulls the largest
+    // frustum ever measured on this map, so T4's low-tier bench (98-99.5% of budget at P47) is the
+    // gate it has to clear, ×3 runs.
+    id: 'G',
+    label: 'G · wide-lens E',
+    yawDeg: 45,
+    pitchDeg: 58,
+    baseDist: 26,
+    fov: 50,
+  },
+  {
+    // THE "PITCH BUYS DISTANCE" THESIS, and the headline candidate. 23% more follow distance than E
+    // at a SHORTER horizontal radius (13.02 vs 13.78) — strictly safer on every road class
+    // including minors, while the eye rises 22.05 → 29.23 and the ground band 22.14 → 29.25 wu.
+    //
+    // RAMP OVERRIDE — FORCED, and the reason CameraPreset.shared exists. The shipped ramp adds
+    // speedPitchDeg 5 + 5·tierPitchDeg 1.3 = +11.5° at the top of the envelope; from a base of 66
+    // that saturates at 77.5° absolute, 7.5° past the ~70° vertigo ceiling. H is therefore
+    // UNDRIVEABLE on the shipped ramp and its drive/chase evidence would be footage of a pose no
+    // shipped rig could hold. The override re-grades the PITCH terms only and leaves the DISTANCE
+    // terms (speedZoom 4, tierZoom 1.5) exactly as shipped, so H-vs-E stays a single-variable
+    // comparison of base geometry rather than a second, confounded ramp change.
+    //   ARITHMETIC. Target the saturated absolute pitch at 69.5° — the shipped rig's OWN saturated
+    //   pose (58 + 5 + 6.5), so every candidate in the table tops out at the same vertigo-adjacent
+    //   pitch and pitch differences between candidates are purely differences of BASE.
+    //     headroom = 69.5 − 66 = 3.5°, split in the shipped 5 : 6.5 speed:tier ratio
+    //     → speed 3.5·(5/11.5) = 1.52 ≈ 1.5 ; tier 3.5·(6.5/11.5) = 1.98 over 5 steps ≈ 0.4
+    //     → 66 + 1.5 + 5·0.4 = 69.5 EXACTLY.
+    //   MEASURED COST, reported not tuned away: with the distance ramp intact H saturates at
+    //   dist 43.5 / hr 15.23 — WIDER than it rests, the opposite of E (which saturates at 13.13,
+    //   narrower than its 13.78 rest, because E's pitch ramp is huge relative to its distance
+    //   ramp). E is the all-class-legal rig at saturation; H is spine/artery/major. That is a real
+    //   trade the battery should measure, not a number to pre-empt in config.
+    id: 'H',
+    label: 'H · high table',
+    yawDeg: 45,
+    pitchDeg: 66,
+    baseDist: 32,
+    fov: 44,
+    shared: { speedPitchDeg: 1.5, tierPitchDeg: 0.4 },
+  },
+  {
+    // H PUSHED TO THE VERTIGO EDGE: base pitch 68 is 2° off the ceiling before the ramp adds
+    // anything, and the eye reaches 33.38 wu — higher than the shipped rig's SATURATED eye (35.13)
+    // sits at rest. Included to bracket H from above: if I reads as a map screen rather than a
+    // driving game, H is the right side of the line; if it doesn't, the ceiling is soft and worth
+    // re-opening. Same forced ramp re-grade as H, same 69.5° target:
+    //     headroom = 69.5 − 68 = 1.5°, in the 5 : 6.5 ratio → speed 0.65 ≈ 0.6 ; tier 0.85/5 = 0.17
+    //     → rounded to 0.18 so it lands exact: 68 + 0.6 + 5·0.18 = 69.5 EXACTLY.
+    // Saturated: dist 47.5 / hr 16.63 (spine/artery/major legal, minor not).
+    id: 'I',
+    label: 'I · high table, far',
+    yawDeg: 45,
+    pitchDeg: 68,
+    baseDist: 36,
+    fov: 44,
+    shared: { speedPitchDeg: 0.6, tierPitchDeg: 0.18 },
+  },
+  {
+    // SPEED-ADAPTIVE H — H's geometry with a DOUBLED distance ramp, and nothing else changed. The
+    // pitch overrides are byte-identical to H's, so H-vs-J isolates exactly one leaf: how much the
+    // frame opens when you are moving. That is the question a 60-second drive answers and a still
+    // cannot.
+    //   speedZoom 4 → 8. The pre-Phase-34 ramp was +10 m of PURE distance and Phase 34 cut it to 4
+    //   because at base pitch 58 the extra radius put the eye in the streetwall (36·cos58 = 19.08).
+    //   From base pitch 66 the same metres cost far less radius, which is the point: saturated
+    //   dist 47.5 at pitch 69.5 → hr 16.63, the same radius I reaches from a much longer base.
+    //   8 rather than 10 keeps the car readable — half-frame at the car grows 12.93 → 19.19 wu at
+    //   saturation, already a ~33% shrink on screen; +10 would make it ~40%.
+    id: 'J',
+    label: 'J · speed-adaptive H',
+    yawDeg: 45,
+    pitchDeg: 66,
+    baseDist: 32,
+    fov: 44,
+    shared: { speedZoom: 8, speedPitchDeg: 1.5, tierPitchDeg: 0.4 },
+  },
+  {
+    // THE RIG-INDEPENDENT AXIS. Geometrically E to the last digit — same eye, same hr, same lens,
+    // same streetwall cap — so anything K reads differently is attributable to the look TARGET,
+    // not the rig. `lookAhead` 4 → 8 (exactly double, so the delta is one crisp statement) is the
+    // whole change; fx/cameraRig.ts's computeLookTarget already scales the lead by
+    // easeSpeedZoom(speed), so this needed ZERO rig code.
+    //   WHAT 8 m COSTS ON SCREEN: the lead is along the horizontal velocity, and a horizontal
+    //   metre aligned with the boresight projects onto the view plane at sin(58°) = 0.848, so at
+    //   top speed the car sits 8·0.848 = 6.8 wu below frame centre against a half-frame of 8.95 —
+    //   ~76% of the way to the bottom edge, and ~49% at a realistic 60%-of-top-speed cruise
+    //   (smoothstep ease = 0.648). Deliberately near the limit: a candidate whose effect is subtle
+    //   teaches the gate nothing, and the answer "the axis works, dial it to 6" is available.
+    //   MEASUREMENT-VALIDITY WARNING for T4: computeLookTarget collapses the lead below
+    //   SPEED_EPSILON, so K IS BIT-IDENTICAL TO E ON EVERY STILL. It must be judged on drives, and
+    //   the contact sheet has to say so or the user will read identical stills as "no effect".
+    id: 'K',
+    label: 'K · E + look-ahead',
+    yawDeg: 45,
+    pitchDeg: 58,
+    baseDist: 26,
+    fov: 38,
+    shared: { lookAhead: 8 },
+  },
+  {
+    // THE DELIBERATE COUNTER-EXAMPLE, included BECAUSE it is expected to fail. Buying maximum
+    // city-in-frame the naive way — drop the pitch, widen the lens, add distance — gives the
+    // biggest resting ground band in the table by a distance (36.31 wu, +64% on E) and the most
+    // oblique, most "city-like" facades. It also puts hr at 18.47 at REST, legal on the spine
+    // (19.80) and nothing else, and its low pitch means the ramp barely helps (saturating at
+    // 63.5° / hr 18.52). If the user is going to trade corridor safety for city, they should see
+    // the trade photographed rather than be told it exists.
+    // Note it does NOT un-bind the streetwall cap (22.64 vs brown-building's 24.19) — a lower,
+    // wider rig raises the cap far less than a higher one, so "more city in frame" and "taller
+    // streetwall allowed" pull in opposite directions here. That tension is worth showing.
+    id: 'L',
+    label: 'L · low-and-wide',
+    yawDeg: 45,
+    pitchDeg: 52,
+    baseDist: 30,
+    fov: 46,
   },
 ] as const satisfies readonly CameraPreset[];
 

@@ -81,6 +81,7 @@ import { FADE_MAX, needsTransparent, occlusionFader, occlusionRegistry } from '.
 import {
   clearClipIndex,
   eyeInsideAny,
+  getClipIndexBoxes,
   pointInsideAny,
   segmentHitCount,
   segmentHitFadeKeys,
@@ -96,7 +97,15 @@ import { applyFadesFor, occlusionGate } from './occlusionTargets';
 import { recordOcclusionPass } from './occlusionStats';
 import { antiClipCameraPos, resetAntiClip } from './cameraAntiClip';
 import { CAMERA } from '../../config/camera';
-import { recordClampFired, recordOcclusionHits, sampleCameraClip } from './cameraClipStats';
+import { recordClampFired, recordOcclusionHits, sampleCameraClip, sampleCameraReadability } from './cameraClipStats';
+import {
+  frameGroundBandWu,
+  measureCityInFrame,
+  resetPursuerVisibility,
+  samplePursuerVisibility,
+  updateViewVolume,
+} from './cameraReadability';
+import { unitsRef, type UnitSlot } from '../../ai/pursuitTypes';
 import { liveCamera } from '../../fx/cameraRef';
 import { getLogoAtlas, logoCellUv } from './logoAtlas';
 import {
@@ -282,6 +291,10 @@ function resetDitherPassState(): void {
 // Phase 33 camera-lab scratch: the near-plane corner point under test, reused across the four
 // corners and across frames (same no-per-frame-alloc discipline as the occlusion scratch above).
 const nearCornerScratch = new Vector3();
+
+// Phase 76 readability scratch: the empty pursuit roster (director not mounted / no run), hoisted
+// so the per-frame `?? ` fallback never allocates a fresh array.
+const NO_UNIT_SLOTS: readonly UnitSlot[] = [];
 
 /** Two-triangle +Y quad (world XZ) at height `y`, appended to positions/normals. Winding matches
  * world/CityScape.tsx's buildTileQuadGeometry (verified +Y face normal there). */
@@ -1613,6 +1626,21 @@ export function TorontoScene() {
       // index so a remount (run restart, StrictMode) can't leave a key faded forever with no
       // segment able to re-hit it.
       resetDitherPassState();
+      // Phase 76, same defect class one layer over: the readability sampler's per-slot on-screen
+      // LATCHES are keyed by `UnitSlot.id`, and the pursuit pool hands out the same 0..N ids to
+      // every run. A latch normally self-clears when its slot stops being a live pursuer, but that
+      // check only runs on a frame that still SEES the slot — and on unmount `unitsRef.current`
+      // goes null, so the sampler stops iterating and every latch left standing survives into the
+      // next run's pool. The first cop of the new run to inherit a latched id would then enter the
+      // frame with no sighting recorded, silently under-counting the one metric the ★3 chase run
+      // exists to produce. Dropped here, at the world boundary, which is what the function's own
+      // doc has always said it was for (it had no call site until now).
+      // DEV-guarded: `import.meta.env.DEV` is statically false in a production build, so the
+      // branch — and, with it, the last live reference this module has outside the DEV-only
+      // priority-2 sampler — is eliminated. This effect is otherwise prod-active (the clip index
+      // ships since Phase 36); the guard is what keeps the readability instrument off shipped
+      // frames. Verified by a before/after chunk sha, not by inspection (phase-76 notes).
+      if (import.meta.env.DEV) resetPursuerVisibility();
     };
   }, [world]);
 
@@ -1652,6 +1680,15 @@ export function TorontoScene() {
     if (model) {
       const car = model.readState().pose.position;
       boresightHits = segmentHitCount(eye.x, eye.y, eye.z, car.x, car.y, car.z);
+      // Phase 76 readability — same frame, same painted pose. Capture the view volume ONCE, then
+      // ask it the three questions (cops on screen / city in frame / ground band). Gated on a
+      // player vehicle existing because two of the three are measured against the car.
+      updateViewVolume(camera);
+      sampleCameraReadability(
+        samplePursuerVisibility(unitsRef.current?.slots ?? NO_UNIT_SLOTS, car),
+        measureCityInFrame(getClipIndexBoxes()),
+        frameGroundBandWu(eye, car),
+      );
     }
     sampleCameraClip(eyeInside, nearPlaneInside, boresightHits);
   }, 2);
